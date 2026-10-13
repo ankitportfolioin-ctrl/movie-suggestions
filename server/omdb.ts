@@ -22,6 +22,12 @@ export interface MoviePick {
   isHiddenGem: boolean;
   /** Relative fit score (90-99) derived from backend ranking. */
   matchScore: number;
+  /** Original/primary language code (ISO 639-1). Used by the final gate. */
+  language: string;
+  /** OMDb `Rated` certificate as served (may be missing). Used by the final gate. */
+  certificate?: string;
+  /** OMDb `Type` field when known. Used by the final gate. */
+  mediaType?: string;
 }
 
 export interface RecommendParams {
@@ -118,6 +124,8 @@ export interface SelectionResult {
   notices: string[];
   /** Runtime cap actually enforced after ladder relaxations. */
   usedMaxMinutes: number;
+  /** Filter flags actually enforced (quiz OR note-derived). Single source for the final gate. */
+  effective: { highlyRated: boolean; recent: boolean; classics: boolean };
 }
 
 /** Human label for an effective runtime cap. */
@@ -217,10 +225,8 @@ export function selectCandidateMovies(
   const note = parseNote(params.note || '');
   const excludeSet = new Set(params.excludeIds || []);
 
-  // Note signals the user stated explicitly.
-  if (note.genres.length > 0) {
-    notices.push(`Picked up ${note.genres.join(', ')} from your note.`);
-  }
+  // Note signals the user stated explicitly. Notices describe only what
+  // was actually applied — never bare parse claims (Fix 1d).
   if (note.excludeGenres.length > 0) {
     notices.push(`Leaving out ${note.excludeGenres.join(', ')} per your note.`);
   }
@@ -342,7 +348,12 @@ export function selectCandidateMovies(
 
   if (filtered.length === 0) {
     notices.push('No close matches this time — try widening the runtime or genres.');
-    return { items: [], notices, usedMaxMinutes: constraints.maxMinutes };
+    return {
+      items: [],
+      notices,
+      usedMaxMinutes: constraints.maxMinutes,
+      effective: { highlyRated: constraints.highlyRated, recent, classics },
+    };
   }
   if (filtered.length < 3) {
     notices.push(
@@ -367,7 +378,12 @@ export function selectCandidateMovies(
     filtered.some((m) => m.isHiddenGem),
     [...quizGenres, ...note.genres, ...moodGenreList]
   );
-  return { items, notices, usedMaxMinutes: constraints.maxMinutes };
+  return {
+    items,
+    notices,
+    usedMaxMinutes: constraints.maxMinutes,
+    effective: { highlyRated: constraints.highlyRated, recent, classics },
+  };
 }
 
 /**
@@ -494,6 +510,7 @@ export function validateEnrichment(
 export interface RecommendationResult {
   movies: MoviePick[];
   notices: string[];
+  effective: { highlyRated: boolean; recent: boolean; classics: boolean };
 }
 
 /**
@@ -507,7 +524,8 @@ export async function getRecommendationsWithOMDb(
   omdbApiKey?: string,
   extraCandidates: MovieItem[] = []
 ): Promise<RecommendationResult> {
-  const { items: candidates, notices, usedMaxMinutes } = selectCandidateMovies(params, extraCandidates);
+  const { items: candidates, notices, usedMaxMinutes, effective } =
+    selectCandidateMovies(params, extraCandidates);
 
   const quizGenres =
     params.genres.includes('Surprise me') || params.genres.length === 0
@@ -533,12 +551,18 @@ export async function getRecommendationsWithOMDb(
       let finalPoster = movie.posterUrl;
       let finalGenres = movie.genres;
 
+      let finalCertificate: string | undefined;
+      let finalMediaType: string | undefined;
+
       if (omdbApiKey) {
         const omdbData = await fetchFromOMDb(movie, omdbApiKey);
         // Fix 1: merge ONLY validated data; otherwise keep catalog metadata
         // and record a server-side diagnostic (never user-facing).
         const check = validateEnrichment(movie, omdbData);
         if (omdbData && check.ok) {
+          if (typeof omdbData.Rated === 'string' && omdbData.Rated !== 'N/A') {
+            finalCertificate = omdbData.Rated;
+          }
           if (omdbData.Title) finalTitle = omdbData.Title;
           if (omdbData.Year) {
             const parsedYear = parseInt(omdbData.Year, 10);
@@ -568,6 +592,9 @@ export async function getRecommendationsWithOMDb(
               }
             }
             if (merged.length > 0) finalGenres = merged.slice(0, 4);
+          }
+          if (typeof omdbData.Type === 'string' && omdbData.Type) {
+            finalMediaType = omdbData.Type;
           }
         } else if (omdbData) {
           // Safe diagnostic: wrong-film data rejected, catalog retained.
@@ -608,6 +635,9 @@ export async function getRecommendationsWithOMDb(
         ),
         isHiddenGem: movie.isHiddenGem,
         matchScore,
+        language: movie.language,
+        certificate: finalCertificate,
+        mediaType: finalMediaType,
       };
     })
   );
@@ -617,5 +647,5 @@ export async function getRecommendationsWithOMDb(
     enriched[enriched.length - 1].isHiddenGem = true;
   }
 
-  return { movies: enriched, notices };
+  return { movies: enriched, notices, effective };
 }

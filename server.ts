@@ -10,6 +10,8 @@ import {
 import { MovieItem } from './server/catalog.js';
 import { discoverCandidates, enrichRuntimes } from './server/discovery.js';
 import { validateRecommendBody } from './server/validate.js';
+import { enforceHardConstraints } from './server/gate.js';
+import { runtimeCap } from './server/omdb.js';
 import { enhanceWithGemini } from './server/ai.js';
 import { attachLiveProviders } from './server/watchmode.js';
 
@@ -120,12 +122,42 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
 
     // 3. Recommend (filter → rank → diversify) + enrich via OMDb API
     const omdbApiKey = process.env.OMDB_API_KEY?.trim();
-    const { movies: recommended, notices } = await getRecommendationsWithOMDb(
-      sanitizedParams,
-      omdbApiKey,
-      extraCandidates
-    );
-    let picks = recommended;
+    const {
+      movies: recommended,
+      notices,
+      effective,
+    } = await getRecommendationsWithOMDb(sanitizedParams, omdbApiKey, extraCandidates);
+
+    // 3b. Final gate: enforce the REQUESTED constraints on enriched values
+    // so no ladder rung, fallback, or live-data overwrite can leak a
+    // violator into the response. Only ever removes; removals disclosed.
+    const requestedLangCodes: string[] = [];
+    if (
+      sanitizedParams.languages.length > 0 &&
+      !sanitizedParams.languages.includes('Any')
+    ) {
+      const codes: Record<string, string> = {
+        English: 'en', Hindi: 'hi', Tamil: 'ta', Telugu: 'te',
+        Korean: 'ko', Japanese: 'ja', Spanish: 'es', French: 'fr',
+      };
+      for (const l of sanitizedParams.languages) {
+        if (codes[l]) requestedLangCodes.push(codes[l]);
+      }
+    }
+    const gated = enforceHardConstraints(recommended, {
+      maxMinutes: runtimeCap(sanitizedParams.maxRuntime),
+      maxRuntimeLabel: sanitizedParams.maxRuntime,
+      langCodes: requestedLangCodes,
+      highlyRated: effective.highlyRated,
+      recent: effective.recent,
+      classics: effective.classics,
+      audience: sanitizedParams.audience,
+      matureAllowed:
+        sanitizedParams.audience !== 'Family with kids' &&
+        Boolean(sanitizedParams.preferences?.mature),
+    });
+    let picks = gated.movies;
+    const allNotices = [...notices, ...gated.relaxed];
 
     // 3. Optional server-side AI reasoning
     if (AI_ENABLED && process.env.GEMINI_API_KEY && picks.length > 0) {
@@ -145,7 +177,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       picks = await attachLiveProviders(picks, watchmodeKey, region);
     }
 
-    res.json({ movies: picks, notices });
+    res.json({ movies: picks, notices: allNotices });
   } catch {
     // Return generic 500 error, never leak debug or keys
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
