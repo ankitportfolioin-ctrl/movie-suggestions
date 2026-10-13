@@ -55,6 +55,19 @@ test('plot-twist talk is flagged unverifiable, not faked', () => {
   assert.ok(s.unverifiable.includes('plot twists'));
 });
 
+test('2e: shorter/longer comparatives become runtime hints', () => {
+  assert.equal(parseNote('something like Interstellar but shorter').runtimeHint, 'short');
+  assert.equal(parseNote('a longer epic saga').runtimeHint, 'long');
+});
+
+test('2c: found-footage and tragic endings are flagged unverifiable', () => {
+  assert.ok(parseNote('No found-footage.').unverifiable.includes('found footage'));
+  assert.ok(parseNote('no tragic endings').unverifiable.includes('tragic tone'));
+  const s = parseNote('horror without found footage');
+  assert.ok(s.genres.includes('Horror'));
+  assert.ok(s.unverifiable.includes('found footage'));
+});
+
 test('detects moods', () => {
   const s = parseNote('rough day, need cozy and uplifting');
   assert.ok(s.moods.includes('Stressed'));
@@ -92,7 +105,7 @@ test('detects language hints', () => {
 });
 
 test('empty and garbage notes yield empty signals', () => {
-  assert.deepEqual(parseNote(''), { genres: [], excludeGenres: [], unverifiable: [], moods: [], lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [] });
+  assert.deepEqual(parseNote(''), { genres: [], excludeGenres: [], unverifiable: [], moods: [], lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [], excludedPeople: [], likedPeople: [] });
   assert.deepEqual(parseNote('... !!!').genres, []);
 });
 
@@ -110,4 +123,27 @@ test('mixed note parses all signal types', () => {
   assert.equal(s.runtimeHint, 'short');
   assert.equal(s.wantsHighlyRated, true);
   assert.ok(s.genres.includes('Sci-Fi'));
+});
+
+test('2b: "Nothing with Tom Cruise" excludes the actor', () => {
+  const s = parseNote('Nothing with Tom Cruise');
+  assert.deepEqual(s.excludedPeople, ['Tom Cruise']);
+  assert.deepEqual(s.likedPeople, []);
+});
+
+test('2b: "movies starring Tom Hanks" is a disclosed preference', () => {
+  const s = parseNote('movies starring Tom Hanks');
+  assert.deepEqual(s.likedPeople, ['Tom Hanks']);
+  assert.deepEqual(s.excludedPeople, []);
+});
+
+test('2b: single names are ignored as too noisy', () => {
+  const s = parseNote('nothing with Tom, anything with Brad');
+  assert.deepEqual(s.excludedPeople, []);
+  assert.deepEqual(s.likedPeople, []);
+});
+
+test('2b: director patterns work both ways', () => {
+  assert.deepEqual(parseNote('directed by Denis Villeneuve').likedPeople, ['Denis Villeneuve']);
+  assert.deepEqual(parseNote('nothing directed by Michael Bay').excludedPeople, ['Michael Bay']);
 });

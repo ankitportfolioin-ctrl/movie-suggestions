@@ -20,6 +20,10 @@ export interface NoteSignals {
   hatedTitles: string[];
   /** @deprecated use lovedTitles; kept for compatibility. */
   mentionedTitles: string[];
+  /** People to exclude (exact-ish name match against cast/director). */
+  excludedPeople: string[];
+  /** People the user likes (disclosed; cast ranking is unsupported). */
+  likedPeople: string[];
   /** Language names from the quiz vocabulary (e.g. "Korean"). */
   languageHints: string[];
   runtimeHint?: 'short' | 'long';
@@ -63,6 +67,8 @@ const UNVERIFIABLE_HINTS: [RegExp, string][] = [
   [/\bsad\b|\bdepressing\b|\bcry\b|\btearjerker\b/, 'sad tone'],
   [/\bcartoonish\b/, 'cartoonish tone'],
   [/\btwist\b|\btwists\b|\bending\b/, 'plot twists'],
+  [/\bfound[\s-]?footage\b/, 'found footage'],
+  [/\btragic\b/, 'tragic tone'],
 ];
 
 const MOOD_KEYWORDS: [RegExp, string][] = [
@@ -118,6 +124,7 @@ export function parseNote(rawNote: string): NoteSignals {
   const signals: NoteSignals = {
     genres: [], excludeGenres: [], unverifiable: [], moods: [],
     lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [],
+    excludedPeople: [], likedPeople: [],
   };
   if (!rawNote || typeof rawNote !== 'string') return signals;
   const text = ` ${rawNote.toLowerCase()} `;
@@ -187,8 +194,38 @@ export function parseNote(rawNote: string): NoteSignals {
   }
   signals.mentionedTitles = unique(signals.lovedTitles);
 
-  if (/\bshort\b|\bquick\b|\bunder 90\b|\bbrief\b|\bsnappy\b/.test(text)) signals.runtimeHint = 'short';
-  else if (/\blong\b|\bepic\b|\bextended\b/.test(text)) signals.runtimeHint = 'long';
+  // Fix 2b: person names. "Nothing with Tom Cruise" excludes; "movies
+  // starring Tom Hanks" is a (disclosed) preference. Single names are
+  // ignored — too noisy ("nothing with Tom" could be anyone).
+  const NAME = `([A-Z][A-Za-z.'\\-]*(?:\\s+[A-Z][A-Za-z.'\\-]*)+)`;
+  const castRe = new RegExp(`\\b(?:with|starring|featuring)\\s+${NAME}`, 'g');
+  let cm: RegExpExecArray | null;
+  while ((cm = castRe.exec(rawNote)) !== null) {
+    const name = cm[1].replace(/[.]+$/, '');
+    if (name.split(' ').length >= 2) {
+      (hasNegationScope(text, cm.index)
+        ? signals.excludedPeople
+        : signals.likedPeople
+      ).push(name);
+    }
+  }
+  const dirRe = new RegExp(`\\b(?:directed by|a film by|from director)\\s+${NAME}`, 'g');
+  let dm: RegExpExecArray | null;
+  while ((dm = dirRe.exec(rawNote)) !== null) {
+    const name = dm[1].replace(/[.]+$/, '');
+    if (name.split(' ').length >= 2) {
+      (hasNegationScope(text, dm.index)
+        ? signals.excludedPeople
+        : signals.likedPeople
+      ).push(name);
+    }
+  }
+
+  // Fix 2e: comparatives. Bare "shorter"/"longer" (e.g. "like X but
+  // shorter") resolve to the short/long hints; the quiz cap still wins
+  // and any conflict is disclosed downstream.
+  if (/\bshort\b|\bshorter\b|\bquick\b|\bunder 90\b|\bbrief\b|\bsnappy\b/.test(text)) signals.runtimeHint = 'short';
+  else if (/\blong\b|\blonger\b|\bepic\b|\bextended\b/.test(text)) signals.runtimeHint = 'long';
 
   if (/\brecent\b|\bnew\b|\b2020s\b|\blast five years\b|\bmodern\b/.test(text)) signals.eraHint = 'recent';
   else if (/\bclassic\b|\bold\b|\b90s\b|\b80s\b|\b70s\b|\bbefore 2000\b|\bgolden age\b|\bvintage\b/.test(text))
@@ -222,5 +259,9 @@ export function parseNote(rawNote: string): NoteSignals {
   signals.lovedTitles = unique(signals.lovedTitles);
   signals.hatedTitles = unique(signals.hatedTitles);
   signals.mentionedTitles = unique(signals.lovedTitles);
+  signals.excludedPeople = unique(signals.excludedPeople);
+  signals.likedPeople = unique(signals.likedPeople).filter(
+    (p) => !signals.excludedPeople.includes(p)
+  );
   return signals;
 }

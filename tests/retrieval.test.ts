@@ -19,6 +19,19 @@ test('title search without a key returns null', async () => {
   assert.equal(await searchTitles('Dune', 2021, ''), null);
 });
 
+test('2b live: "Nothing with Tom Cruise" removes his films with disclosure', { skip: !OMDB_KEY }, async () => {
+  const { movies, notices } = await getRecommendationsWithOMDb(
+    baseParams({
+      mood: 'Curious', genres: ['Sci-Fi', 'Mystery'], maxRuntime: 'Under 2.5 hours',
+      languages: ['English'], preferences: { highlyRated: true, hiddenGems: true },
+      note: 'Nothing with Tom Cruise',
+    }),
+    OMDB_KEY
+  );
+  assert.ok(!movies.map((m) => m.title).includes('Edge of Tomorrow'));
+  assert.ok(notices.some((n) => n.includes('Tom Cruise')));
+});
+
 test('OMDb enriches a real film end to end', { skip: !OMDB_KEY }, async () => {
   const { movies, notices } = await getRecommendationsWithOMDb(
     baseParams({ mood: 'Tired', genres: ['Comedy'], maxRuntime: 'Under 90 min' }),

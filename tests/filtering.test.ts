@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectCandidateMovies } from '../server/omdb.js';
+import { selectCandidateMovies, personExcluded } from '../server/omdb.js';
 import { baseParams, titles } from './params.js';
 
 const MATURE_IDS = new Set([246741, 11423, 77]); // WWDITS, Memories of Murder, Memento
@@ -103,4 +103,65 @@ test('excludeIds are respected until the ladder must relax them', () => {
   const overlap = got.filter((id) => all.includes(id));
   // Either fresh titles or an explicit notice about re-including seen ones
   assert.ok(overlap.length === 0 || notices.some((n) => n.includes('already seen')));
+});
+
+test('loved titles are never recommended back, with notice', () => {
+  const { items, notices } = selectCandidateMovies(
+    baseParams({ mood: 'Happy', genres: ['Animation'], note: 'Loved Toy Story' })
+  );
+  assert.ok(!titles(items).includes('Toy Story'));
+  assert.ok(notices.some((n) => n.includes('Toy Story')));
+});
+
+test('fuzzy partial title match excludes; tiny fragments do not nuke results', () => {
+  const { items } = selectCandidateMovies(
+    baseParams({ mood: 'Romantic', genres: ['Romance'], audience: 'Partner', note: 'loved Sunrise' })
+  );
+  assert.ok(!titles(items).includes('Before Sunrise'));
+  // "it" / "up" style fragments must not exclude anything
+  const res = selectCandidateMovies(
+    baseParams({ mood: 'Tired', genres: ['Comedy'], maxRuntime: 'Under 90 min', note: 'it' })
+  );
+  assert.ok(res.items.length >= 2);
+});
+
+test('2b: personExcluded matches cast and director, case-insensitively', () => {
+  assert.equal(
+    personExcluded(['Tom Cruise', 'Emily Blunt'], 'Doug Liman', ['Tom Cruise']),
+    'Tom Cruise'
+  );
+  assert.equal(personExcluded(['Tom Hanks'], undefined, ['Tom Cruise']), null);
+  assert.equal(
+    personExcluded(['Anne Hathaway'], 'Christopher Nolan', ['nolan']),
+    'nolan'
+  );
+  assert.equal(personExcluded(['A B'], undefined, ['Tom']), null); // too short
+  assert.equal(personExcluded([], undefined, ['Tom Cruise']), null); // no data
+});
+
+test('2d: quiz-vs-note conflicts are disclosed with quiz winning', () => {
+  const lang = selectCandidateMovies(
+    baseParams({ languages: ['English'], note: 'Hindi movies please' })
+  );
+  assert.ok(lang.notices.some((n) => n.includes('quiz language') && n.includes('Hindi')));
+  const era = selectCandidateMovies(
+    baseParams({ preferences: { classics: true }, note: 'something recent and modern' })
+  );
+  assert.ok(era.notices.some((n) => n.includes('kept classics')));
+  const long = selectCandidateMovies(
+    baseParams({ maxRuntime: 'Under 90 min', note: 'an epic long film' })
+  );
+  assert.ok(long.notices.some((n) => n.includes('Under 90 min')));
+  const mood = selectCandidateMovies(
+    baseParams({ mood: 'Curious', note: 'I feel sad today' })
+  );
+  assert.ok(mood.notices.some((n) => n.includes('quiz mood')));
+});
+
+test('2e: comparatives resolve to runtime hints', () => {
+  const { items, notices } = selectCandidateMovies(
+    baseParams({ maxRuntime: 'Any length', note: 'something like Interstellar but shorter' })
+  );
+  for (const { movie } of items) assert.ok(movie.runtime <= 100, movie.title);
+  assert.ok(notices.some((n) => n.includes('short')));
 });

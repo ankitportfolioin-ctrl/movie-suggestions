@@ -28,6 +28,10 @@ export interface MoviePick {
   certificate?: string;
   /** OMDb `Type` field when known. Used by the final gate. */
   mediaType?: string;
+  /** OMDb cast list as served. Used for person-name exclusions. */
+  actors: string[];
+  /** OMDb director as served. Used for person-name exclusions. */
+  director?: string;
 }
 
 export interface RecommendParams {
@@ -143,12 +147,23 @@ interface FilterConstraints {
   requireQuizGenres: boolean;
 }
 
+/**
+ * Fix 2a: fuzzy named-title match (case/year-insensitive). Any film the
+ * user names — loved or hated — is never recommended back.
+ */
+export function titleIsNamed(movieTitle: string, namedTitles: string[]): boolean {
+  const norm = movieTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return namedTitles.some(
+    (n) => n.length >= 4 && (n === norm || norm.includes(n) || n.includes(norm))
+  );
+}
+
 function applyHardFilters(
   pool: MovieItem[],
   params: RecommendParams,
   noteGenres: string[],
   excludeGenres: string[],
-  hatedTitles: string[],
+  namedTitles: string[],
   c: FilterConstraints,
   excludeSet: Set<number>,
   targetLangCodes: string[],
@@ -165,9 +180,8 @@ function applyHardFilters(
 
   return pool.filter((movie) => {
     if (!c.dropExcludes && excludeSet.has(movie.id)) return false;
-    // Explicitly disliked titles never return.
-    const normTitle = movie.title.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (hatedTitles.includes(normTitle)) return false;
+    // Named titles (loved or hated) never return.
+    if (titleIsNamed(movie.title, namedTitles)) return false;
     // Unknown runtime (0) passes: absence of data is not a violation.
     if (movie.runtime > 0 && movie.runtime > c.maxMinutes) return false;
 
@@ -237,17 +251,34 @@ export function selectCandidateMovies(
   }
 
   // Effective preferences: note hints apply only where the quiz is silent.
+  // Where quiz and note conflict, the quiz wins — disclosed below (Fix 2d).
   const quiz = params.preferences || {};
   const recent = Boolean(quiz.recent) || (!quiz.classics && !quiz.recent && note.eraHint === 'recent');
   const classics = Boolean(quiz.classics) || (!quiz.classics && !quiz.recent && note.eraHint === 'classics');
   if (note.eraHint === 'recent' && !quiz.recent && !quiz.classics) notices.push('Focusing on recent releases per your note.');
   if (note.eraHint === 'classics' && !quiz.recent && !quiz.classics) notices.push('Focusing on classics per your note.');
+  if (note.eraHint === 'recent' && quiz.classics) {
+    notices.push('Your note asked for recent films, but the quiz says classics — kept classics.');
+  }
+  if (note.eraHint === 'classics' && quiz.recent) {
+    notices.push('Your note asked for classics, but the quiz says recent — kept recent.');
+  }
   const highlyRated = Boolean(quiz.highlyRated) || Boolean(note.wantsHighlyRated);
 
   let maxMinutes = runtimeCap(params.maxRuntime);
   if (note.runtimeHint === 'short' && maxMinutes > 100) {
     maxMinutes = 100;
     notices.push('Keeping it short per your note (around 100 minutes or less).');
+  }
+  if (note.runtimeHint === 'long' && Number.isFinite(maxMinutes)) {
+    notices.push(
+      `Your note asked for something long; kept your ${params.maxRuntime} limit.`
+    );
+  }
+  if (note.moods.length > 0 && !note.moods.includes(params.mood)) {
+    notices.push(
+      `Noted a ${note.moods[0].toLowerCase()} vibe in your note; going with your quiz mood (${params.mood}).`
+    );
   }
 
   const surpriseMe = params.genres.includes('Surprise me') || params.genres.length === 0;
@@ -257,10 +288,11 @@ export function selectCandidateMovies(
     : params.genres.filter((g) => g !== 'Surprise me');
 
   const targetLangCodes: string[] = [];
-  if (params.languages && params.languages.length > 0 && !params.languages.includes('Any')) {
-    for (const lang of params.languages) {
-      if (LANGUAGE_CODES[lang]) targetLangCodes.push(LANGUAGE_CODES[lang]);
-    }
+  const quizLangLabels = (params.languages || []).filter(
+    (l) => l !== 'Any' && LANGUAGE_CODES[l]
+  );
+  for (const lang of quizLangLabels) {
+    targetLangCodes.push(LANGUAGE_CODES[lang]);
   }
   // Note language hints apply only when the quiz left language open.
   if (targetLangCodes.length === 0 && note.languageHints.length > 0) {
@@ -269,6 +301,13 @@ export function selectCandidateMovies(
     }
     if (targetLangCodes.length > 0) {
       notices.push(`Filtering to ${note.languageHints.join(', ')} films per your note.`);
+    }
+  } else if (quizLangLabels.length > 0 && note.languageHints.length > 0) {
+    const hintCodes = note.languageHints.map((l) => LANGUAGE_CODES[l]).filter(Boolean);
+    if (hintCodes.length > 0 && !hintCodes.some((c) => targetLangCodes.includes(c))) {
+      notices.push(
+        `Kept your quiz language (${quizLangLabels.join(', ')}) over your note's (${note.languageHints.join(', ')}).`
+      );
     }
   }
 
@@ -283,13 +322,10 @@ export function selectCandidateMovies(
     }
   }
 
-  const hatedInPool = pool
-    .filter((m) =>
-      note.hatedTitles.includes(m.title.toLowerCase().replace(/[^a-z0-9]/g, ''))
-    )
-    .map((m) => m.title);
-  if (hatedInPool.length > 0) {
-    notices.push(`Skipping ${hatedInPool.join(', ')} per your note.`);
+  const namedTitles = [...note.hatedTitles, ...note.lovedTitles];
+  const namedInPool = pool.filter((m) => titleIsNamed(m.title, namedTitles)).map((m) => m.title);
+  if (namedInPool.length > 0) {
+    notices.push(`Skipping ${namedInPool.join(', ')} — you already mentioned ${namedInPool.length === 1 ? 'it' : 'them'}.`);
   }
 
   const base: FilterConstraints = {
@@ -327,7 +363,7 @@ export function selectCandidateMovies(
   ];
 
   let filtered = applyHardFilters(
-    pool, params, note.genres, note.excludeGenres, note.hatedTitles, base,
+    pool, params, note.genres, note.excludeGenres, namedTitles, base,
     excludeSet, targetLangCodes, recent, classics
   );
   const constraints: FilterConstraints = { ...base };
@@ -337,7 +373,7 @@ export function selectCandidateMovies(
     if (filtered.length > 0) break;
     rung.relax(constraints);
     const retry = applyHardFilters(
-      pool, params, note.genres, note.excludeGenres, note.hatedTitles, constraints,
+      pool, params, note.genres, note.excludeGenres, namedTitles, constraints,
       excludeSet, targetLangCodes, recent, classics
     );
     if (retry.length > filtered.length) {
@@ -433,6 +469,41 @@ function normalizeTitle(t: string): string {
 }
 
 /**
+ * Fix 2f: strict validation for ID-less (discovery) candidates. There is
+ * no canonical record to fall back on, so a weak title match must DROP
+ * the candidate, not merge dubious data. Requires: exact normalized
+ * title equality, year within ±1 (festival vs wide release is real —
+ * e.g. TMDB lists Coherence as 2013, OMDb as 2014), Type exactly
+ * 'movie', and a parseable runtime over 40 minutes (shorts rejected).
+ */
+export function validateDiscoveryCandidate(
+  candidate: { title: string; year: number },
+  omdbData: any
+): { ok: boolean; reason: string } {
+  if (!omdbData || omdbData.Response !== 'True') {
+    return { ok: false, reason: 'empty-response' };
+  }
+  const omdbTitle =
+    typeof omdbData.Title === 'string' ? normalizeTitle(omdbData.Title) : '';
+  const ours = normalizeTitle(candidate.title);
+  if (!omdbTitle || omdbTitle !== ours) {
+    return { ok: false, reason: 'title-mismatch' };
+  }
+  const omdbYear = parseInt(String(omdbData.Year ?? '').slice(0, 4), 10);
+  if (isNaN(omdbYear) || Math.abs(omdbYear - candidate.year) > 1) {
+    return { ok: false, reason: 'year-mismatch' };
+  }
+  if (omdbData.Type !== 'movie') {
+    return { ok: false, reason: `unexpected-type(${omdbData.Type ?? 'missing'})` };
+  }
+  const omdbRuntime = parseInt(String(omdbData.Runtime ?? ''), 10);
+  if (isNaN(omdbRuntime) || omdbRuntime <= 40) {
+    return { ok: false, reason: `implausible-runtime(${omdbData.Runtime ?? 'missing'})` };
+  }
+  return { ok: true, reason: 'discovery-verified' };
+}
+
+/**
  * Guard against OMDb fuzzy-search mismatches (e.g. "(500) Days of Summer"
  * resolving to its making-of documentary). Only accept OMDb data when the
  * returned title clearly matches the catalog film and the year is close.
@@ -514,6 +585,27 @@ export interface RecommendationResult {
 }
 
 /**
+ * Fix 2b: does a cast/director credit contain an excluded person?
+ * Case-insensitive substring on normalized names.
+ */
+export function personExcluded(
+  actors: string[],
+  director: string | undefined,
+  excludedPeople: string[]
+): string | null {
+  const credits = [...actors, ...(director ? director.split(',').map((d) => d.trim()) : [])].map(
+    (c) => c.toLowerCase()
+  );
+  for (const person of excludedPeople) {
+    const needle = person.toLowerCase();
+    if (needle.length >= 4 && credits.some((c) => c.includes(needle))) {
+      return person;
+    }
+  }
+  return null;
+}
+
+/**
  * Get recommendations enriched with live OMDb data.
  * extraCandidates (e.g. from TMDB discovery) widen the pool; the local
  * catalog always wins on id clashes. OMDb genres are UNIONED with local
@@ -540,9 +632,13 @@ export async function getRecommendationsWithOMDb(
   const audienceFlavor =
     AUDIENCE_FLAVOR[params.audience] ?? AUDIENCE_FLAVOR['Just me'];
 
-  // If OMDb API key is provided, enrich in parallel
+  // If OMDb API key is provided, enrich in parallel.
+  // ID-less discovery candidates get the STRICT check (Fix 2f); a failed
+  // check drops the candidate instead of merging dubious data.
+  const catalogIds = new Set(FALLBACK_CATALOG.map((m) => m.id));
   const enriched = await Promise.all(
     candidates.map(async ({ movie, matchScore }) => {
+      const isDiscovery = !catalogIds.has(movie.id);
       let finalTitle = movie.title;
       let finalYear = movie.year;
       let finalRating = movie.rating;
@@ -553,12 +649,18 @@ export async function getRecommendationsWithOMDb(
 
       let finalCertificate: string | undefined;
       let finalMediaType: string | undefined;
+      let finalActors: string[] = [];
+      let finalDirector: string | undefined;
 
       if (omdbApiKey) {
         const omdbData = await fetchFromOMDb(movie, omdbApiKey);
         // Fix 1: merge ONLY validated data; otherwise keep catalog metadata
         // and record a server-side diagnostic (never user-facing).
-        const check = validateEnrichment(movie, omdbData);
+        // Fix 2f: ID-less discovery candidates face the strict check and
+        // are dropped (not merged) on failure.
+        const check = isDiscovery
+          ? validateDiscoveryCandidate(movie, omdbData)
+          : validateEnrichment(movie, omdbData);
         if (omdbData && check.ok) {
           if (typeof omdbData.Rated === 'string' && omdbData.Rated !== 'N/A') {
             finalCertificate = omdbData.Rated;
@@ -595,6 +697,19 @@ export async function getRecommendationsWithOMDb(
           }
           if (typeof omdbData.Type === 'string' && omdbData.Type) {
             finalMediaType = omdbData.Type;
+          }
+          if (typeof omdbData.Actors === 'string' && omdbData.Actors !== 'N/A') {
+            finalActors = omdbData.Actors.split(',').map((a: string) => a.trim()).filter(Boolean);
+          }
+          if (typeof omdbData.Director === 'string' && omdbData.Director !== 'N/A') {
+            finalDirector = omdbData.Director;
+          }
+          if (isDiscovery && !check.ok) {
+            // Fix 2f: unverifiable discovery candidate — drop, don't merge.
+            console.warn(
+              `[enrichment] dropped unverifiable discovery title "${movie.title}" (${movie.year}): ${check.reason}`
+            );
+            return null;
           }
         } else if (omdbData) {
           // Safe diagnostic: wrong-film data rejected, catalog retained.
@@ -638,14 +753,59 @@ export async function getRecommendationsWithOMDb(
         language: movie.language,
         certificate: finalCertificate,
         mediaType: finalMediaType,
+        actors: finalActors,
+        director: finalDirector,
       };
     })
   );
 
-  // Ensure one hidden gem tag is active
-  if (!enriched.some((p) => p.isHiddenGem) && enriched.length > 0) {
-    enriched[enriched.length - 1].isHiddenGem = true;
+  // Fix 2b: enforce person exclusions on enriched cast data.
+  // Fix 2f: drop nulls from rejected discovery candidates first.
+  const verified = enriched.filter((p): p is NonNullable<typeof p> => p !== null);
+  if (verified.length < enriched.length) {
+    notices.push(
+      `Dropped ${enriched.length - verified.length} title${enriched.length - verified.length === 1 ? '' : 's'} we could not verify.`
+    );
+  }
+  const noteSignals = parseNote(params.note || '');
+  const droppedPeople: string[] = [];
+  let missingCast = false;
+  let filtered = verified;
+  if (noteSignals.excludedPeople.length > 0) {
+    filtered = verified.filter((p) => {
+      if (p.actors.length === 0 && !p.director) {
+        missingCast = true;
+        return true;
+      }
+      const hit = personExcluded(p.actors, p.director, noteSignals.excludedPeople);
+      if (hit) {
+        droppedPeople.push(`${p.title} (${hit})`);
+        return false;
+      }
+      return true;
+    });
+    const droppedNames = [...new Set(droppedPeople.map((d) => d.replace(/^.*\((.*)\)$/, '$1')))];
+    if (droppedNames.length > 0) {
+      notices.push(`Left out films with ${droppedNames.join(', ')} per your note.`);
+    }
+    if (missingCast) {
+      notices.push('Cast data was missing for some picks — double-check exclusions yourself.');
+    }
+  }
+  if (noteSignals.likedPeople.length > 0) {
+    notices.push(
+      `Noted ${noteSignals.likedPeople.join(', ')} — we can't rank by cast from our data.`
+    );
+  }
+  if (filtered.length < verified.length && filtered.length < 3 && filtered.length > 0) {
+    const partial = `Only found ${filtered.length} close match${filtered.length === 1 ? '' : 'es'} — loosen a filter for a full three.`;
+    if (!notices.includes(partial)) notices.push(partial);
   }
 
-  return { movies: enriched, notices, effective };
+  // Ensure one hidden gem tag is active
+  if (!filtered.some((p) => p.isHiddenGem) && filtered.length > 0) {
+    filtered[filtered.length - 1].isHiddenGem = true;
+  }
+
+  return { movies: filtered, notices, effective };
 }

@@ -41,7 +41,7 @@ const QUERIES: Query[] = [
   { name: 'highly rated drama only', params: baseParams({ genres: ['Drama'], preferences: { highlyRated: true } }), expectMinCount: 2, every: (m) => assert.ok(m.rating >= 7) },
   { name: 'note: no scary stuff', params: baseParams({ genres: ['Comedy'], note: 'no scary stuff please' }), expectMinCount: 2, mustExclude: ['What We Do in the Shadows'], noticesMin: 1 },
   { name: 'note: something short', params: baseParams({ maxRuntime: 'Any length', note: 'something short and quick' }), expectMinCount: 2, every: (m) => assert.ok(m.runtime <= 100) },
-  { name: 'note: loved Past Lives', params: baseParams({ mood: 'Romantic', genres: ['Romance'], audience: 'Partner', note: 'Loved Past Lives' }), expectMinCount: 2, mustInclude: ['Past Lives'] },
+  { name: 'note: loved Past Lives (never recommended back)', params: baseParams({ mood: 'Romantic', genres: ['Romance'], audience: 'Partner', note: 'Loved Past Lives' }), expectMinCount: 2, mustExclude: ['Past Lives'], noticesMin: 1 },
   { name: 'note: korean please, quiz open', params: baseParams({ mood: 'Curious', genres: ['Mystery'], note: 'a korean movie please' }), expectMinCount: 2, every: (m) => assert.equal(m.language, 'ko') },
   { name: 'seen-it-all comedy short', params: baseParams({ mood: 'Tired', genres: ['Comedy'], maxRuntime: 'Under 90 min', excludeIds: [807, 10315, 862, 1104] }), mustExclude: ['Airplane!', 'Fantastic Mr. Fox', 'Toy Story', 'Office Space'], noticesMin: 1 },
   { name: 'solo horror opt-in', params: baseParams({ mood: 'Curious', genres: ['Horror'], preferences: { mature: true } }), expectCount: 2, mustInclude: ['What We Do in the Shadows', 'The Call'] },

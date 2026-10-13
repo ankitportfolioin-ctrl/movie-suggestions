@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateEnrichment, getRecommendationsWithOMDb } from '../server/omdb.js';
+import { validateEnrichment, validateDiscoveryCandidate, getRecommendationsWithOMDb } from '../server/omdb.js';
 import { FALLBACK_CATALOG } from '../server/catalog.js';
 import { baseParams } from './params.js';
 
@@ -29,6 +29,18 @@ test('legacy path rejects short-vs-feature without catalog id', () => {
 test('unexpected non-movie type is rejected', () => {
   const r = validateEnrichment(FALL_2006, { ...FEATURE_2008, Type: 'series' });
   assert.equal(r.ok, false);
+});
+
+test('2f: ID-less discovery validation is strict', () => {
+  const cand = { title: 'Coherence', year: 2013 };
+  const good = { Title: 'Coherence', Year: '2014', Runtime: '89 min', Genre: 'Mystery', Type: 'movie', Response: 'True' };
+  assert.equal(validateDiscoveryCandidate(cand, good).ok, true); // ±1 festival tolerance
+  assert.equal(validateDiscoveryCandidate(cand, { ...good, Title: 'Coherence: Remixed' }).ok, false); // title must match exactly
+  assert.equal(validateDiscoveryCandidate(cand, { ...good, Year: '2018' }).ok, false); // year drift rejected
+  assert.equal(validateDiscoveryCandidate(cand, { ...good, Type: 'series' }).ok, false); // non-movie rejected
+  assert.equal(validateDiscoveryCandidate(cand, { ...good, Runtime: '4 min' }).ok, false); // shorts rejected
+  assert.equal(validateDiscoveryCandidate(cand, { ...good, Runtime: 'N/A' }).ok, false); // unknown runtime rejected
+  assert.equal(validateDiscoveryCandidate(cand, { Response: 'False' }).ok, false);
 });
 
 test('empty/failed OMDb responses are rejected safely', () => {
