@@ -8,11 +8,14 @@
  *   + w.genrePerMatch       × (# quiz-genre overlaps)                  →  0– 9 pts
  *   + w.noteGenrePerMatch   × (# note-genre overlaps)                  →  0–12 pts
  *   + w.moodAffinity        × (shares ≥1 mood-list genre ? 1 : 0)      →  0– 2 pts
+ *   + w.moodUpliftPerGenre  × (# mood-uplift genre matches)              →  0– 8 pts
+ *   − w.moodDownerPerGenre  × (# bleak genres vs upbeat mood)            →  0–−6 pts
  *   + w.ratingConfidence    × min(voteCount, 5000) / 5000              →  0– 2 pts
  *   + w.runtimeFit          × (finite cap && runtime ≤ cap − 15 ? 1:0) →  0– 1 pt
  *   + w.languageFit         × (specific language requested ? 1 : 0)    →  0– 1 pt
  *   + w.hiddenGemBonus      × (prefs.hiddenGems && isHiddenGem ? 1:0)  →  0–10 pts
  *   + w.titleAffinity       × (title loved in note ? 1 : 0)            →  0– 6 pts
+ *   + w.themeSimilarity     × max cosine(overview, themeRefs)            →  0– 6 pts
  *
  * DIVERSITY (greedy MMR-lite in selectDiverse):
  *   candidates are picked highest-score-first; each subsequent candidate
@@ -36,6 +39,10 @@ export interface RankSignals {
   noteGenres: string[];
   /** Mood genre list for affinity check (e.g. MOOD_GENRES[mood]). */
   moodGenres: string[];
+  /** Quiz mood label for tone scoring (see MOOD_TONE). */
+  mood: string;
+  /** Overviews of catalog films the user named (theme anchors, Fix 3b). */
+  themeRefs: string[];
   /** Max runtime in minutes (Infinity = no cap). */
   maxMinutes: number;
   /** Whether a specific (non-Any) language was requested. */
@@ -50,11 +57,17 @@ export const RANK_WEIGHTS = {
   genrePerMatch: 3.0,
   noteGenrePerMatch: 4.0,
   moodAffinity: 2.0,
+  /** Uplift bonus per mood-matching genre (Fix 3a, makes mood decisive). */
+  moodUpliftPerGenre: 2.0,
+  /** Penalty per bleak-genre match against an upbeat mood (Fix 3a). */
+  moodDownerPerGenre: 2.0,
   ratingConfidence: 2.0,
   runtimeFit: 1.0,
   languageFit: 1.0,
   hiddenGemBonus: 10.0,
   titleAffinity: 6.0,
+  /** Theme-overlap weight for named-film similarity (Fix 3b). */
+  themeSimilarity: 6.0,
   diversityPerSharedGenre: 3.0,
   /** A gem leads only within this many points of the top score. */
   gemFirstMaxGap: 6.0,
@@ -68,12 +81,105 @@ export interface RankableMovie {
   rating: number;
   voteCount: number;
   language: string;
+  overview: string;
   isHiddenGem: boolean;
 }
 
 function normalizeTitle(t: string): string {
   return t.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
+
+const STOPWORDS = new Set(
+  ('the,a,an,and,or,but,with,from,into,onto,that,this,these,those,their,there,they,them,' +
+    'he,she,his,her,its,who,whom,whose,which,when,where,while,after,before,over,under,' +
+    'between,through,about,against,have,has,had,will,would,can,could,should,been,being,' +
+    'more,most,some,such,than,then,also,just,into,out,for,are,was,were,been,does,did,' +
+    'own,same,other,each,find,finds,gets,takes,make,take,goes,comes,back,away,ever,never,' +
+    'must,shall,might,upon,within,without,along,among,across,behind,beyond,toward,whom'
+  ).split(',')
+);
+
+function terms(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const w of text.toLowerCase().match(/[a-z]{4,}/g) || []) {
+    if (!STOPWORDS.has(w)) out.add(w);
+  }
+  return out;
+}
+
+/**
+ * Fix 3c: hidden-gem eligibility. A flag alone is not enough — the film
+ * must be well-regarded (rating ≥ 7), genuinely underseen (votes capped),
+ * and never a blockbuster by title. Mega-vote titles can never be gems
+ * even if some source flags them.
+ */
+export const GEM_MAX_VOTES = 10000;
+const BLOCKBUSTER_TITLES = new Set([
+  'interstellar', 'parasite', 'toystory', 'inception', 'thedarkknight',
+  'avengersendgame', 'titanic', 'avatar', 'dune', 'oppenheimer', 'barbie',
+  'spidermannowayhome', 'johnwick', 'rrr', 'joker', 'avengersinfinitywar',
+]);
+
+export function qualifiesAsGem(movie: {
+  isHiddenGem: boolean;
+  rating: number;
+  voteCount: number;
+  title: string;
+}): boolean {
+  if (!movie.isHiddenGem) return false;
+  if (!(movie.rating >= 7)) return false;
+  if ((movie.voteCount || 0) > GEM_MAX_VOTES) return false;
+  if (BLOCKBUSTER_TITLES.has(normalizeTitle(movie.title))) return false;
+  return true;
+}
+
+/**
+ * Franchise stem: "Toy Story 2" and "Toy Story" share a stem; unrelated
+ * films do not. Used to cap picks per franchise (Fix 3d).
+ */
+export function franchiseKey(title: string): string {
+  return normalizeTitle(title)
+    .replace(/(2|3|4|5|ii|iii|iv|part[0-9]|returns|reloaded|revolutions)$/, '');
+}
+
+/**
+ * Fix 3b: plot/theme similarity. Cosine similarity on binary term vectors
+ * (stopwords removed, min length 4) between a candidate overview and each
+ * reference overview (films the user named). Returns the best score 0–1.
+ * No LLM, no invented content — pure lexical overlap over verified plots.
+ */
+export function themeSimilarity(candidateOverview: string, referenceOverviews: string[]): number {
+  if (!candidateOverview || referenceOverviews.length === 0) return 0;
+  const a = terms(candidateOverview);
+  if (a.size === 0) return 0;
+  let best = 0;
+  for (const ref of referenceOverviews) {
+    const b = terms(ref || '');
+    if (b.size === 0) continue;
+    let shared = 0;
+    for (const t of a) if (b.has(t)) shared += 1;
+    const sim = shared / Math.sqrt(a.size * b.size);
+    if (sim > best) best = sim;
+  }
+  return best;
+}
+
+/**
+ * Fix 3a: mood → tone affinity. Upbeat moods are lifted by light genres
+ * and penalized per bleak-genre match (horror/thriller/crime grit against
+ * Happy/Relaxed/Tired); heavy moods carry no penalty (Sad allows heavy
+ * drama; Stressed accepts comfort OR catharsis).
+ */
+export const MOOD_TONE: Record<string, { uplift: string[]; downers: string[] }> = {
+  Happy: { uplift: ['Comedy', 'Animation', 'Family', 'Adventure'], downers: ['Horror', 'Thriller', 'Crime'] },
+  Relaxed: { uplift: ['Comedy', 'Romance', 'Animation', 'Family'], downers: ['Horror', 'Thriller', 'Crime'] },
+  Tired: { uplift: ['Comedy', 'Animation', 'Family'], downers: ['Horror', 'Thriller', 'Crime'] },
+  Stressed: { uplift: ['Comedy', 'Animation', 'Fantasy', 'Family'], downers: [] },
+  Romantic: { uplift: ['Romance', 'Drama', 'Comedy'], downers: ['Horror'] },
+  Adventurous: { uplift: ['Adventure', 'Action', 'Sci-Fi', 'Fantasy'], downers: [] },
+  Curious: { uplift: ['Mystery', 'Documentary', 'Sci-Fi', 'Crime'], downers: [] },
+  Sad: { uplift: ['Drama', 'Romance', 'Family', 'Comedy'], downers: [] },
+};
 
 export function scoreMovie(movie: RankableMovie, signals: RankSignals): number {
   const w = RANK_WEIGHTS;
@@ -87,6 +193,14 @@ export function scoreMovie(movie: RankableMovie, signals: RankSignals): number {
 
   if (movie.genres.some((g) => signals.moodGenres.includes(g))) {
     score += w.moodAffinity;
+  }
+
+  const tone = MOOD_TONE[signals.mood];
+  if (tone) {
+    const uplift = movie.genres.filter((g) => tone.uplift.includes(g)).length;
+    score += w.moodUpliftPerGenre * uplift;
+    const downers = movie.genres.filter((g) => tone.downers.includes(g)).length;
+    score -= w.moodDownerPerGenre * downers;
   }
 
   score += w.ratingConfidence * (Math.min(movie.voteCount || 0, 5000) / 5000);
@@ -108,6 +222,10 @@ export function scoreMovie(movie: RankableMovie, signals: RankSignals): number {
     score += w.titleAffinity;
   }
 
+  if (signals.themeRefs.length > 0 && movie.overview) {
+    score += w.themeSimilarity * themeSimilarity(movie.overview, signals.themeRefs);
+  }
+
   return score;
 }
 
@@ -120,16 +238,26 @@ export function selectDiverse<T extends RankableMovie>(
   candidates: { movie: T; score: number }[],
   count: number,
   ensureHiddenGem: boolean,
-  protectedGenres: string[] = []
+  protectedGenres: string[] = [],
+  franchiseCap = Infinity
 ): { movie: T; score: number; matchScore: number }[] {
   const w = RANK_WEIGHTS;
   const remaining = [...candidates].sort((a, b) => b.score - a.score);
   const selected: { movie: T; score: number }[] = [];
 
+  const takeIndex = (idx: number) => {
+    const [picked] = remaining.splice(idx, 1);
+    selected.push(picked);
+  };
+
   const pickBest = () => {
     let bestIdx = -1;
     let bestEffective = -Infinity;
     for (let i = 0; i < remaining.length; i++) {
+      // Fix 3d: at most `franchiseCap` picks per franchise stem.
+      const key = franchiseKey(remaining[i].movie.title);
+      const taken = selected.filter((s) => franchiseKey(s.movie.title) === key).length;
+      if (taken >= franchiseCap) continue;
       let penalty = 0;
       for (const sel of selected) {
         const shared = remaining[i].movie.genres.filter(
@@ -144,8 +272,7 @@ export function selectDiverse<T extends RankableMovie>(
       }
     }
     if (bestIdx >= 0) {
-      const [picked] = remaining.splice(bestIdx, 1);
-      selected.push(picked);
+      takeIndex(bestIdx);
     }
   };
 
@@ -156,13 +283,14 @@ export function selectDiverse<T extends RankableMovie>(
       (c) => c.movie.isHiddenGem && c.score >= topScore - w.gemFirstMaxGap
     );
     if (gemIdx >= 0) {
-      const [gem] = remaining.splice(gemIdx, 1);
-      selected.push(gem);
+      takeIndex(gemIdx);
     }
   }
 
   while (selected.length < count && remaining.length > 0) {
+    const before = selected.length;
     pickBest();
+    if (selected.length === before) break; // all remaining capped out
   }
 
   const scores = selected.map((s) => s.score);

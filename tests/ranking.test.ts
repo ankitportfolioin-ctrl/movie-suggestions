@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { scoreMovie, selectDiverse, buildReason, RANK_WEIGHTS, RankSignals } from '../server/ranking.js';
+import { scoreMovie, selectDiverse, buildReason, themeSimilarity, qualifiesAsGem, franchiseKey, RANK_WEIGHTS, RankSignals } from '../server/ranking.js';
 import type { MovieItem } from '../server/catalog.js';
 
 function movie(over: Partial<MovieItem> = {}): MovieItem {
@@ -16,6 +16,8 @@ const signals: RankSignals = {
   quizGenres: ['Comedy'],
   noteGenres: [],
   moodGenres: ['Comedy', 'Animation'],
+  mood: 'Happy',
+  themeRefs: [],
   maxMinutes: 120,
   languageSpecific: false,
   preferHiddenGems: false,
@@ -28,6 +30,7 @@ test('formula: rating base + genre + mood + confidence are additive', () => {
     RANK_WEIGHTS.ratingBase * 7.5 +
     RANK_WEIGHTS.genrePerMatch * 1 +
     RANK_WEIGHTS.moodAffinity +
+    RANK_WEIGHTS.moodUpliftPerGenre * 1 + // Comedy lifts Happy
     RANK_WEIGHTS.ratingConfidence * (1000 / 5000) +
     RANK_WEIGHTS.runtimeFit; // 90m <= 120 - 15
   assert.ok(Math.abs(s - expected) < 1e-9, `got ${s}, want ${expected}`);
@@ -50,6 +53,43 @@ test('loved-title affinity boosts the mentioned film', () => {
   const base = scoreMovie(movie({ title: 'Past Lives' }), signals);
   const boosted = scoreMovie(movie({ title: 'Past Lives' }), { ...signals, mentionedTitles: ['pastlives'] });
   assert.equal(boosted - base, RANK_WEIGHTS.titleAffinity);
+});
+
+test('3a: bleak genres penalized under Happy, not under Sad', () => {
+  const grim = movie({ genres: ['Thriller', 'Crime'] });
+  const happy = scoreMovie(grim, { ...signals, mood: 'Happy', moodGenres: [] });
+  const sad = scoreMovie(grim, { ...signals, mood: 'Sad', moodGenres: [] });
+  assert.ok(Math.abs(sad - happy - RANK_WEIGHTS.moodDownerPerGenre * 2) < 1e-9);
+});
+
+test('3b: theme similarity rewards shared plot vocabulary', () => {
+  const ref = 'Two deeply connected childhood friends separated after her family emigrates, reunited decades later.';
+  const close = movie({ overview: 'Childhood friends separated by emigration reunite after decades apart.' });
+  const far = movie({ overview: 'A cowboy doll is jealous when a spaceman toy supplants him.' });
+  const sClose = themeSimilarity(close.overview, [ref]);
+  const sFar = themeSimilarity(far.overview, [ref]);
+  assert.ok(sClose > 0.3, `close=${sClose}`);
+  assert.ok(sFar < sClose);
+  assert.equal(themeSimilarity('anything', []), 0);
+});
+
+test('3b: theme refs lift similar candidates in scoring', () => {
+  const ref = 'Two deeply connected childhood friends separated after her family emigrates.';
+  const base = scoreMovie(movie({ overview: 'A soldier fights aliens in a time loop.' }), { ...signals, themeRefs: [ref] });
+  const lifted = scoreMovie(
+    movie({ overview: 'Childhood friends separated by emigration reunite years later.' }),
+    { ...signals, themeRefs: [ref] }
+  );
+  assert.ok(lifted - base > 2);
+});
+
+test('3a: mood penalty reorders a grim pick below lighter fare', () => {
+  const grim = { movie: movie({ id: 1, rating: 8.0, genres: ['Thriller'] }), score: 0 };
+  const light = { movie: movie({ id: 2, rating: 7.0, genres: ['Comedy'] }), score: 0 };
+  const pair = [grim, light];
+  const rescoredHappy = pair.map((c) => ({ ...c, score: scoreMovie(c.movie, { ...signals, mood: 'Happy', moodGenres: [] }) }));
+  const happyOrder = selectDiverse(rescoredHappy, 2, false).map((p) => p.movie.id);
+  assert.deepEqual(happyOrder, [2, 1]);
 });
 
 test('diversity penalizes near-identical genre sets', () => {
@@ -90,4 +130,28 @@ test('buildReason cites only verified facts', () => {
   );
   assert.ok(r.includes('Comedy') && r.includes('8.3') && r.includes('1h 21m') && r.includes('gem') && r.includes('Solo.'));
   assert.ok(!r.toLowerCase().includes('oscar') && !r.toLowerCase().includes('spoiler'));
+});
+
+test('3c: gem eligibility needs rating>=7, modest votes, no blockbusters', () => {
+  const gem = { isHiddenGem: true, rating: 7.5, voteCount: 1200, title: 'Coherence' };
+  assert.equal(qualifiesAsGem(gem), true);
+  assert.equal(qualifiesAsGem({ ...gem, rating: 6.9 }), false);
+  assert.equal(qualifiesAsGem({ ...gem, voteCount: 35000 }), false);
+  assert.equal(qualifiesAsGem({ ...gem, title: 'Interstellar', voteCount: 500 }), false);
+  assert.equal(qualifiesAsGem({ ...gem, isHiddenGem: false }), false);
+});
+
+test('3d: franchise cap keeps one pick per series', () => {
+  const mk = (id: number, title: string, score: number) => ({ movie: movie({ id, title }), score });
+  const out = selectDiverse(
+    [mk(1, 'Toy Story', 30), mk(2, 'Toy Story 2', 29), mk(3, 'Up', 28)],
+    3,
+    false,
+    [],
+    1
+  );
+  const got = out.map((o) => o.movie.title);
+  assert.ok(got.includes('Toy Story'));
+  assert.ok(!got.includes('Toy Story 2'));
+  assert.ok(got.includes('Up'));
 });

@@ -4,6 +4,7 @@ import {
   scoreMovie,
   selectDiverse,
   buildReason,
+  qualifiesAsGem,
   AUDIENCE_FLAVOR,
   RankSignals,
 } from './ranking.js';
@@ -401,18 +402,31 @@ export function selectCandidateMovies(
     quizGenres,
     noteGenres: note.genres,
     moodGenres: moodGenreList,
+    mood: params.mood,
+    // Fix 3b: theme anchors are the named films' own verified overviews.
+    // (The films themselves are excluded from results; their plots guide.)
+    themeRefs: pool
+      .filter((m) => titleIsNamed(m.title, note.lovedTitles))
+      .map((m) => m.overview),
     maxMinutes: constraints.maxMinutes,
     languageSpecific: targetLangCodes.length > 0,
     preferHiddenGems: Boolean(quiz.hiddenGems),
     mentionedTitles: note.mentionedTitles,
   };
 
-  const scored = filtered.map((movie) => ({ movie, score: scoreMovie(movie, signals) }));
+  // Fix 3c: normalize gem flags — a flag alone never qualifies a film.
+  // Copies only; the canonical catalog entries are never mutated.
+  const gemChecked = filtered.map((m) => ({
+    ...m,
+    isHiddenGem: qualifiesAsGem(m),
+  }));
+  const scored = gemChecked.map((movie) => ({ movie, score: scoreMovie(movie, signals) }));
   const items = selectDiverse(
     scored,
     Math.min(3, scored.length),
-    filtered.some((m) => m.isHiddenGem),
-    [...quizGenres, ...note.genres, ...moodGenreList]
+    gemChecked.some((m) => m.isHiddenGem),
+    [...quizGenres, ...note.genres, ...moodGenreList],
+    1 // Fix 3d: at most one pick per franchise
   );
   return {
     items,
