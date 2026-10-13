@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  h1, h2, h3, h4, h5, h6, .font-heading {
+    font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Custom glow animations and utilities */
+.glow-orange {
+  box-shadow: 0 0 25px -4px rgba(255, 122, 47, 0.45);
+}
+
+.glow-subtle {
+  box-shadow: 0 0 20px -2px rgba(230, 57, 70, 0.25);
+}

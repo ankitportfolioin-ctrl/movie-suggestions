@@ -1,0 +1,6 @@
+{
+  "name": "Movie Night Picker",
+  "description": "Tell us your vibe and get 3 tailored movie picks with posters, streaming providers, and personalized recommendations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
