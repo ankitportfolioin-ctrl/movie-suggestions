@@ -88,6 +88,47 @@ export const LANGUAGE_CODES: Record<string, string> = {
   French: 'fr',
 };
 
+// Minimal known-title-to-genre mapping for note-driven genre inference.
+const NOTE_TITLE_GENRES: Record<string, string[]> = {
+  'breaking bad': ['Crime', 'Drama', 'Thriller'],
+  'breakingbad': ['Crime', 'Drama', 'Thriller'],
+  'the godfather': ['Crime', 'Drama'],
+  'thegodfather': ['Crime', 'Drama'],
+  'the dark knight': ['Action', 'Crime', 'Drama', 'Thriller'],
+  'thedarkknight': ['Action', 'Crime', 'Drama', 'Thriller'],
+  'inception': ['Action', 'Sci-Fi', 'Thriller'],
+  'interstellar': ['Adventure', 'Drama', 'Sci-Fi'],
+  'parasite': ['Comedy', 'Drama', 'Thriller', 'Mystery'],
+  'fight club': ['Drama'],
+  'fightclub': ['Drama'],
+  'forrest gump': ['Drama', 'Romance'],
+  'forrestgump': ['Drama', 'Romance'],
+  'the matrix': ['Action', 'Sci-Fi'],
+  'thematrix': ['Action', 'Sci-Fi'],
+  'star wars': ['Action', 'Adventure', 'Fantasy', 'Sci-Fi'],
+  'starwars': ['Action', 'Adventure', 'Fantasy', 'Sci-Fi'],
+  'lord of the rings': ['Adventure', 'Fantasy', 'Drama'],
+  'lordoftherings': ['Adventure', 'Fantasy', 'Drama'],
+  'the shawshank redemption': ['Drama'],
+  'theshawshankredemption': ['Drama'],
+};
+
+function inferGenresFromTitles(titles: string[]): string[] {
+  const inferred: string[] = [];
+  for (const t of titles) {
+    const norm = t.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const matches = Object.entries(NOTE_TITLE_GENRES).find(([known]) =>
+      norm.includes(known) || known.includes(norm)
+    );
+    if (matches) {
+      for (const g of matches[1]) {
+        if (!inferred.includes(g)) inferred.push(g);
+      }
+    }
+  }
+  return inferred;
+}
+
 // In-memory cache for OMDb lookups (1 hour)
 interface CachedOMDb {
   data: any;
@@ -261,18 +302,19 @@ function inferIntensity(movie: MovieItem): string {
   const genreSet = new Set(movie.genres.map((g) => g.toLowerCase()));
   const cert = (movie.certificate || '').toUpperCase();
 
-  // Certificate-based inference (most reliable)
+  // Certificate-based inference (most reliable when available)
+  if (cert === '') return 'Any'; // unknown = treat as no restriction
   if (['G', 'PG', 'TV-G', 'TV-Y', 'TV-Y7', 'TV-PG', 'U'].includes(cert)) return 'No violence';
   if (['PG-13', 'TV-14', '12', '12A'].includes(cert)) return 'Mild';
   if (['R', 'NC-17', 'TV-MA', '15', '18', '18+', 'A', 'X'].includes(cert)) return 'Any';
 
-  // Genre-based inference
+  // Genre-based inference (fallback when certificate is unknown)
   if (genreSet.has('horror') || genreSet.has('war')) return 'Any';
   if (genreSet.has('action') && (genreSet.has('crime') || genreSet.has('thriller'))) return 'Moderate';
   if (genreSet.has('action') || genreSet.has('thriller') || genreSet.has('crime')) return 'Mild';
   if (genreSet.has('family') || genreSet.has('animation') || genreSet.has('comedy')) return 'No violence';
 
-  return 'Mild'; // default
+  return 'Mild'; // default safe fallback
 }
 
 /**
@@ -336,6 +378,10 @@ export async function selectCandidateMovies(
   const quizGenres = surpriseMe
     ? moodGenreList
     : params.genres.filter((g) => g !== 'Surprise me');
+  const namedTitles = [...note.hatedTitles, ...note.lovedTitles];
+  const notedGenres = inferGenresFromTitles(namedTitles);
+  // Supplement quizGenres with genres inferred from noted liked/hated titles.
+  const enrichedGenres = [...new Set([...quizGenres, ...notedGenres])];
 
   const targetLangCodes: string[] = [];
   const quizLangLabels = (params.languages || []).filter(
@@ -372,7 +418,6 @@ export async function selectCandidateMovies(
     }
   }
 
-  const namedTitles = [...note.hatedTitles, ...note.lovedTitles];
   // Build reference titles for exclusion (never recommend reference movies back)
   const referenceTitles: string[] = [];
   if (params.referenceIds && params.referenceIds.length > 0) {

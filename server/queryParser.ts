@@ -414,7 +414,7 @@ function inferGenresFromTitle(title: string, genres: GenreLabel[]): void {
 export async function resolveTitle(
   title: string,
   mediaType: 'movie' | 'tv' = 'movie',
-  tmdbApiKey: string
+  tmdbApiKey?: string | null
 ): Promise<ResolvedTitle | null> {
   if (!tmdbApiKey || !title.trim()) return null;
 
@@ -458,7 +458,7 @@ export async function resolveTitle(
           mediaType,
           title: alt.title || alt.name,
           year: alt._year,
-          imdbId: undefined, // Would need separate call
+          imdbId: undefined,
           confidence: 'low',
         });
       }

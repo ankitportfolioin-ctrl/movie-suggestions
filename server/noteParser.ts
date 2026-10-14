@@ -152,11 +152,12 @@ const NEGATION_WORDS =
  * Fix 2: scope-aware negation. Matches "not a horror movie" and
  * "no supernatural horror" (negation + optional article + up to two
  * intervening adjectives), not just immediately-adjacent "no X".
+ * Window expanded to 64 chars and relaxed trailing match for robustness.
  */
 function hasNegationScope(text: string, index: number): boolean {
-  const before = text.slice(Math.max(0, index - 48), index);
+  const before = text.slice(Math.max(0, index - 64), index);
   return new RegExp(
-    `\\b(?:${NEGATION_WORDS})\\b(?:\\s+(?:a|an|the))?(?:\\s+[a-z]+){0,2}\\s*$`
+    `\\b(?:${NEGATION_WORDS})\\b(?:\\s+(?:a|an|the))?(?:\\s+[a-z]+){0,3}\\s*$`
   ).test(before);
 }
 
@@ -164,13 +165,25 @@ function hasNegationScope(text: string, index: number): boolean {
  * Contrastive "not only X but Y" must NEVER exclude X
  * ("not only funny but emotional" loves comedy, it doesn't ban it).
  * Returns spans [start, end) inside which genre hits stay positive.
+ * Span extends to end of clause after "but"/"however"/period.
  */
 function contrastiveSpans(text: string): [number, number][] {
   const spans: [number, number][] = [];
   const re = /\bnot\s+(?:only|just|merely)\b/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    spans.push([m.index, m.index + m[0].length + 24]);
+    // Find the "but" or "however" or sentence end after "not only"
+    const after = text.slice(m.index + m[0].length);
+    const butMatch = after.match(/\bbut\b/i);
+    const howeverMatch = after.match(/\bhowever\b/i);
+    const sentenceEnd = after.search(/[.!?]/);
+    let end = m.index + m[0].length + (butMatch ? butMatch.index : 100);
+    if (howeverMatch && (!sentenceEnd || howeverMatch.index < sentenceEnd)) {
+      end = m.index + m[0].length + howeverMatch.index;
+    } else if (sentenceEnd >= 0) {
+      end = m.index + m[0].length + sentenceEnd + 1;
+    }
+    spans.push([m.index, end]);
   }
   return spans;
 }
