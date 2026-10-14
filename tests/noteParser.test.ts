@@ -105,7 +105,7 @@ test('detects language hints', () => {
 });
 
 test('empty and garbage notes yield empty signals', () => {
-  assert.deepEqual(parseNote(''), { genres: [], excludeGenres: [], unverifiable: [], moods: [], lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [], excludedPeople: [], likedPeople: [] });
+  assert.deepEqual(parseNote(''), { genres: [], excludeGenres: [], unverifiable: [], moods: [], lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [], excludedPeople: [], likedPeople: [], referenceTitles: [], themeKeywords: [], comparativePreferences: [] });
   assert.deepEqual(parseNote('... !!!').genres, []);
 });
 

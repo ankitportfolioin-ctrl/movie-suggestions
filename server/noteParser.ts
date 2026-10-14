@@ -18,6 +18,8 @@ export interface NoteSignals {
   lovedTitles: string[];
   /** Normalized titles the user dislikes (hard exclusion signal). */
   hatedTitles: string[];
+  /** Reference titles for similarity matching ("like Interstellar"). */
+  referenceTitles: string[];
   /** @deprecated use lovedTitles; kept for compatibility. */
   mentionedTitles: string[];
   /** People to exclude (exact-ish name match against cast/director). */
@@ -29,6 +31,10 @@ export interface NoteSignals {
   runtimeHint?: 'short' | 'long';
   eraHint?: 'recent' | 'classics';
   wantsHighlyRated?: boolean;
+  /** Plot/theme keywords extracted from query. */
+  themeKeywords: string[];
+  /** Comparative preferences ("less dark", "more funny"). */
+  comparativePreferences: Array<{ direction: 'less' | 'more'; attribute: string; reference?: string }>;
 }
 
 const GENRE_KEYWORDS: [RegExp, string][] = [
@@ -46,6 +52,41 @@ const GENRE_KEYWORDS: [RegExp, string][] = [
   [/\bromance\b|\brom-com\b|\bromcom\b|\blove stor/, 'Romance'],
   [/\bsci-?fi\b|\bspace\b|\bcyberpunk\b|\bdystopi/, 'Sci-Fi'],
   [/\bthriller\b|\bspy\b|\bespionage\b/, 'Thriller'],
+];
+
+const THEME_KEYWORDS: [RegExp, string][] = [
+  [/\bspace\b|\bspace travel\b|\binterstellar\b|\bgalaxy\b|\bcosmic\b/, 'space'],
+  [/\btime travel\b|\btemporal\b|\btime loop\b|\btime machine\b/, 'time travel'],
+  [/\bcoming of age\b|\bgrowing up\b|\bteen\b|\badolescen/, 'coming of age'],
+  [/\bheist\b|\bheist movie\b|\bcapers?\b/, 'heist'],
+  [/\bsuperhero\b|\bmarvel\b|\bdc comic\b|\bsuperhero movie\b/, 'superhero'],
+  [/\bzombie\b|\bapocalyps\b|\bpost-apocalyptic\b/, 'zombie'],
+  [/\bvampire\b|\bwerewolf\b|\bcreature feature\b/, 'vampire'],
+  [/\bdetective\b|\bwhodunit\b|\bmystery\b|\bnoir\b/, 'detective'],
+  [/\bwar\b|\bworld war\b|\bwwii\b|\bvietnam war\b/, 'war'],
+  [/\bromance\b|\blove story\b|\bromantic\b/, 'romance'],
+  [/\bfriendship\b|\bbuddy\b|\bplatonic\b/, 'friendship'],
+  [/\bfamily\b|\bparent\b|\bchild\b|\bkid\b/, 'family'],
+  [/\bsurvival\b|\bstranded\b|\bwilderness\b|\bdesert island\b/, 'survival'],
+  [/\bpsychological\b|\bmind bend\b|\btwist\b|\bunreliable narrator\b/, 'psychological'],
+  [/\bmusical\b|\bmusic movie\b|\bsinging\b/, 'musical'],
+  [/\bbiopic\b|\btrue story\b|\bbased on true\b/, 'biopic'],
+  [/\bcourtroom\b|\blegal\b|\blawyer\b/, 'courtroom'],
+  [/\bsports\b|\bathlet\b|\bfootball\b|\bbaseball\b|\bbasketball\b/, 'sports'],
+  [/\bmartial arts\b|\bkung fu\b|\bkarate\b/, 'martial arts'],
+  [/\banimation\b|\banime\b|\bpixar\b|\bdisney\b|\bghibli\b/, 'animation'],
+  [/\bcomedy\b|\bfunny\b|\bhilarious\b/, 'comedy'],
+  [/\bdrama\b|\bserious\b|\bheavy\b|\bemotional\b/, 'drama'],
+  [/\bthriller\b|\bsuspense\b|\bedge of seat\b/, 'thriller'],
+  [/\bhorror\b|\bscary\b|\bcreepy\b/, 'horror'],
+  [/\baction\b|\baction-packed\b|\bhigh octane\b/, 'action'],
+  [/\badventure\b|\bquest\b|\bjourney\b/, 'adventure'],
+  [/\bcrime\b|\bgangster\b|\bmafia\b/, 'crime'],
+  [/\bmystery\b|\bpuzzle\b|\benigma\b/, 'mystery'],
+  [/\bsci.?fi\b|\bfuturistic\b|\bcyberpunk\b|\bdystopi\b/, 'sci-fi'],
+  [/\bfantasy\b|\bmagic\b|\bwizard\b|\bdragon\b/, 'fantasy'],
+  [/\bhistorical\b|\bperiod piece\b|\b19\d\d\b|\b20\d\d\b/, 'historical'],
+  [/\bwestern\b|\bcowboy\b/, 'western'],
 ];
 
 const EXCLUSION_KEYWORDS: [RegExp, string][] = [
@@ -80,6 +121,28 @@ const MOOD_KEYWORDS: [RegExp, string][] = [
   [/\badventur|\bepic\b|\bthrill/, 'Adventurous'],
   [/\bcurious\b|\bmind-?bend|\bthought-?provoking\b|\bclever\b/, 'Curious'],
   [/\bsad\b|\bdown\b|\bblue\b|\bheartbreak\b/, 'Sad'],
+];
+
+// Reference movie patterns: "like X", "similar to X", "in the vein of X", "reminiscent of X"
+const REFERENCE_PATTERNS: RegExp[] = [
+  /\blike\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
+  /\bsimilar to\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
+  /\bin the vein of\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
+  /\breminiscent of\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
+  /\bakin to\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
+  /\bresembles\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
+];
+
+// Comparative patterns: "less dark than X", "more funny than X", "shorter than X"
+const COMPARATIVE_PATTERNS: [RegExp, string][] = [
+  [/\bless\s+(\w+)\s+than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'less'],
+  [/\bmore\s+(\w+)\s+than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'more'],
+  [/\bshorter than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'shorter'],
+  [/\blonger than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'longer'],
+  [/\bdarker than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'darker'],
+  [/\blighter than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'lighter'],
+  [/\bfunnier than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'funnier'],
+  [/\bscarier than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'scarier'],
 ];
 
 const NEGATION_WORDS =
@@ -125,10 +188,46 @@ export function parseNote(rawNote: string): NoteSignals {
     genres: [], excludeGenres: [], unverifiable: [], moods: [],
     lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [],
     excludedPeople: [], likedPeople: [],
+    referenceTitles: [],
+    themeKeywords: [],
+    comparativePreferences: [],
   };
   if (!rawNote || typeof rawNote !== 'string') return signals;
   const text = ` ${rawNote.toLowerCase()} `;
   const guarded = contrastiveSpans(text);
+
+  // Extract reference titles: "like X", "similar to X", etc.
+  for (const pattern of REFERENCE_PATTERNS) {
+    let match;
+    const regex = new RegExp(pattern.source, 'gi');
+    while ((match = regex.exec(rawNote)) !== null) {
+      const title = match[1].trim();
+      if (title.length >= 3 && !['the', 'and', 'with', 'like', 'similar', 'vein', 'reminiscent', 'akin', 'resembles'].includes(title.toLowerCase())) {
+        const norm = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (norm.length >= 3) signals.referenceTitles.push(norm);
+      }
+    }
+  }
+
+  // Extract theme keywords
+  for (const [re, theme] of THEME_KEYWORDS) {
+    if (re.test(text)) signals.themeKeywords.push(theme);
+  }
+
+  // Extract comparative preferences
+  for (const [re, direction] of COMPARATIVE_PATTERNS) {
+    let match;
+    const regex = new RegExp(re.source, 'gi');
+    while ((match = regex.exec(rawNote)) !== null) {
+      const attribute = match[1] || '';
+      const reference = match[2] || '';
+      signals.comparativePreferences.push({
+        direction: direction as 'less' | 'more',
+        attribute: attribute.toLowerCase(),
+        reference: reference ? reference.toLowerCase().replace(/[^a-z0-9]/g, '') : undefined,
+      });
+    }
+  }
 
   // Every occurrence counts: "love horror, but no horror tonight" must
   // register both the positive AND the exclusion (exclusion wins).
@@ -259,6 +358,11 @@ export function parseNote(rawNote: string): NoteSignals {
   signals.lovedTitles = unique(signals.lovedTitles);
   signals.hatedTitles = unique(signals.hatedTitles);
   signals.mentionedTitles = unique(signals.lovedTitles);
+  signals.referenceTitles = unique(signals.referenceTitles);
+  signals.themeKeywords = unique(signals.themeKeywords);
+  signals.comparativePreferences = signals.comparativePreferences.filter((c, i, arr) => 
+    arr.findIndex(x => x.attribute === c.attribute && x.direction === c.direction && x.reference === c.reference) === i
+  );
   signals.excludedPeople = unique(signals.excludedPeople);
   signals.likedPeople = unique(signals.likedPeople).filter(
     (p) => !signals.excludedPeople.includes(p)

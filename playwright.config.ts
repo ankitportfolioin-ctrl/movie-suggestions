@@ -2,16 +2,22 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 60_000,
+  timeout: 120_000,
   fullyParallel: false,
   retries: 0,
-  reporter: [['list']],
+  reporter: [['line']],
   use: {
-    baseURL: process.env.E2E_BASE_URL || 'http://localhost:3101',
+    baseURL: 'http://localhost:3101',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1366, height: 768 } } },
   ],
+  webServer: {
+    command: 'cross-env PORT=3101 npm run dev',
+    url: 'http://localhost:3101',
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
 });

@@ -6,6 +6,8 @@ import {
   Clapperboard,
   Smile,
   Tv,
+  Search,
+  Sparkles,
 } from 'lucide-react';
 import { WizardState, Movie } from './types';
 import { Wizard } from './components/Wizard';
@@ -580,6 +582,70 @@ export default function App() {
 }
 
 function Hero({ onStart }: { onStart: () => void }) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{ id: number; title: string; year: number; genres: string[]; runtime: number; rating: number; overview: string; posterUrl: string; language: string }>>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [showResults, setShowResults] = useState(false);
+  const [searchMode, setSearchMode] = useState<'title' | 'natural'>('title');
+
+  const handleTitleSearch = async (query: string) => {
+    if (!query.trim() || query.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchLoading(true);
+    setSearchError('');
+    try {
+      const res = await fetch(`/api/search-title?q=${encodeURIComponent(query.trim())}`);
+      if (!res.ok) throw new Error('Search failed');
+      const data = await res.json();
+      setSearchResults(data.results || []);
+      setShowResults(true);
+    } catch {
+      setSearchError('Search failed. Please try again.');
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleNaturalSearch = async (query: string) => {
+    if (!query.trim() || query.trim().length < 3) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchLoading(true);
+    setSearchError('');
+    try {
+      const res = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query.trim() }),
+      });
+      if (!res.ok) throw new Error('Search failed');
+      const data = await res.json();
+      setSearchResults(data.movies || []);
+      setShowResults(true);
+    } catch {
+      setSearchError('Search failed. Please try again.');
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (!q) return;
+    if (searchMode === 'title') {
+      handleTitleSearch(q);
+    } else {
+      handleNaturalSearch(q);
+    }
+  };
+
   return (
     <div className="w-full flex flex-col items-center">
       {/* Hero */}
@@ -589,7 +655,7 @@ function Hero({ onStart }: { onStart: () => void }) {
           <span>No more endless scrolling</span>
         </div>
 
-        <h1 className="font-heading text-4xl sm:text-6xl font-bold tracking-tight text-[#F5F5F5] leading-tight">
+        <h1 className="font-heading text-4xl sm:text-6xl font-bold tracking-tight text-[#F5F5F5] leading-tight" aria-label="Movie Night Picker">
           Movie Night{' '}
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#E63946] to-[#FF7A2F]">
             Picker
@@ -601,11 +667,93 @@ function Hero({ onStart }: { onStart: () => void }) {
           recommendations tailored in under 60 seconds.
         </p>
 
+        {/* Search Section */}
+        <div className="mt-8 w-full max-w-xl">
+          <div className="mb-4 flex items-center justify-center gap-2">
+            <button
+              onClick={() => setSearchMode('title')}
+              className={`px-4 py-2 rounded-[10px] text-sm font-medium transition-all ${
+                searchMode === 'title'
+                  ? 'bg-[#FF7A2F] text-white'
+                  : 'bg-[#141414] border border-[#232323] text-[#8C8C8C] hover:text-white hover:border-[#353534]'
+              }`}
+            >
+              Exact Title
+            </button>
+            <button
+              onClick={() => setSearchMode('natural')}
+              className={`px-4 py-2 rounded-[10px] text-sm font-medium transition-all ${
+                searchMode === 'natural'
+                  ? 'bg-[#FF7A2F] text-white'
+                  : 'bg-[#141414] border border-[#232323] text-[#8C8C8C] hover:text-white hover:border-[#353534]'
+              }`}
+            >
+              Natural Language
+            </button>
+          </div>
+          <form onSubmit={handleSearchSubmit} className="relative">
+            <div className="flex items-center gap-2">
+              <Search className="absolute left-3 text-[#8C8C8C] w-5 h-5 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={searchMode === 'title' 
+                  ? 'e.g. Interstellar, The Dark Knight, Parasite' 
+                  : 'e.g. "a space movie like Interstellar but shorter", "feel-good comedy for family"'}
+                className="w-full pl-10 pr-4 py-3 rounded-[12px] bg-[#0A0A0A] border border-[#232323] focus:border-[#FF7A2F] text-[#F5F5F5] placeholder-[#8C8C8C] outline-none transition-all duration-200"
+                maxLength={120}
+                disabled={searchLoading}
+              />
+              {searchLoading && (
+                <span className="absolute right-10 text-[#FF7A2F]">
+                  <Sparkles className="w-5 h-5 animate-spin" />
+                </span>
+              )}
+            </div>
+            {searchError && (
+              <p className="mt-2 text-xs text-[#E63946] text-center">{searchError}</p>
+            )}
+            {showResults && searchResults.length === 0 && !searchLoading && (
+              <p className="mt-2 text-xs text-[#8C8C8C] text-center">No results found. Try a different query.</p>
+            )}
+          </form>
+          {showResults && searchResults.length > 0 && (
+            <div className="mt-6 w-full max-h-96 overflow-y-auto">
+              <h3 className="text-sm font-medium text-[#8C8C8C] mb-3 text-left">Search Results</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {searchResults.map((movie) => (
+                  <div
+                    key={movie.id}
+                    className="p-3 rounded-[12px] bg-[#141414] border border-[#232323] hover:border-[#383838] transition-colors cursor-pointer group"
+                    onClick={() => {
+                      // Navigate to results with this movie as context
+                      setSearchQuery(movie.title);
+                      handleTitleSearch(movie.title);
+                    }}
+                  >
+                    <div className="relative aspect-[2/3] rounded-[8px] overflow-hidden bg-[#232323] mb-2">
+                      <img
+                        src={movie.posterUrl}
+                        alt={movie.title}
+                        className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    </div>
+                    <h4 className="font-medium text-white text-sm truncate group-hover:text-[#FF7A2F] transition-colors">{movie.title}</h4>
+                    <p className="text-xs text-[#8C8C8C] mt-1">{movie.year} • {movie.genres.slice(0, 2).join(', ')} • {movie.runtime}m • {movie.rating}/10</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         <button
           onClick={onStart}
-          className="mt-10 px-8 py-4 rounded-[16px] bg-gradient-to-br from-[#E63946] to-[#FF7A2F] text-white font-heading font-semibold text-lg flex items-center gap-3 transition-all duration-200 hover:shadow-[0_0_25px_-4px_rgba(255,122,47,0.45)] hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+          className="mt-6 px-8 py-4 rounded-[16px] bg-gradient-to-br from-[#E63946] to-[#FF7A2F] text-white font-heading font-semibold text-lg flex items-center gap-3 transition-all duration-200 hover:shadow-[0_0_25px_-4px_rgba(255,122,47,0.45)] hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
         >
-          <span>Start Tonight's Match</span>
+          <span>Start Full Quiz</span>
           <ArrowRight className="w-5 h-5" />
         </button>
       </div>

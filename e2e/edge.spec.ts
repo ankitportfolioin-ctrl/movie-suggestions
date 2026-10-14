@@ -11,7 +11,7 @@ test('keyboard-only completion', async ({ page }) => {
   await page.goto('/');
   await page.keyboard.press('Tab');
   // Focus Start CTA via keyboard and activate
-  await page.getByRole('button', { name: /Start Tonight's Match/ }).focus();
+  await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match/ }).focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
   // Walk 6 steps with keyboard: focus Continue, Enter
@@ -42,7 +42,7 @@ test('refresh mid-flow + back button', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => sessionStorage.clear());
   await page.goto('/');
-  await page.getByRole('button', { name: /Start Tonight's Match/ }).click();
+  await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match/ }).click();
   await page.getByRole('button', { name: 'Continue' }).click(); // Q2
   await page.getByRole('button', { name: /^Comedy/ }).click();
   await page.reload();
@@ -63,7 +63,7 @@ test('double-click Find fires exactly 1 request', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => sessionStorage.clear());
   await page.goto('/');
-  await page.getByRole('button', { name: /Start Tonight's Match/ }).click();
+  await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match/ }).click();
   for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue' }).click();
   let count = 0;
   page.on('request', (r) => {
@@ -91,7 +91,7 @@ test('free-text injection: no crash, no script exec, no raw HTML', async ({ page
     await page.goto('/');
     let alerted = false;
     page.on('dialog', async (d) => { alerted = true; await d.dismiss(); });
-    await page.getByRole('button', { name: /Start Tonight's Match/ }).click();
+    await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match/ }).click();
     for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue' }).click();
     await page.locator('#quiz-user-notes').fill(note.slice(0, 200));
     const [resp] = await Promise.all([
@@ -113,7 +113,7 @@ for (const mode of ['abort', 'timeout-30s', 'malformed', 'http-429', 'http-500']
     await page.goto('/');
     await page.evaluate(() => sessionStorage.clear());
     await page.goto('/');
-    await page.getByRole('button', { name: /Start Tonight's Match/ }).click();
+    await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match/ }).click();
     for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue' }).click();
     await page.route('**/api/recommend', async (route) => {
       if (mode === 'abort') await route.abort('failed');
@@ -151,7 +151,7 @@ test('offline mid-flow', async ({ page, context }) => {
   await page.goto('/');
   await page.evaluate(() => sessionStorage.clear());
   await page.goto('/');
-  await page.getByRole('button', { name: /Start Tonight's Match/ }).click();
+  await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match/ }).click();
   for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue' }).click();
   await context.setOffline(true);
   await page.getByRole('button', { name: 'Find my movies' }).click();

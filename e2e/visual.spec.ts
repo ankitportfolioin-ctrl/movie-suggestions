@@ -18,7 +18,7 @@ async function startQuiz(page: Page) {
   await page.goto('/');
   await page.evaluate(() => sessionStorage.clear());
   await page.goto('/');
-  await page.getByRole('button', { name: /Start Tonight's Match/ }).click();
+  await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match/ }).click();
   await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
 }
 
@@ -46,7 +46,7 @@ test('visual matrix: every state x every viewport', async ({ page }) => {
       if (o.hScroll) layoutIssues.push(`${vp.name} ${step} h-scroll ${o.scrollW}>${o.innerW}`);
     };
     await check('landing');
-    await page.getByRole('button', { name: /Start Tonight's Match/ }).click();
+    await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match/ }).click();
     await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
     await check('q1');
     await page.getByRole('button', { name: 'Continue' }).click();

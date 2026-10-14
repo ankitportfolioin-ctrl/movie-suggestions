@@ -66,7 +66,7 @@ export function assertClean(
 /** Walk the full quiz to results with defaults, returning recommend response. */
 export async function completeQuizToResults(page: Page) {
   await page.goto('/');
-  await page.getByRole('button', { name: /Start Tonight's Match|Start Quiz/ }).first().click();
+  await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match|Start Quiz/ }).first().click();
   // Q1..Q6: keep defaults, click Continue 6 times
   for (let i = 0; i < 6; i++) {
     await page.getByRole('button', { name: 'Continue' }).click();

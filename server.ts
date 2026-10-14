@@ -114,6 +114,207 @@ app.get('/healthz', (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// Exact Title Search Endpoint
+app.get('/api/search-title', rateLimiter, async (req: Request, res: Response) => {
+  try {
+    const query = String(req.query.q || '').trim();
+    if (!query || query.length > 120) {
+      res.status(400).json({ error: 'Invalid query' });
+      return;
+    }
+
+    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
+    if (!tmdbApiKey) {
+      // Fallback to local catalog
+      const { FALLBACK_CATALOG } = await import('./server/catalog.js');
+      const { normalizeTitle } = await import('./server/omdb.js');
+      const normQuery = normalizeTitle(query);
+      const results = FALLBACK_CATALOG
+        .filter(m => normalizeTitle(m.title).includes(normQuery) || normQuery.includes(normalizeTitle(m.title)))
+        .slice(0, 10)
+        .map(m => ({
+          id: m.id,
+          title: m.title,
+          year: m.year,
+          genres: m.genres,
+          runtime: m.runtime,
+          rating: m.rating,
+          overview: m.overview,
+          posterUrl: m.posterUrl,
+          language: m.language,
+        }));
+      res.json({ results, source: 'local' });
+      return;
+    }
+
+    // Search TMDB
+    const searchUrl = `https://api.themoviedb.org/3/search/movie?api_key=${tmdbApiKey}&query=${encodeURIComponent(query)}&include_adult=false`;
+    const searchRes = await fetch(searchUrl, {
+      headers: { 'User-Agent': 'MovieNightPicker/1.0' },
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!searchRes.ok) {
+      res.json({ results: [], source: 'tmdb', error: 'Search failed' });
+      return;
+    }
+
+    const data = await searchRes.json();
+    const results = (data.results || [])
+      .filter((m: any) => m.poster_path && m.release_date)
+      .slice(0, 10)
+      .map((m: any) => ({
+        id: m.id,
+        title: m.title,
+        year: parseInt(m.release_date.slice(0, 4), 10),
+        genres: [],
+        runtime: 0,
+        rating: typeof m.vote_average === 'number' ? Math.round(m.vote_average * 10) / 10 : 0,
+        overview: m.overview || '',
+        posterUrl: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : '',
+        language: m.original_language || 'en',
+      }));
+
+    res.json({ results, source: 'tmdb' });
+  } catch (err) {
+    console.error('Title search error:', err);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// Natural Language Search Endpoint
+app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { query, excludeIds } = req.body || {};
+    if (!query || typeof query !== 'string' || query.trim().length < 3) {
+      res.status(400).json({ error: 'Invalid query' });
+      return;
+    }
+
+    // Parse the natural language query into structured params
+    const { parseNote } = await import('./server/noteParser.js');
+    const note = parseNote(query);
+
+    // Build recommendation params from parsed note
+    const mood = note.moods[0] || 'Relaxed';
+    const genres = note.genres.length > 0 ? note.genres : ['Surprise me'];
+    const audience = 'Just me';
+    const maxRuntime = note.runtimeHint === 'short' ? 'Under 90 min' : 
+                       note.runtimeHint === 'long' ? 'Under 2.5 hours' : 'Under 2 hours';
+    const languages = note.languageHints.length > 0 ? note.languageHints : ['Any'];
+    const preferences = {
+      highlyRated: note.wantsHighlyRated || false,
+      hiddenGems: false,
+      recent: note.eraHint === 'recent',
+      classics: note.eraHint === 'classics',
+      mature: false,
+    };
+    const excludeGenres = note.excludeGenres;
+    const excludePeople = note.excludedPeople;
+
+    // Use the existing recommendation pipeline with parsed params
+    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
+    let extraCandidates: MovieItem[] = [];
+    if (tmdbApiKey) {
+      try {
+        const found = await discoverCandidates(
+          {
+            genres,
+            languages,
+            maxRuntime,
+            highlyRated: preferences.highlyRated,
+            recent: preferences.recent,
+            classics: preferences.classics,
+            family: audience === 'Family with kids',
+            mature: preferences.mature,
+            excludeIds: excludeIds || [],
+          },
+          tmdbApiKey
+        );
+        if (found && found.length > 0) {
+          const runtimes = await enrichRuntimes(found, tmdbApiKey);
+          for (const m of found) {
+            const details = runtimes.get(m.id);
+            if (details) {
+              if (details.runtime > 0) m.runtime = details.runtime;
+              if (details.genres.length > 0) m.genres = details.genres;
+            }
+          }
+          extraCandidates = found;
+        }
+      } catch {
+        extraCandidates = [];
+      }
+    }
+
+    const { FALLBACK_CATALOG } = await import('./server/catalog.js');
+    const pool = [...FALLBACK_CATALOG, ...extraCandidates];
+
+    // Apply note-based genre exclusions
+    let filtered = pool.filter(m => !excludeGenres.some(g => m.genres.includes(g)));
+
+    // Apply people exclusions (basic - would need OMDb enrichment for full cast)
+    // For now, just filter by note
+
+    // Apply hard filters
+    const { runtimeCap } = await import('./server/omdb.js');
+    const maxMinutes = runtimeCap(maxRuntime);
+    filtered = filtered.filter(m => m.runtime <= maxMinutes);
+
+    if (languages.length > 0 && !languages.includes('Any')) {
+      const { LANGUAGE_CODES } = await import('./server/omdb.js');
+      const langCodes = languages.map(l => LANGUAGE_CODES[l]).filter(Boolean);
+      filtered = filtered.filter(m => langCodes.includes(m.language));
+    }
+
+    if (preferences.highlyRated) {
+      filtered = filtered.filter(m => m.rating >= 7.0);
+    }
+
+    const currentYear = new Date().getFullYear();
+    if (preferences.recent) {
+      filtered = filtered.filter(m => m.year >= currentYear - 5);
+    }
+    if (preferences.classics) {
+      filtered = filtered.filter(m => m.year < 2000);
+    }
+
+    // Remove excluded IDs
+    const excludeSet = new Set(excludeIds || []);
+    filtered = filtered.filter(m => !excludeSet.has(m.id));
+
+    // Simple ranking by genre overlap + rating
+    const moodGenresMap = (await import('./server/omdb.js')).MOOD_GENRES;
+    const moodGenreList = moodGenresMap[mood] || ['Comedy', 'Adventure'];
+    const quizGenres = genres.includes('Surprise me') ? moodGenreList : genres.filter(g => g !== 'Surprise me');
+
+    const scored = filtered.map(movie => {
+      let score = movie.rating * 2; // rating base
+      const genreOverlap = movie.genres.filter(g => quizGenres.includes(g)).length;
+      score += genreOverlap * 3;
+      const moodOverlap = movie.genres.filter(g => moodGenreList.includes(g)).length;
+      score += moodOverlap * 2;
+      return { movie, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const top3 = scored.slice(0, 3).map((s, idx) => ({
+      ...s.movie,
+      matchScore: 95 - idx * 2,
+      reason: `Matches your ${mood.toLowerCase()} mood with ${s.movie.genres.slice(0,2).join(' & ')}.`,
+    }));
+
+    res.json({ 
+      movies: top3, 
+      parsed: { mood, genres, excludeGenres, runtimeHint: note.runtimeHint, languageHints: note.languageHints, eraHint: note.eraHint },
+      notices: excludeGenres.length > 0 ? [`Excluding ${excludeGenres.join(', ')}`] : [],
+    });
+  } catch (err) {
+    console.error('Natural language search error:', err);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
 // Artwork proxy: GET /img/:size/:host/:path* (E11 — the browser never
 // requests image.tmdb.org, m.media-amazon.com or cdn.watchmode.com
 // directly). Disk-cached, long Cache-Control.

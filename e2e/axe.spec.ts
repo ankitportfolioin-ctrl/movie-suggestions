@@ -7,7 +7,7 @@ test('axe: landing, q1, results, error', async ({ page }) => {
   await page.goto('/');
   let r = await new AxeBuilder({ page }).analyze();
   console.log('AXE-landing: ' + JSON.stringify(r.violations.map((v) => `${v.impact}/${v.id}/${v.nodes.length}`)));
-  await page.getByRole('button', { name: /Start Tonight's Match/ }).click();
+  await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match/ }).click();
   r = await new AxeBuilder({ page }).analyze();
   console.log('AXE-q1: ' + JSON.stringify(r.violations.map((v) => `${v.impact}/${v.id}/${v.nodes.length}`)));
   for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue' }).click();
