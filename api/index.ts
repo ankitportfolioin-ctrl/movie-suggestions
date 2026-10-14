@@ -243,6 +243,70 @@ app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) =>
   }
 });
 
+// Natural language search endpoint
+app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { text, structuredInputs } = req.body;
+    if (!text || typeof text !== 'string') {
+      res.status(400).json({ error: 'Query text is required' });
+      return;
+    }
+
+    // Parse the natural language query
+    const parsed = await import('./server/queryParser.js');
+    const preferences = await parsed.parseUserQuery(text, structuredInputs);
+
+    // Build recommendation params from parsed query
+    const recParams: any = {
+      mood: preferences.mood ? preferences.mood[0] : undefined,
+      genres: preferences.genres,
+      audience: preferences.audience || 'Just me',
+      maxRuntime: preferences.maxRuntimeMinutes !== undefined ? 
+        (preferences.maxRuntimeMinutes <= 90 ? 'Under 90 min' : preferences.maxRuntimeMinutes <= 120 ? 'Under 2 hours' : 'Under 2.5 hours') : 'Any length',
+      languages: preferences.language ? [preferences.language] : ['Any'],
+      preferences: {
+        highlyRated: preferences.highlyRated || false,
+        hiddenGems: false,
+        recent: false,
+        classics: false,
+        mature: false,
+      },
+      note: preferences.originalQuery ? undefined : null,
+      excludeIds: [],
+      referenceIds: [],
+    };
+
+    // Add any available structured data
+    if (preferences.genres && preferences.genres.length > 0) {
+      recParams.genres = preferences.genres;
+    }
+    if (preferences.mood) {
+      recParams.mood = preferences.mood;
+    }
+    if (preferences.maxRuntimeMinutes !== undefined) {
+      recParams.maxRuntime = preferences.maxRuntimeMinutes <= 90 ? 'Under 90 min' : 
+        preferences.maxRuntimeMinutes <= 120 ? 'Under 2 hours' : 'Under 2.5 hours';
+    }
+    if (preferences.language) {
+      recParams.languages = [preferences.language];
+    }
+
+    // Get recommendations
+    const omdbApiKey = process.env.OMDB_API_KEY?.trim();
+    const { movies: recommended, notices, effective } = await import('./server/omdb.js').then(m => m.getRecommendationsWithOMDb)(recParams, omdbApiKey);
+
+    res.json({ 
+      preferences,
+      movies: recommended,
+      notices,
+      effective 
+    });
+  } catch (err) {
+    console.error('Search error:', err);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
 // Artwork proxy: GET /img/:size/:host/:path* (E11)
 app.get('/img/:size/:host/*', async (req: Request, res: Response) => {
   try {
