@@ -10,3 +10,11 @@ coverage/
 .playwright-mcp/
 test-results/
 /playwright-report/
+
+data/
+*.db
+*.db-*
+server/img.ts.bak
+tests/*.bak
+release-report/
+eval/

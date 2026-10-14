@@ -1,0 +1,341 @@
+// Vercel serverless entry point
+import { fileURLToPath } from 'url';
+import path from 'path';
+import express, { Request, Response, NextFunction } from 'express';
+import helmet from 'helmet';
+import dotenv from 'dotenv';
+import {
+  getRecommendationsWithOMDb,
+  LANGUAGE_CODES,
+} from './server/omdb.js';
+import { MovieItem } from './server/catalog.js';
+import { discoverCandidates, enrichRuntimes } from './server/discovery.js';
+import { validateRecommendBody } from './server/validate.js';
+import { enforceHardConstraints } from './server/gate.js';
+import { runtimeCap } from './server/omdb.js';
+import { enhanceWithGemini } from './server/ai.js';
+import { attachLiveProviders } from './server/watchmode.js';
+import {
+  FALLBACK_PNG,
+  contentTypeFor,
+  fetchUpstream,
+  isValidImgHost,
+  isValidImgPath,
+  isValidImgSize,
+  readCached,
+  toLocalImg,
+  writeCached,
+} from './server/img.js';
+import {
+  LEARNING_ENABLED,
+  MAX_EVENT_BODY_BYTES,
+  EVENT_BURST_WINDOW_MS,
+  EVENT_BURST_PER_ANON,
+  EVENT_BURST_PER_IPHASH,
+  anonOverDailyCap,
+  buildContextKey,
+  burstExceeded,
+  findImpression,
+  hashIp,
+  normalizeAnonId,
+  openLearningDb,
+  recordEvent,
+  recordImpressions,
+  signImpression,
+  validateEventBody,
+  verifyImpression,
+  type BurstSlot,
+} from './server/learning.js';
+
+dotenv.config();
+
+const app = express();
+
+// Security Headers (CSP off in dev so Vite HMR/inline preamble isn't blocked)
+const isProd = process.env.NODE_ENV === 'production';
+app.use(helmet({ contentSecurityPolicy: isProd ? undefined : false }));
+
+// Same-origin only: the client is served by this server, no CORS needed.
+app.use(express.json({ limit: '50kb' }));
+
+// In-memory rate limiting: 30 requests per 10 minutes per IP
+interface RateLimitEntry {
+  count: number;
+  resetTime: number;
+}
+const rateLimits = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_WINDOW = 10 * 60 * 1000; // 10 minutes
+const MAX_REQUESTS = 30;
+
+function rateLimiter(req: Request, res: Response, next: NextFunction) {
+  const ip = req.socket.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
+  const now = Date.now();
+
+  if (rateLimits.size > 1000) {
+    for (const [k, v] of rateLimits) if (v.resetTime <= now) rateLimits.delete(k);
+  }
+
+  const entry = rateLimits.get(ip);
+  if (!entry || entry.resetTime <= now) {
+    rateLimits.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return next();
+  }
+
+  if (entry.count >= MAX_REQUESTS) {
+    res.status(429).json({ error: 'Too many requests. Please try again later.' });
+    return;
+  }
+
+  entry.count += 1;
+  next();
+}
+
+// Learning store (Step 1): signed impressions + feedback events + priors.
+// Disabled entirely when LEARNING_ENABLED=false.
+const learningDb = LEARNING_ENABLED ? openLearningDb() : null;
+// Burst gates for /api/event: per anonId and per hashed IP (raw IPs never stored).
+const eventBursts = new Map<string, BurstSlot>();
+
+// Configuration Constants
+export const AI_ENABLED = true;
+
+// Health Check
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({ ok: true });
+});
+app.get('/healthz', (_req: Request, res: Response) => {
+  res.json({ ok: true });
+});
+
+// Artwork proxy: GET /img/:size/:host/:path* (E11)
+app.get('/img/:size/:host/*', async (req: Request, res: Response) => {
+  try {
+    const size = String(req.params.size || '');
+    const host = String(req.params.host || '');
+    const imgPath = `/${(req.params as unknown as string[])[0] || ''}`;
+    if (!isValidImgSize(size) || !isValidImgHost(host) || !isValidImgPath(imgPath)) {
+      res.status(400).json({ error: 'Invalid image request' });
+      return;
+    }
+    const cached = readCached(size, host, imgPath);
+    if (cached) {
+      res.setHeader('Content-Type', contentTypeFor(cached.ext, null));
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.send(cached.body);
+      return;
+    }
+    try {
+      const up = await fetchUpstream(size, host, imgPath);
+      writeCached(size, host, imgPath, up.body);
+      res.setHeader('Content-Type', contentTypeFor('', up.contentType));
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.send(up.body);
+    } catch {
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.send(FALLBACK_PNG);
+    }
+  } catch {
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// Recommend Endpoint
+app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
+  try {
+    const validation = validateRecommendBody(req.body);
+    if (!validation.ok) {
+      res.status(400).json({ error: validation.error });
+      return;
+    }
+    const sanitizedParams = validation.params;
+
+    // 2. Live discovery: widen the candidate pool via TMDB when configured.
+    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
+    let extraCandidates: MovieItem[] = [];
+    if (tmdbApiKey) {
+      try {
+        const found = await discoverCandidates(
+          {
+            genres: sanitizedParams.genres,
+            languages: sanitizedParams.languages,
+            maxRuntime: sanitizedParams.maxRuntime,
+            highlyRated: Boolean(sanitizedParams.preferences?.highlyRated),
+            recent: Boolean(sanitizedParams.preferences?.recent),
+            classics: Boolean(sanitizedParams.preferences?.classics),
+            family: sanitizedParams.audience === 'Family with kids',
+            mature: Boolean(sanitizedParams.preferences?.mature),
+            excludeIds: sanitizedParams.excludeIds || [],
+          },
+          tmdbApiKey
+        );
+        if (found && found.length > 0) {
+          const runtimes = await enrichRuntimes(found, tmdbApiKey);
+          for (const m of found) {
+            const details = runtimes.get(m.id);
+            if (details) {
+              if (details.runtime > 0) m.runtime = details.runtime;
+              if (details.genres.length > 0) m.genres = details.genres;
+            }
+          }
+          extraCandidates = found;
+        }
+      } catch {
+        extraCandidates = [];
+      }
+    }
+
+    // 3. Recommend (filter → rank → diversify) + enrich via OMDb API
+    const omdbApiKey = process.env.OMDB_API_KEY?.trim();
+    const {
+      movies: recommended,
+      notices,
+      effective,
+    } = await getRecommendationsWithOMDb(sanitizedParams, omdbApiKey, extraCandidates);
+
+    // 3b. Final gate: enforce the REQUESTED constraints on enriched values
+    const requestedLangCodes: string[] = [];
+    if (
+      sanitizedParams.languages.length > 0 &&
+      !sanitizedParams.languages.includes('Any')
+    ) {
+      for (const l of sanitizedParams.languages) {
+        if (LANGUAGE_CODES[l]) requestedLangCodes.push(LANGUAGE_CODES[l]);
+      }
+    }
+    const gated = enforceHardConstraints(recommended, {
+      maxMinutes: runtimeCap(sanitizedParams.maxRuntime),
+      maxRuntimeLabel: sanitizedParams.maxRuntime,
+      langCodes: requestedLangCodes,
+      highlyRated: effective.highlyRated,
+      recent: effective.recent,
+      classics: effective.classics,
+      audience: sanitizedParams.audience,
+      matureAllowed:
+        sanitizedParams.audience !== 'Family with kids' &&
+        Boolean(sanitizedParams.preferences?.mature),
+    });
+    let picks = gated.movies;
+    const allNotices = [...notices, ...gated.relaxed];
+
+    // 3. Optional server-side AI reasoning
+    if (AI_ENABLED && process.env.GEMINI_API_KEY && picks.length > 0) {
+      picks = await enhanceWithGemini(
+        picks,
+        sanitizedParams.mood,
+        sanitizedParams.audience,
+        sanitizedParams.note
+      );
+    }
+
+    // 4. Live "where to watch" availability via Watchmode
+    const watchmodeKey = process.env.WATCHMODE_API_KEY?.trim();
+    if (watchmodeKey && picks.length > 0) {
+      const region = (process.env.WATCHMODE_REGION || 'IN').trim().toUpperCase();
+      picks = await attachLiveProviders(picks, watchmodeKey, region);
+    }
+
+    // 5. E11: serve all artwork through our /img proxy
+    for (const m of picks as { posterUrl: string; providers: { logoUrl: string }[] }[]) {
+      const local = toLocalImg(m.posterUrl);
+      if (local) m.posterUrl = local;
+      for (const p of m.providers || []) {
+        const ll = toLocalImg(p.logoUrl);
+        if (ll) p.logoUrl = ll;
+      }
+    }
+
+    // 6. Learning (Step 1): one signed impression per shown pick.
+    let impressionTokens: { movieId: number; impressionId: string; token: string }[] = [];
+    if (learningDb) {
+      const anonId = normalizeAnonId((req.body as { anonId?: unknown } | null)?.anonId);
+      const contextKey = buildContextKey(sanitizedParams, sanitizedParams.note);
+      const ts = Date.now();
+      const rows = picks.map((m, idx) => ({
+        impressionId: randomUUID(),
+        anonId,
+        ts,
+        contextKey,
+        movieId: m.id,
+        slot: idx,
+        rankPosition: idx + 1,
+        isExploration: 0,
+        explorationProb: 0,
+        scoreBreakdownJson: JSON.stringify({ matchScore: m.matchScore ?? null }),
+        variant: 'control',
+      }));
+      recordImpressions(learningDb, rows);
+      impressionTokens = rows.map((r) => ({
+        movieId: r.movieId,
+        impressionId: r.impressionId,
+        token: signImpression(r.impressionId, r.movieId, anonId),
+      }));
+    }
+
+    res.json({ movies: picks, notices: allNotices, impressionTokens });
+  } catch {
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// Learning events (Step 1): feedback for a shown impression.
+app.post('/api/event', rateLimiter, async (req: Request, res: Response) => {
+  try {
+    if (!LEARNING_ENABLED || !learningDb) {
+      res.status(503).json({ error: 'Learning is disabled' });
+      return;
+    }
+    if (JSON.stringify(req.body ?? null).length > MAX_EVENT_BODY_BYTES) {
+      res.status(413).json({ error: 'Event too large' });
+      return;
+    }
+    const validation = validateEventBody(req.body);
+    if (!validation.ok) {
+      res.status(validation.status).json({ error: validation.error });
+      return;
+    }
+    const evt = validation.value;
+    const now = Date.now();
+    if (burstExceeded(eventBursts, `anon:${evt.anonId}`, EVENT_BURST_PER_ANON, EVENT_BURST_WINDOW_MS, now)) {
+      res.status(429).json({ error: 'Too many events. Please try again later.' });
+      return;
+    }
+    const ipHash = hashIp(req.socket.remoteAddress || req.headers['x-forwarded-for'] || 'unknown');
+    if (burstExceeded(eventBursts, `ip:${ipHash}`, EVENT_BURST_PER_IPHASH, EVENT_BURST_WINDOW_MS, now)) {
+      res.status(429).json({ error: 'Too many events. Please try again later.' });
+      return;
+    }
+    const ver = verifyImpression(evt.token, evt.anonId);
+    if (!ver.ok) {
+      res.status(401).json({ error: 'Invalid or expired event token' });
+      return;
+    }
+    if (ver.impressionId !== evt.impressionId || ver.movieId !== evt.movieId) {
+      res.status(401).json({ error: 'Event does not match its token' });
+      return;
+    }
+    const imp = findImpression(learningDb, ver.impressionId);
+    if (!imp || imp.movieId !== evt.movieId || imp.anonId !== evt.anonId) {
+      res.status(401).json({ error: 'Unknown impression' });
+      return;
+    }
+    if (anonOverDailyCap(learningDb, evt.anonId, now)) {
+      res.status(429).json({ error: 'Daily event cap reached' });
+      return;
+    }
+    const outcome = recordEvent(learningDb, {
+      eventId: evt.eventId,
+      impressionId: evt.impressionId,
+      anonId: evt.anonId,
+      action: evt.action,
+      movieId: evt.movieId,
+      ts: now,
+    });
+    res.json({ ok: true, duplicate: outcome === 'duplicate' });
+  } catch {
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// Export for Vercel serverless
+export default app;
