@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
 import { Movie } from '../types';
-import { Star, Clock, BookmarkPlus, BookmarkCheck, ExternalLink, Shuffle } from 'lucide-react';
+import { Star, Clock, BookmarkPlus, BookmarkCheck, ExternalLink, Shuffle, ThumbsDown, Eye } from 'lucide-react';
 
 interface MovieCardProps {
   movie: Movie;
   index: number;
   saved?: boolean;
+  dismissed?: boolean;
   onToggleSave?: (movie: Movie) => void;
   onMoreLike?: (movie: Movie) => void;
+  onNotForMe?: (movie: Movie) => void;
+  onSeenIt?: (movie: Movie) => void;
+  onWatchOptions?: (movie: Movie) => void;
 }
 
-export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, onToggleSave, onMoreLike }) => {
+export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, onToggleSave, onMoreLike, onNotForMe, onSeenIt, onWatchOptions }) => {
   const [imageError, setImageError] = useState(false);
   const [brokenLogos, setBrokenLogos] = useState<Set<string>>(new Set());
 
@@ -25,6 +29,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, onToggleSave
   const matchScore = movie.matchScore ?? 95;
 
   const handleWatchOptions = () => {
+    onWatchOptions?.(movie);
     window.open(
       `https://www.google.com/search?q=watch+${encodeURIComponent(movie.title)}+movie`,
       '_blank',
@@ -169,7 +174,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, onToggleSave
       <div className="px-4 py-3.5 border-t border-[#232323] bg-[#0e0e0e]/50 flex items-center justify-between gap-1">
         <button
           onClick={() => onToggleSave?.(movie)}
-          className={`text-[13px] flex items-center gap-1.5 transition-colors cursor-pointer ${
+          className={`text-[13px] flex items-center gap-1.5 transition-colors cursor-pointer min-h-[44px] ${
             saved ? 'text-[#FF7A2F] font-semibold' : 'text-[#8C8C8C] hover:text-white'
           }`}
         >
@@ -180,7 +185,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, onToggleSave
         <button
           onClick={() => onMoreLike?.(movie)}
           title="Find more movies like this one"
-          className="text-[13px] text-[#8C8C8C] hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+          className="text-[13px] text-[#8C8C8C] hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer min-h-[44px]"
         >
           <Shuffle size={14} />
           <span>More like this</span>
@@ -188,10 +193,32 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, onToggleSave
 
         <button
           onClick={handleWatchOptions}
-          className="text-[#FF7A2F] hover:text-white text-[13px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+          className="text-[#FF7A2F] hover:text-white text-[13px] font-semibold flex items-center gap-1 transition-colors cursor-pointer min-h-[44px]"
         >
           <span>Watch options</span>
           <ExternalLink size={14} />
+        </button>
+      </div>
+
+      {/* Feedback row: Seen it / Not for me (both exclude from future picks) */}
+      <div className="px-4 pb-3.5 pt-1 flex items-center gap-2">
+        <button
+          onClick={() => onSeenIt?.(movie)}
+          disabled={dismissed}
+          title="I've seen this — don't show it again"
+          className="flex-1 min-h-[44px] rounded-[12px] bg-[#0A0A0A] border border-[#232323] hover:border-[#383838] text-[#8C8C8C] hover:text-[#F5F5F5] text-[13px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+        >
+          <Eye size={14} />
+          <span>{dismissed ? 'Marked' : 'Seen it'}</span>
+        </button>
+        <button
+          onClick={() => onNotForMe?.(movie)}
+          disabled={dismissed}
+          title="Not for me — don't show it again"
+          className="flex-1 min-h-[44px] rounded-[12px] bg-[#0A0A0A] border border-[#232323] hover:border-[#E63946] text-[#8C8C8C] hover:text-white text-[13px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+        >
+          <ThumbsDown size={14} />
+          <span>{dismissed ? 'Marked' : 'Not for me'}</span>
         </button>
       </div>
     </article>

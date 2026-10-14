@@ -11,6 +11,12 @@ import { WizardState, Movie } from './types';
 import { Wizard } from './components/Wizard';
 import { ResultsView } from './components/ResultsView';
 import { SavedPicksView } from './components/SavedPicksView';
+import {
+  getAnonId,
+  resetTaste,
+  sendFeedbackEvent,
+  type ImpressionToken,
+} from './feedback';
 
 const INITIAL_STATE: WizardState = {
   step: 0,
@@ -113,6 +119,10 @@ export default function App() {
   const [loadError, setLoadError] = useState(false);
   const [seenMovieIds, setSeenMovieIds] = useState<number[]>(() => loadQuiz()?.seen ?? []);
   const [isLoading, setIsLoading] = useState(false);
+  // Signed impression tokens for the currently shown picks (Step 1/2 learning).
+  const [impressionTokens, setImpressionTokens] = useState<ImpressionToken[]>([]);
+  // Movies the user dismissed via Seen it / Not for me (excluded going forward).
+  const [dismissedIds, setDismissedIds] = useState<number[]>([]);
   const [showSaved, setShowSaved] = useState(false);
   const [saved, setSaved] = useState<Movie[]>(loadSaved);
   // Steps the user has actively answered (drives the Session Snapshot).
@@ -141,6 +151,12 @@ export default function App() {
       // Storage unavailable: quiz simply won't survive refresh.
     }
   }, [wizardState, movies, notices, seenMovieIds, touched]);
+
+  // D-SCROLL-01: reset scroll on step change so small screens never
+  // open mid-question with a clipped heading.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [wizardState.step]);
 
   // Update wizard properties
   const handleUpdate = (updates: Partial<WizardState>) => {
@@ -182,14 +198,48 @@ export default function App() {
     setLoadError(false);
     setSeenMovieIds([]);
     setTouched([]);
+    setImpressionTokens([]);
+    setDismissedIds([]);
   };
 
+  const tokenFor = (movieId: number): ImpressionToken | undefined =>
+    impressionTokens.find((t) => t.movieId === movieId);
+
   const toggleSave = (movie: Movie) => {
+    const isSaving = !saved.some((m) => m.id === movie.id);
     setSaved((prev) =>
       prev.some((m) => m.id === movie.id)
         ? prev.filter((m) => m.id !== movie.id)
         : [...prev, movie]
     );
+    // Unsaving is ambiguous (cleanup, not dislike): only saves send a signal.
+    if (isSaving) {
+      const tok = tokenFor(movie.id);
+      if (tok) void sendFeedbackEvent(tok, 'save');
+    }
+  };
+
+  const dismissMovie = (movie: Movie, action: 'seen_it' | 'not_for_me') => {
+    const tok = tokenFor(movie.id);
+    if (tok) void sendFeedbackEvent(tok, action);
+    // Never shown again: fold into the exclusion list for future fetches.
+    setSeenMovieIds((prev) => (prev.includes(movie.id) ? prev : [...prev, movie.id]));
+    setDismissedIds((prev) => (prev.includes(movie.id) ? prev : [...prev, movie.id]));
+  };
+
+  const handleNotForMe = (movie: Movie) => dismissMovie(movie, 'not_for_me');
+  const handleSeenIt = (movie: Movie) => dismissMovie(movie, 'seen_it');
+
+  const handleWatchOptions = (movie: Movie) => {
+    const tok = tokenFor(movie.id);
+    if (tok) void sendFeedbackEvent(tok, 'provider_click');
+  };
+
+  const handleResetTaste = () => {
+    // Clears the anonymous taste profile on this device (Step 2).
+    // Server-side row deletion for the anonId lands in Step 3.
+    resetTaste();
+    setDismissedIds([]);
   };
 
   // Fetch recommendations from /api/recommend
@@ -215,12 +265,15 @@ export default function App() {
         preferences: wizardState.preferences,
         note: wizardState.note,
         excludeIds: currentExcludes,
+        anonId: getAnonId(),
       };
 
       const res = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        // D-TIMEOUT-01: never wait forever; 20s then friendly error state.
+        signal: AbortSignal.timeout(20000),
       });
 
       if (!res.ok) {
@@ -232,6 +285,16 @@ export default function App() {
       setNotices(
         Array.isArray(data.notices) ? data.notices.filter((n: unknown) => typeof n === 'string') : []
       );
+      setImpressionTokens(
+        Array.isArray(data.impressionTokens)
+          ? data.impressionTokens.filter(
+              (t: unknown): t is ImpressionToken =>
+                !!t && typeof (t as ImpressionToken).movieId === 'number' &&
+                typeof (t as ImpressionToken).impressionId === 'string' &&
+                typeof (t as ImpressionToken).token === 'string'
+            )
+          : []
+      );
 
       setMovies(newMovies);
       const newIds = newMovies.map((m) => m.id);
@@ -242,6 +305,7 @@ export default function App() {
       // In case of error, set empty movies so error state is shown cleanly
       setMovies([]);
       setNotices([]);
+      setImpressionTokens([]);
       setLoadError(true);
     } finally {
       setIsLoading(false);
@@ -259,6 +323,8 @@ export default function App() {
   ]);
 
   const handleMoreLike = (movie: Movie) => {
+    const tok = tokenFor(movie.id);
+    if (tok) void sendFeedbackEvent(tok, 'more_like_this');
     // Seed a fresh search from this movie's own genres, excluding seen titles.
     const seeded = movie.genres.filter((g) => MORE_LIKE_GENRES.has(g)).slice(0, 2);
     const nextGenres = seeded.length > 0 ? seeded : ['Surprise me'];
@@ -267,6 +333,11 @@ export default function App() {
   };
 
   const handleCycle = () => {
+    // "Show different picks": one negative signal per rejected pick.
+    for (const m of movies) {
+      const tok = tokenFor(m.id);
+      if (tok) void sendFeedbackEvent(tok, 'different_picks');
+    }
     // Fresh rotation: deal a new triad excluding only what's on screen,
     // forgetting older history so the pool stays large.
     const currentIds = movies.map((m) => m.id);
@@ -423,8 +494,13 @@ export default function App() {
             onRetry={() => fetchRecommendations()}
             onBackToFilters={handleBackToFilters}
             saved={saved}
+            dismissedIds={dismissedIds}
             onToggleSave={toggleSave}
             onMoreLike={handleMoreLike}
+            onNotForMe={handleNotForMe}
+            onSeenIt={handleSeenIt}
+            onWatchOptions={handleWatchOptions}
+            onResetTaste={handleResetTaste}
           />
         )}
       </main>
@@ -435,9 +511,9 @@ export default function App() {
           <div className="flex items-center gap-2 text-sm">
             <Clapperboard size={15} className="text-[#FF7A2F]" />
             <span className="font-heading font-semibold text-[#F5F5F5]">CineMatch</span>
-            <span className="text-[#8C8C8C] text-xs">© 2025 CineMatch.</span>
+            <span className="text-[#8C8C8C] text-xs">© 2026 CineMatch.</span>
           </div>
-          <div className="flex items-center gap-4 text-xs text-[#666666]">
+          <div className="flex items-center gap-4 text-xs text-[#8C8C8C]">
             <a href="https://www.omdbapi.com/" target="_blank" rel="noopener noreferrer" className="hover:text-[#FF7A2F] transition-colors">OMDb</a>
             <span>·</span>
             <a href="https://watchmode.com/" target="_blank" rel="noopener noreferrer" className="hover:text-[#FF7A2F] transition-colors">Watchmode</a>
@@ -445,7 +521,7 @@ export default function App() {
             <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer" className="hover:text-[#FF7A2F] transition-colors">TMDB</a>
           </div>
         </div>
-        <div className="w-full pb-4 text-center text-[11px] text-[#666666]">
+        <div className="w-full pb-4 text-center text-[11px] text-[#8C8C8C]">
           <span>No accounts · No tracking · Your picks stay in this browser</span>
         </div>
       </footer>

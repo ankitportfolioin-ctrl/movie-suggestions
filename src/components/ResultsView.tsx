@@ -14,8 +14,13 @@ interface ResultsViewProps {
   onRetry: () => void;
   onBackToFilters: () => void;
   saved: Movie[];
+  dismissedIds: number[];
   onToggleSave: (movie: Movie) => void;
   onMoreLike: (movie: Movie) => void;
+  onNotForMe: (movie: Movie) => void;
+  onSeenIt: (movie: Movie) => void;
+  onWatchOptions: (movie: Movie) => void;
+  onResetTaste: () => void;
 }
 
 const LOADER_MESSAGES = [
@@ -36,8 +41,13 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   onRetry,
   onBackToFilters,
   saved,
+  dismissedIds,
   onToggleSave,
   onMoreLike,
+  onNotForMe,
+  onSeenIt,
+  onWatchOptions,
+  onResetTaste,
 }) => {
   const [tickerIndex, setTickerIndex] = useState(0);
 
@@ -130,6 +140,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   }
 
   const savedIds = new Set(saved.map((m) => m.id));
+  const dismissed = new Set(dismissedIds);
 
   return (
     <div className="w-full max-w-6xl mx-auto px-4 py-8 flex flex-col items-center space-y-10 animate-fade-in">
@@ -167,15 +178,19 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             movie={movie}
             index={index}
             saved={savedIds.has(movie.id)}
+            dismissed={dismissed.has(movie.id)}
             onToggleSave={onToggleSave}
             onMoreLike={onMoreLike}
+            onNotForMe={onNotForMe}
+            onSeenIt={onSeenIt}
+            onWatchOptions={onWatchOptions}
           />
         ))}
       </div>
 
       {/* Nudge + Actions */}
       <div className="flex flex-col items-center w-full max-w-2xl gap-4 pt-2">
-        <p className="text-xs text-[#666666] text-center leading-relaxed">
+        <p className="text-xs text-[#8C8C8C] text-center leading-relaxed">
           None of these hitting the exact spot? Cycle to an alternative cinematic
           triad or alter your constraints.
         </p>
@@ -206,6 +221,16 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             <span>Start over</span>
           </button>
         </div>
+        <p className="text-[11px] text-[#8C8C8C] text-center leading-relaxed max-w-xl">
+          We store anonymous preferences on your device and aggregate counts on
+          our server. No account, no free text.{' '}
+          <button
+            onClick={onResetTaste}
+            className="underline hover:text-[#F5F5F5] transition-colors cursor-pointer"
+          >
+            Reset my taste
+          </button>
+        </p>
       </div>
     </div>
   );
