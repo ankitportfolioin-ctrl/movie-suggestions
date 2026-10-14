@@ -12,6 +12,10 @@
  *   back to the local catalog — discovery never breaks recommendations.
  */
 import { MovieItem } from './catalog.js';
+import { LANGUAGE_CODES } from './omdb.js';
+
+/** Back-compat alias: LANGUAGE_CODES is now the single source. */
+export const DISCOVERY_LANGUAGE_CODES = LANGUAGE_CODES;
 
 export const TMDB_GENRE_IDS: Record<string, number> = {
   Action: 28,
@@ -34,16 +38,6 @@ export const TMDB_GENRE_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(TMDB_GENRE_IDS).map(([name, id]) => [id, name])
 );
 
-export const DISCOVERY_LANGUAGE_CODES: Record<string, string> = {
-  English: 'en',
-  Hindi: 'hi',
-  Tamil: 'ta',
-  Telugu: 'te',
-  Korean: 'ko',
-  Japanese: 'ja',
-  Spanish: 'es',
-  French: 'fr',
-};
 export interface DiscoveryPrefs {
   genres: string[];
   languages: string[];
@@ -68,6 +62,14 @@ const DETAILS_TTL = 24 * 3600 * 1000;
 const circuitBreaker = new Map<string, { failures: number; openUntil: number }>();
 const CIRCUIT_FAILURE_THRESHOLD = 3;
 const CIRCUIT_OPEN_DURATION = 5 * 60 * 1000; // 5 minutes
+
+function setBounded<T>(map: Map<string, CacheEntry<T>>, key: string, entry: CacheEntry<T>, cap = 200) {
+  if (!map.has(key) && map.size >= cap) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+  map.set(key, entry);
+}
 
 async function fetchJson(url: string, timeoutMs = 3000): Promise<any | null> {
   try {
@@ -177,10 +179,18 @@ export async function discoverCandidates(
   apiKey: string
 ): Promise<MovieItem[] | null> {
   if (!apiKey) return null;
-  const cacheKey = JSON.stringify([prefs, 'v1']);
+  // Exclude list stays out of the key: user history must not explode the cache.
+  const { excludeIds, ...cachePrefs } = prefs;
+  const cacheKey = JSON.stringify([cachePrefs, 'v1']);
   const now = Date.now();
+  const excluded = new Set(excludeIds || []);
   const cached = discoverCache.get(cacheKey);
-  if (cached && cached.expiresAt > now) return cached.data;
+  if (cached && cached.expiresAt > now) {
+    const fresh = cached.data
+      .filter((m) => !excluded.has(m.id))
+      .map((m) => ({ ...m, genres: [...m.genres] }));
+    return fresh.length > 0 ? fresh : null;
+  }
   if (checkCircuitBreaker(cacheKey)) return null;
 
   const seen = new Map<number, MovieItem>();
@@ -197,7 +207,6 @@ export async function discoverCandidates(
       const results = data && Array.isArray(data.results) ? data.results : [];
       if (results.length === 0) break;
       for (const hit of results) {
-        if (prefs.excludeIds.includes(hit?.id)) continue;
         const mapped = mapDiscoverHit(hit);
         if (mapped && mapped.posterUrl && !localSeen.has(mapped.id)) localSeen.set(mapped.id, mapped);
       }
@@ -221,8 +230,10 @@ export async function discoverCandidates(
   }
   recordSuccess(cacheKey);
   const items = [...seen.values()];
-  discoverCache.set(cacheKey, { data: items, expiresAt: now + DISCOVER_TTL });
-  return items;
+  setBounded(discoverCache, cacheKey, { data: items, expiresAt: now + DISCOVER_TTL });
+  return items
+    .filter((m) => !excluded.has(m.id))
+    .map((m) => ({ ...m, genres: [...m.genres] }));
 }
 
 /**
@@ -256,6 +267,10 @@ export async function enrichRuntimes(
           : [],
       };
       detailsCache.set(m.id, { data: entry, expiresAt: now + DETAILS_TTL });
+      if (detailsCache.size > 1000) {
+        const oldest = detailsCache.keys().next().value;
+        if (oldest !== undefined) detailsCache.delete(oldest);
+      }
       out.set(m.id, entry);
     })
   );

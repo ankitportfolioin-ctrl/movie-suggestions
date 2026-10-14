@@ -169,7 +169,7 @@ export const Wizard: React.FC<WizardProps> = ({
 
       {/* Session snapshot - only show choices user has made (touchedSteps) */}
       <div className="flex items-center flex-wrap gap-2 mb-8 px-4 py-2.5 rounded-[12px] bg-[#101010] border border-[#1c1c1c] text-xs text-[#8C8C8C]">
-        <span className="font-medium tracking-wider uppercase text-[10px] text-[#666666]">
+        <span className="font-medium tracking-wider uppercase text-[10px] text-[#8C8C8C]">
           Session Snapshot:
         </span>
         {touchedSteps.includes(1) && (
@@ -247,7 +247,7 @@ export const Wizard: React.FC<WizardProps> = ({
                       {isSelected && <span className="w-2 h-2 rounded-full bg-[#FF7A2F]" />}
                     </div>
                     <div className="font-heading font-semibold text-white mb-0.5">{item.label}</div>
-                    <div className="text-[11px] leading-tight text-[#8C8C8C] line-clamp-1">
+                    <div className="text-[11px] leading-tight text-[#8C8C8C] line-clamp-2">
                       {item.desc}
                     </div>
                   </button>
@@ -291,7 +291,7 @@ export const Wizard: React.FC<WizardProps> = ({
                 );
               })}
             </div>
-            <p className="text-xs text-[#666666] font-mono">{genreCounter}</p>
+            <p className="text-xs text-[#8C8C8C] font-mono">{genreCounter}</p>
           </div>
         )}
 
@@ -505,9 +505,9 @@ export const Wizard: React.FC<WizardProps> = ({
                   placeholder="e.g. Loved 'Knives Out' and 'Arrival', no heavy gore please..."
                   maxLength={200}
                   rows={4}
-                  className="w-full p-4 rounded-[12px] bg-[#0A0A0A] border border-[#232323] focus:border-[#E63946] text-[#F5F5F5] placeholder-[#666666] outline-none transition-all duration-200 resize-none font-normal text-base shadow-inner focus:shadow-[0_0_12px_rgba(230,57,70,0.25)]"
+                  className="w-full p-4 rounded-[12px] bg-[#0A0A0A] border border-[#232323] focus:border-[#E63946] text-[#F5F5F5] placeholder-[#8C8C8C] outline-none transition-all duration-200 resize-none font-normal text-base shadow-inner focus:shadow-[0_0_12px_rgba(230,57,70,0.25)]"
                 />
-                <span className="absolute bottom-3 right-3 text-xs text-[#666666] font-mono">
+                <span className="absolute bottom-3 right-3 text-xs text-[#8C8C8C] font-mono">
                   {note.length} / 200
                 </span>
               </div>
@@ -559,7 +559,7 @@ export const Wizard: React.FC<WizardProps> = ({
           </button>
           <button
             onClick={onCancel}
-            className="px-5 py-4 rounded-[16px] bg-transparent border border-transparent hover:border-[#232323] text-[#666666] hover:text-[#8C8C8C] font-medium text-sm flex items-center gap-2 transition-all duration-200 cursor-pointer"
+            className="px-5 py-4 rounded-[16px] bg-transparent border border-transparent hover:border-[#232323] text-[#8C8C8C] hover:text-[#8C8C8C] font-medium text-sm flex items-center gap-2 transition-all duration-200 cursor-pointer"
           >
             <X className="w-4 h-4" />
             <span>Cancel</span>

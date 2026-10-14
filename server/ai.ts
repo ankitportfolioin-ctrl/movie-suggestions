@@ -29,11 +29,12 @@ export async function enhanceWithGemini(
       genres: m.genres.join(', '),
     }));
 
+    const safeNote = (note || '').replace(/[\x00-\x1f]/g, ' ').slice(0, 200);
     const prompt = `The user is selecting a movie for tonight.
 User Vibe & Context:
 - Mood: ${mood}
 - Audience: ${audience}
-${note ? `- Additional note/preference: "${note}"` : ''}
+${safeNote ? `- Additional note/preference: <user_note>${safeNote}</user_note>` : ''}
 
 Selected movies:
 ${JSON.stringify(moviesSummary, null, 2)}
@@ -81,7 +82,7 @@ Instructions:
     const reasonMap = new Map<number, string>();
     for (const item of parsed) {
       if (item && typeof item.id === 'number' && typeof item.reason === 'string' && item.reason.trim()) {
-        reasonMap.set(item.id, item.reason.trim());
+        reasonMap.set(item.id, item.reason.trim().slice(0, 200));
       }
     }
 

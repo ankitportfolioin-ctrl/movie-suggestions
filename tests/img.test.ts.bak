@@ -1,0 +1,63 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  isValidImgHost,
+  isValidImgPath,
+  isValidImgSize,
+  toLocalImg,
+  contentTypeFor,
+} from '../server/img.js';
+
+describe('img proxy helpers', () => {
+  it('accepts allowlisted sizes only', () => {
+    assert.equal(isValidImgSize('w500'), true);
+    assert.equal(isValidImgSize('w92'), true);
+    assert.equal(isValidImgSize('original'), true);
+    assert.equal(isValidImgSize('w1000'), false);
+    assert.equal(isValidImgSize(''), false);
+  });
+
+  it('accepts known artwork hosts only', () => {
+    assert.equal(isValidImgHost('tmdb'), true);
+    assert.equal(isValidImgHost('amazon'), true);
+    assert.equal(isValidImgHost('watchmode'), true);
+    assert.equal(isValidImgHost('evil'), false);
+  });
+
+  it('rejects path traversal and bad paths', () => {
+    assert.equal(isValidImgPath('/abc123.jpg'), true);
+    assert.equal(isValidImgPath('/a/b/c.png'), true);
+    assert.equal(isValidImgPath('/../secret'), false);
+    assert.equal(isValidImgPath('relative.jpg'), false);
+    assert.equal(isValidImgPath('/x?y=1'), false);
+    assert.equal(isValidImgPath('/x y.jpg'), false);
+  });
+
+  it('rewrites artwork URLs to /img, leaves others alone', () => {
+    assert.equal(
+      toLocalImg('https://image.tmdb.org/t/p/w500/abc.jpg'),
+      '/img/w500/tmdb/abc.jpg',
+    );
+    assert.equal(
+      toLocalImg('https://image.tmdb.org/t/p/w92/x/y.png'),
+      '/img/w92/tmdb/x/y.png',
+    );
+    assert.equal(
+      toLocalImg('https://m.media-amazon.com/images/M/MV5Babc.jpg'),
+      '/img/original/amazon/MV5Babc.jpg',
+    );
+    assert.equal(
+      toLocalImg('https://cdn.watchmode.com/provider_logos/447_generic_v4.png'),
+      '/img/original/watchmode/provider_logos/447_generic_v4.png',
+    );
+    assert.equal(toLocalImg('https://example.com/a.jpg'), 'https://example.com/a.jpg');
+    assert.equal(toLocalImg('/img/w500/tmdb/abc.jpg'), '/img/w500/tmdb/abc.jpg');
+    assert.equal(toLocalImg(undefined), undefined);
+  });
+
+  it('picks content types', () => {
+    assert.equal(contentTypeFor('.png', null), 'image/png');
+    assert.equal(contentTypeFor('.jpg', null), 'image/jpeg');
+    assert.equal(contentTypeFor('', 'image/webp'), 'image/webp');
+  });
+});

@@ -1,0 +1,300 @@
+{
+  "precisionAt5": 1,
+  "ndcgAt10": 1,
+  "hardConstraintViolationRate": 0,
+  "namedMovieRecommendedBackRate": 0,
+  "p50LatencyMs": 3009,
+  "p95LatencyMs": 6323,
+  "totalQueries": 36,
+  "successfulQueries": 26,
+  "byQuery": [
+    {
+      "id": "S1",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 6905
+    },
+    {
+      "id": "S2",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 5239
+    },
+    {
+      "id": "S3",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 5968
+    },
+    {
+      "id": "S4",
+      "precisionAt5": 0,
+      "ndcgAt10": 0,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3006
+    },
+    {
+      "id": "S5",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 6232
+    },
+    {
+      "id": "S6",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 5797
+    },
+    {
+      "id": "S7",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 6095
+    },
+    {
+      "id": "S8",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 6078
+    },
+    {
+      "id": "S9a",
+      "precisionAt5": 0,
+      "ndcgAt10": 0,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3009
+    },
+    {
+      "id": "S9b",
+      "precisionAt5": 0,
+      "ndcgAt10": 0,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3427
+    },
+    {
+      "id": "S10",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 6022
+    },
+    {
+      "id": "S11",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3006
+    },
+    {
+      "id": "S12",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3010
+    },
+    {
+      "id": "T1",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3010
+    },
+    {
+      "id": "T2",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3008
+    },
+    {
+      "id": "T3",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3005
+    },
+    {
+      "id": "T4",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3018
+    },
+    {
+      "id": "T5",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3016
+    },
+    {
+      "id": "T6",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3008
+    },
+    {
+      "id": "T7",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3009
+    },
+    {
+      "id": "T8",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3008
+    },
+    {
+      "id": "T9",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3018
+    },
+    {
+      "id": "C1-1",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3006
+    },
+    {
+      "id": "C1-2",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3018
+    },
+    {
+      "id": "C1-3",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3006
+    },
+    {
+      "id": "C2",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 6323
+    },
+    {
+      "id": "C3a",
+      "precisionAt5": 0,
+      "ndcgAt10": 0,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3006
+    },
+    {
+      "id": "C3b",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3005
+    },
+    {
+      "id": "C3c",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3014
+    },
+    {
+      "id": "C3d",
+      "precisionAt5": 1,
+      "ndcgAt10": 1,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 3003
+    },
+    {
+      "id": "C3e",
+      "precisionAt5": 0,
+      "ndcgAt10": 0,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 2
+    },
+    {
+      "id": "C4",
+      "precisionAt5": 0,
+      "ndcgAt10": 0,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 2
+    },
+    {
+      "id": "C7-Happy",
+      "precisionAt5": 0,
+      "ndcgAt10": 0,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 1
+    },
+    {
+      "id": "C7-Sad",
+      "precisionAt5": 0,
+      "ndcgAt10": 0,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 1
+    },
+    {
+      "id": "C7-Stressed",
+      "precisionAt5": 0,
+      "ndcgAt10": 0,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 1
+    },
+    {
+      "id": "C7-Tired",
+      "precisionAt5": 0,
+      "ndcgAt10": 0,
+      "violations": [],
+      "namedMovieReturned": [],
+      "latencyMs": 1
+    }
+  ]
+}

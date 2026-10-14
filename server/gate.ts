@@ -104,8 +104,8 @@ export function enforceHardConstraints<T extends GateMovie>(
       removedRating += 1;
       return false;
     }
-    // Release period.
-    if (constraints.recent && !(m.year >= 2021)) {
+    // Release period (recent = last 5 calendar years, matches retrieval).
+    if (constraints.recent && !(m.year >= new Date().getFullYear() - 5)) {
       removedRecent += 1;
       return false;
     }
