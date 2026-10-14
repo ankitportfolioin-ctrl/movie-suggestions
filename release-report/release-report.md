@@ -1,5 +1,12 @@
 # CineMatch Release Report
 
+## Phase 3 — Functional + edge (2026-10-14, this session)
+
+- `e2e/personas.spec.ts` (S1-S12 + S12-defaults = 13 API runs, timeout raised 60s→300s with evidence: 13×~3s exceeds default): `1 passed (39.8s)`. Per-scenario: all HTTP 200; S4/S9a EMPTY+guidance; S9b n=0 + 4 notices (B1/B2 gate holds — RRR removed); S7 n=1 (Parasite removed). **E10 checker (`e2e/hardcheck.ts`: H1 runtime/H2 language/H4 rating/H5 years/H6 certs/H7 dupes): `VIOLATIONS:[]` — 0 violations.**
+- `e2e/edge.spec.ts`: keyboard-only PASS (3px focus outline all 6 steps, Enter completes); refresh mid-flow PASS (`REFRESH-STATE-KEPT:true`, Back Q2→Q1, never blank); double-click PASS (`RECOMMEND-COUNT:1`); injection battery PASS (5 payloads incl. 5000-char, Devanagari+emoji+onerror — no crash/exec/raw-HTML); failure modes PASS (abort/malformed/429/500 → friendly error + Try-again, body=258 chars); timeout-30s documents D-TIMEOUT-01 (no client timeout: loading 33s then end state, never blank); offline PASS; slow-3G PASS (loading indicator, end state reached); 10× soak PASS (`TENX:[3032,3011,3013,3018,3016,3016,3017,3016,3018,3015]` — flat, no growth; uniform ~3s floor = upstream timeout per call, see Phase 4).
+- Rate limiter verified live this session: burst across runs → `429 {"error":"Too many requests. Please try again later."}`. Server restarted once after (in-memory limiter reset, disclosed) to sequence remaining tests.
+- Defects: D-TIMEOUT-01 (High): no client-side fetch timeout — 30s-stalled API spins 33s with no message. Fix planned Phase 6.
+
 ## Phase 2 — Visual test (2026-10-14, this session)
 
 - Suite: `e2e/visual.spec.ts` (4 tests) + `e2e/baseline.spec.ts` (1 test). Command `npx playwright test e2e/visual.spec.ts` => `4 passed (20.9s)`; matrix re-run after full-walk extension => `1 passed (26.4s)` with `LAYOUT:[]` (zero horizontal overflow on all 5 viewports x all states, measured via `scrollWidth > innerWidth+1`) and `CONSOLE_ERRORS:[] PAGEERRORS:[]`.
