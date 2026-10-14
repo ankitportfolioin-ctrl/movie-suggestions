@@ -246,8 +246,8 @@ app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) =>
 // Natural language search endpoint
 app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
   try {
-    const { text, structuredInputs } = req.body;
-    if (!text || typeof text !== 'string') {
+    const { query, structuredInputs } = req.body;
+    if (!query || typeof query !== 'string') {
       res.status(400).json({ error: 'Query text is required' });
       return;
     }
