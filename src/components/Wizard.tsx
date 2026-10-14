@@ -278,15 +278,32 @@ export const Wizard: React.FC<WizardProps> = ({
         )}
         {touchedSteps.includes(6) && (
           <>
-            {Object.entries(preferences).map(([key, value]) => value && (
-              <span key={key} className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
-                {key === 'highlyRated' && 'Highly rated (7+)'}
-                {key === 'hiddenGems' && 'Hidden gems'}
-                {key === 'recent' && 'Recent (5 years)'}
-                {key === 'classics' && 'Classics (pre-2000)'}
-                {key === 'mature' && 'Mature content'}
-              </span>
-            ))}
+            {Object.entries(preferences).map(([key, value]) => {
+              if (key === 'tones' && Array.isArray(value) && value.length > 0) {
+                return <span key="tones" className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">Tone: {value.join(', ')}</span>;
+              }
+              if (key === 'pace' && value) {
+                return <span key="pace" className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">Pace: {value}</span>;
+              }
+              if (key === 'intensity' && value) {
+                return <span key="intensity" className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">Intensity: {value}</span>;
+              }
+              if (key === 'humorStyle' && value) {
+                return <span key="humorStyle" className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">Humor: {value}</span>;
+              }
+              if (typeof value === 'boolean' && value) {
+                return (
+                  <span key={key} className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
+                    {key === 'highlyRated' && 'Highly rated (7+)'}
+                    {key === 'hiddenGems' && 'Hidden gems'}
+                    {key === 'recent' && 'Recent (5 years)'}
+                    {key === 'classics' && 'Classics (pre-2000)'}
+                    {key === 'mature' && 'Mature content'}
+                  </span>
+                );
+              }
+              return null;
+            })}
           </>
         )}
       </div>
