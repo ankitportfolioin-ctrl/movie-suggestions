@@ -285,13 +285,16 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
     let picks = gated.movies;
     const allNotices = [...notices, ...gated.relaxed];
 
-    // 3. Optional server-side AI reasoning
+    // 3. Optional server-side AI reasoning (new LLM picker)
     if (AI_ENABLED && process.env.GEMINI_API_KEY && picks.length > 0) {
       picks = await enhanceWithGemini(
         picks,
         sanitizedParams.mood,
         sanitizedParams.audience,
-        sanitizedParams.note
+        sanitizedParams.note,
+        recommended, // full candidates before gating
+        { genres: sanitizedParams.genres, preferences: sanitizedParams.preferences, referenceIds: sanitizedParams.referenceIds },
+        [] // saved titles - could be fetched from DB if needed
       );
     }
 
