@@ -65,7 +65,7 @@ export interface RankSignals {
     humorStyle?: string;
   };
   /** Movie labels for fine-tune matching */
-  movieLabels?: Map<number, { tone: string[]; pace: string; intensity: string; humor: string[] }>;
+  movieLabels?: Map<number, { tone: string[]; pace: string; intensity: string; humor: string[]; confidence: number }>;
 }
 
 export const RANK_WEIGHTS = {

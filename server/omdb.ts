@@ -462,10 +462,10 @@ export async function selectCandidateMovies(
   const eventCount = sanitizeEventCount(params.taste?.eventCount);
 
   // Compute movie labels for fine-tune matching (Step 2)
-  const movieLabels = new Map<number, { tone: string[]; pace: string; intensity: string; humor: string[] }>();
+  const movieLabels = new Map<number, { tone: string[]; pace: string; intensity: string; humor: string[]; confidence: number }>();
   for (const m of filtered) {
     const labels = labelMovie(m);
-    movieLabels.set(m.id, { tone: labels.tone, pace: labels.pace, intensity: labels.intensity, humor: labels.humor });
+    movieLabels.set(m.id, { tone: labels.tone, pace: labels.pace, intensity: labels.intensity, humor: labels.humor, confidence: labels.confidence });
   }
 
   const signals: RankSignals = {

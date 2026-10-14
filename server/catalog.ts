@@ -15,6 +15,8 @@ export interface MovieItem {
   isMature: boolean;
   isHiddenGem: boolean;
   providers: { name: string; logoUrl: string; type?: string }[];
+  /** OMDb `Rated` certificate as served (may be missing). */
+  certificate?: string;
 }
 
 export const FALLBACK_CATALOG: MovieItem[] = [
