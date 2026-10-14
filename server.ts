@@ -64,8 +64,9 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Security Headers (same-origin app: defaults are fine)
-app.use(helmet());
+// Security Headers (CSP off in dev so Vite HMR/inline preamble isn't blocked)
+const isProd = process.env.NODE_ENV === 'production';
+app.use(helmet({ contentSecurityPolicy: isProd ? undefined : false }));
 
 // Same-origin only: the client is served by this server, no CORS needed.
 app.use(express.json({ limit: '50kb' }));
@@ -359,8 +360,6 @@ app.post('/api/event', rateLimiter, async (req: Request, res: Response) => {
 
 // Vite or Static Serving
 async function startServer() {
-  const isProd = process.env.NODE_ENV === 'production';
-
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
