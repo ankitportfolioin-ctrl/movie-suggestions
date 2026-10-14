@@ -1,6 +1,7 @@
 // Vercel serverless entry point
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
@@ -26,32 +27,29 @@ import {
   toLocalImg,
   writeCached,
 } from './server/img.js';
-import {
-  LEARNING_ENABLED,
-  MAX_EVENT_BODY_BYTES,
-  EVENT_BURST_WINDOW_MS,
-  EVENT_BURST_PER_ANON,
-  EVENT_BURST_PER_IPHASH,
-  anonOverDailyCap,
-  buildContextKey,
-  burstExceeded,
-  findImpression,
-  hashIp,
-  normalizeAnonId,
-  openLearningDb,
-  recordEvent,
-  recordImpressions,
-  signImpression,
-  validateEventBody,
-  verifyImpression,
-  type BurstSlot,
-} from './server/learning.js';
+
+// Learning module loaded dynamically to avoid better-sqlite3 on Vercel
+let learningModule: any = null;
+const LEARNING_ENABLED = process.env.LEARNING_ENABLED === 'true';
+
+async function loadLearningModule() {
+  if (!LEARNING_ENABLED) return null;
+  if (!learningModule) {
+    try {
+      learningModule = await import('./server/learning.js');
+    } catch (e) {
+      console.warn('Learning module unavailable (likely better-sqlite3 not supported):', e);
+      return null;
+    }
+  }
+  return learningModule;
+}
 
 dotenv.config();
 
 const app = express();
 
-// Security Headers (CSP off in dev so Vite HMR/inline preamble isn't blocked)
+// Security Headers
 const isProd = process.env.NODE_ENV === 'production';
 app.use(helmet({ contentSecurityPolicy: isProd ? undefined : false }));
 
@@ -91,10 +89,21 @@ function rateLimiter(req: Request, res: Response, next: NextFunction) {
 }
 
 // Learning store (Step 1): signed impressions + feedback events + priors.
-// Disabled entirely when LEARNING_ENABLED=false.
-const learningDb = LEARNING_ENABLED ? openLearningDb() : null;
-// Burst gates for /api/event: per anonId and per hashed IP (raw IPs never stored).
-const eventBursts = new Map<string, BurstSlot>();
+// Disabled entirely when LEARNING_ENABLED=false or module unavailable.
+let learningDb: any = null;
+let eventBursts = new Map<string, any>();
+
+// Initialize learning lazily on first request
+async function initLearning() {
+  if (learningDb !== null) return; // already attempted
+  const mod = await loadLearningModule();
+  if (mod) {
+    learningDb = mod.openLearningDb();
+    eventBursts = new Map();
+  } else {
+    learningDb = false; // mark as unavailable
+  }
+}
 
 // Configuration Constants
 export const AI_ENABLED = true;
@@ -247,9 +256,11 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
 
     // 6. Learning (Step 1): one signed impression per shown pick.
     let impressionTokens: { movieId: number; impressionId: string; token: string }[] = [];
+    await initLearning();
     if (learningDb) {
-      const anonId = normalizeAnonId((req.body as { anonId?: unknown } | null)?.anonId);
-      const contextKey = buildContextKey(sanitizedParams, sanitizedParams.note);
+      const mod = await loadLearningModule();
+      const anonId = mod.normalizeAnonId((req.body as { anonId?: unknown } | null)?.anonId);
+      const contextKey = mod.buildContextKey(sanitizedParams, sanitizedParams.note);
       const ts = Date.now();
       const rows = picks.map((m, idx) => ({
         impressionId: randomUUID(),
@@ -264,11 +275,11 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
         scoreBreakdownJson: JSON.stringify({ matchScore: m.matchScore ?? null }),
         variant: 'control',
       }));
-      recordImpressions(learningDb, rows);
+      mod.recordImpressions(learningDb, rows);
       impressionTokens = rows.map((r) => ({
         movieId: r.movieId,
         impressionId: r.impressionId,
-        token: signImpression(r.impressionId, r.movieId, anonId),
+        token: mod.signImpression(r.impressionId, r.movieId, anonId),
       }));
     }
 
@@ -281,31 +292,33 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
 // Learning events (Step 1): feedback for a shown impression.
 app.post('/api/event', rateLimiter, async (req: Request, res: Response) => {
   try {
-    if (!LEARNING_ENABLED || !learningDb) {
+    await initLearning();
+    const mod = await loadLearningModule();
+    if (!mod || !learningDb) {
       res.status(503).json({ error: 'Learning is disabled' });
       return;
     }
-    if (JSON.stringify(req.body ?? null).length > MAX_EVENT_BODY_BYTES) {
+    if (JSON.stringify(req.body ?? null).length > mod.MAX_EVENT_BODY_BYTES) {
       res.status(413).json({ error: 'Event too large' });
       return;
     }
-    const validation = validateEventBody(req.body);
+    const validation = mod.validateEventBody(req.body);
     if (!validation.ok) {
       res.status(validation.status).json({ error: validation.error });
       return;
     }
     const evt = validation.value;
     const now = Date.now();
-    if (burstExceeded(eventBursts, `anon:${evt.anonId}`, EVENT_BURST_PER_ANON, EVENT_BURST_WINDOW_MS, now)) {
+    if (mod.burstExceeded(eventBursts, `anon:${evt.anonId}`, mod.EVENT_BURST_PER_ANON, mod.EVENT_BURST_WINDOW_MS, now)) {
       res.status(429).json({ error: 'Too many events. Please try again later.' });
       return;
     }
-    const ipHash = hashIp(req.socket.remoteAddress || req.headers['x-forwarded-for'] || 'unknown');
-    if (burstExceeded(eventBursts, `ip:${ipHash}`, EVENT_BURST_PER_IPHASH, EVENT_BURST_WINDOW_MS, now)) {
+    const ipHash = mod.hashIp(req.socket.remoteAddress || req.headers['x-forwarded-for'] || 'unknown');
+    if (mod.burstExceeded(eventBursts, `ip:${ipHash}`, mod.EVENT_BURST_PER_IPHASH, mod.EVENT_BURST_WINDOW_MS, now)) {
       res.status(429).json({ error: 'Too many events. Please try again later.' });
       return;
     }
-    const ver = verifyImpression(evt.token, evt.anonId);
+    const ver = mod.verifyImpression(evt.token, evt.anonId);
     if (!ver.ok) {
       res.status(401).json({ error: 'Invalid or expired event token' });
       return;
@@ -314,16 +327,16 @@ app.post('/api/event', rateLimiter, async (req: Request, res: Response) => {
       res.status(401).json({ error: 'Event does not match its token' });
       return;
     }
-    const imp = findImpression(learningDb, ver.impressionId);
+    const imp = mod.findImpression(learningDb, ver.impressionId);
     if (!imp || imp.movieId !== evt.movieId || imp.anonId !== evt.anonId) {
       res.status(401).json({ error: 'Unknown impression' });
       return;
     }
-    if (anonOverDailyCap(learningDb, evt.anonId, now)) {
+    if (mod.anonOverDailyCap(learningDb, evt.anonId, now)) {
       res.status(429).json({ error: 'Daily event cap reached' });
       return;
     }
-    const outcome = recordEvent(learningDb, {
+    const outcome = mod.recordEvent(learningDb, {
       eventId: evt.eventId,
       impressionId: evt.impressionId,
       anonId: evt.anonId,
