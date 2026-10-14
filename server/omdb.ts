@@ -459,7 +459,7 @@ async function fetchFromOMDb(
       : `https://www.omdbapi.com/?apikey=${apiKey}&t=${encodeURIComponent(movie.title)}&y=${movie.year}&plot=short`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'MovieNightPicker/1.0' },
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return null;
 

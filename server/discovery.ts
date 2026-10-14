@@ -64,11 +64,12 @@ const discoverCache = new Map<string, CacheEntry<MovieItem[]>>();
 const detailsCache = new Map<number, CacheEntry<{ runtime: number; genres: string[] }>>();
 const DISCOVER_TTL = 10 * 60 * 1000;
 const DETAILS_TTL = 24 * 3600 * 1000;
-// Negative cache: don't re-hammer an unreachable/failing API per prefs-hash.
-const discoverCooldown = new Map<string, number>();
-const DISCOVER_COOLDOWN_MS = 60 * 1000;
+// Circuit breaker: track consecutive failures per prefs-hash
+const circuitBreaker = new Map<string, { failures: number; openUntil: number }>();
+const CIRCUIT_FAILURE_THRESHOLD = 3;
+const CIRCUIT_OPEN_DURATION = 5 * 60 * 1000; // 5 minutes
 
-async function fetchJson(url: string, timeoutMs = 6000): Promise<any | null> {
+async function fetchJson(url: string, timeoutMs = 3000): Promise<any | null> {
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'MovieNightPicker/1.0' },
@@ -79,6 +80,35 @@ async function fetchJson(url: string, timeoutMs = 6000): Promise<any | null> {
     return await res.json();
   } catch {
     return null;
+  }
+}
+
+function checkCircuitBreaker(cacheKey: string): boolean {
+  const state = circuitBreaker.get(cacheKey);
+  if (!state) return false;
+  if (state.openUntil > Date.now()) return true; // circuit open
+  // Circuit closed, reset failures
+  if (state.failures > 0) {
+    circuitBreaker.set(cacheKey, { failures: 0, openUntil: 0 });
+  }
+  return false;
+}
+
+function recordFailure(cacheKey: string) {
+  const state = circuitBreaker.get(cacheKey) || { failures: 0, openUntil: 0 };
+  state.failures += 1;
+  if (state.failures >= CIRCUIT_FAILURE_THRESHOLD) {
+    state.openUntil = Date.now() + CIRCUIT_OPEN_DURATION;
+    state.failures = 0;
+    console.warn(`[discovery] Circuit breaker OPEN for ${cacheKey} (5 min)`);
+  }
+  circuitBreaker.set(cacheKey, state);
+}
+
+function recordSuccess(cacheKey: string) {
+  const state = circuitBreaker.get(cacheKey);
+  if (state && state.failures > 0) {
+    circuitBreaker.set(cacheKey, { failures: 0, openUntil: 0 });
   }
 }
 
@@ -151,11 +181,14 @@ export async function discoverCandidates(
   const now = Date.now();
   const cached = discoverCache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.data;
-  if (now - (discoverCooldown.get(cacheKey) || 0) < DISCOVER_COOLDOWN_MS) return null;
+  if (checkCircuitBreaker(cacheKey)) return null;
 
   const seen = new Map<number, MovieItem>();
   const sorts = ['popularity.desc', 'vote_average.desc'];
-  for (const sort of sorts) {
+
+  // Run both sort orders in parallel for lower latency
+  const sortPromises = sorts.map(async (sort) => {
+    const localSeen = new Map<number, MovieItem>();
     for (let page = 1; page <= 2; page++) {
       const q = buildParams(prefs, apiKey, sort);
       q.set('page', String(page));
@@ -166,18 +199,27 @@ export async function discoverCandidates(
       for (const hit of results) {
         if (prefs.excludeIds.includes(hit?.id)) continue;
         const mapped = mapDiscoverHit(hit);
-        if (mapped && mapped.posterUrl && !seen.has(mapped.id)) seen.set(mapped.id, mapped);
+        if (mapped && mapped.posterUrl && !localSeen.has(mapped.id)) localSeen.set(mapped.id, mapped);
       }
-      if (seen.size >= 40) break;
+      if (localSeen.size >= 20) break; // per-sort limit
       if (page >= (data.total_pages || 1)) break;
+    }
+    return localSeen;
+  });
+
+  const sortResults = await Promise.all(sortPromises);
+  for (const localSeen of sortResults) {
+    for (const [id, movie] of localSeen) {
+      if (!seen.has(id)) seen.set(id, movie);
     }
     if (seen.size >= 40) break;
   }
 
   if (seen.size === 0) {
-    discoverCooldown.set(cacheKey, Date.now());
+    recordFailure(cacheKey);
     return null;
   }
+  recordSuccess(cacheKey);
   const items = [...seen.values()];
   discoverCache.set(cacheKey, { data: items, expiresAt: now + DISCOVER_TTL });
   return items;

@@ -30,6 +30,7 @@ const INITIAL_STATE: WizardState = {
 };
 
 const SAVED_KEY = 'cinematch:saved-picks:v1';
+const QUIZ_KEY = 'cinematch:quiz-state:v1';
 
 function loadSaved(): Movie[] {
   try {
@@ -38,6 +39,34 @@ function loadSaved(): Movie[] {
     return Array.isArray(parsed) ? parsed.filter((m) => m && typeof m.id === 'number') : [];
   } catch {
     return [];
+  }
+}
+
+interface StoredQuiz {
+  wizard: WizardState;
+  movies: Movie[];
+  notices: string[];
+  seen: number[];
+  touched: number[];
+}
+
+function loadQuiz(): StoredQuiz | null {
+  try {
+    const raw = sessionStorage.getItem(QUIZ_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.wizard?.step !== 'number') return null;
+    // Never restore into the results view without movies to show.
+    const step = parsed.wizard.step >= 8 && !(parsed.movies || []).length ? 0 : parsed.wizard.step;
+    return {
+      wizard: { ...INITIAL_STATE, ...parsed.wizard, step },
+      movies: Array.isArray(parsed.movies) ? parsed.movies : [],
+      notices: Array.isArray(parsed.notices) ? parsed.notices : [],
+      seen: Array.isArray(parsed.seen) ? parsed.seen : [],
+      touched: Array.isArray(parsed.touched) ? parsed.touched : [],
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -78,14 +107,16 @@ const HOW_IT_WORKS = [
 ];
 
 export default function App() {
-  const [wizardState, setWizardState] = useState<WizardState>(INITIAL_STATE);
-  const [movies, setMovies] = useState<Movie[]>([]);
-  const [notices, setNotices] = useState<string[]>([]);
+  const [wizardState, setWizardState] = useState<WizardState>(() => loadQuiz()?.wizard ?? INITIAL_STATE);
+  const [movies, setMovies] = useState<Movie[]>(() => loadQuiz()?.movies ?? []);
+  const [notices, setNotices] = useState<string[]>(() => loadQuiz()?.notices ?? []);
   const [loadError, setLoadError] = useState(false);
-  const [seenMovieIds, setSeenMovieIds] = useState<number[]>([]);
+  const [seenMovieIds, setSeenMovieIds] = useState<number[]>(() => loadQuiz()?.seen ?? []);
   const [isLoading, setIsLoading] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
   const [saved, setSaved] = useState<Movie[]>(loadSaved);
+  // Steps the user has actively answered (drives the Session Snapshot).
+  const [touched, setTouched] = useState<number[]>(() => loadQuiz()?.touched ?? []);
 
   useEffect(() => {
     try {
@@ -95,13 +126,36 @@ export default function App() {
     }
   }, [saved]);
 
+  // Persist quiz progress across refresh (session scope only).
+  useEffect(() => {
+    try {
+      const payload: StoredQuiz = {
+        wizard: wizardState,
+        movies,
+        notices,
+        seen: seenMovieIds,
+        touched,
+      };
+      sessionStorage.setItem(QUIZ_KEY, JSON.stringify(payload));
+    } catch {
+      // Storage unavailable: quiz simply won't survive refresh.
+    }
+  }, [wizardState, movies, notices, seenMovieIds, touched]);
+
   // Update wizard properties
   const handleUpdate = (updates: Partial<WizardState>) => {
     setWizardState((prev) => ({ ...prev, ...updates }));
   };
 
   const handleNext = () => {
+    const step = wizardState.step;
+    setTouched((t) => (t.includes(step) ? t : [...t, step]));
     setWizardState((prev) => ({ ...prev, step: prev.step + 1 }));
+  };
+
+  const handleSubmit = () => {
+    setTouched((t) => (t.includes(7) ? t : [...t, 7]));
+    fetchRecommendations([]);
   };
 
   const handleBack = () => {
@@ -109,8 +163,12 @@ export default function App() {
   };
 
   const handleCancel = () => {
-    setShowSaved(false);
-    setWizardState((prev) => ({ ...prev, step: 0 }));
+    // Phase 4: explicit confirmation, then a clear reset (answers cleared).
+    if (window.confirm('Quit the quiz? Your answers will be cleared.')) {
+      setShowSaved(false);
+      setWizardState(INITIAL_STATE);
+      setTouched([]);
+    }
   };
 
   const handleBackToFilters = () => {
@@ -123,6 +181,7 @@ export default function App() {
     setNotices([]);
     setLoadError(false);
     setSeenMovieIds([]);
+    setTouched([]);
   };
 
   const toggleSave = (movie: Movie) => {
@@ -347,8 +406,9 @@ export default function App() {
               onNext={handleNext}
               onBack={handleBack}
               onCancel={handleCancel}
-              onSubmit={() => fetchRecommendations([])}
+              onSubmit={handleSubmit}
               isLoading={isLoading}
+              touchedSteps={touched}
             />
           )
         ) : (
@@ -360,6 +420,7 @@ export default function App() {
             onMore={handleMore}
             onCycle={handleCycle}
             onReset={handleReset}
+            onRetry={() => fetchRecommendations()}
             onBackToFilters={handleBackToFilters}
             saved={saved}
             onToggleSave={toggleSave}
@@ -374,16 +435,18 @@ export default function App() {
           <div className="flex items-center gap-2 text-sm">
             <Clapperboard size={15} className="text-[#FF7A2F]" />
             <span className="font-heading font-semibold text-[#F5F5F5]">CineMatch</span>
-            <span className="text-[#8C8C8C] text-xs">© 2025 CineMatch. Powered by OMDb & Watchmode.</span>
+            <span className="text-[#8C8C8C] text-xs">© 2025 CineMatch.</span>
           </div>
-          <div className="flex items-center gap-5 text-xs text-[#8C8C8C]">
-            <span className="hover:text-[#F5F5F5] transition-colors cursor-pointer">Privacy Policy</span>
-            <span className="hover:text-[#F5F5F5] transition-colors cursor-pointer">Terms of Service</span>
-            <span className="hover:text-[#F5F5F5] transition-colors cursor-pointer">Feedback</span>
+          <div className="flex items-center gap-4 text-xs text-[#666666]">
+            <a href="https://www.omdbapi.com/" target="_blank" rel="noopener noreferrer" className="hover:text-[#FF7A2F] transition-colors">OMDb</a>
+            <span>·</span>
+            <a href="https://watchmode.com/" target="_blank" rel="noopener noreferrer" className="hover:text-[#FF7A2F] transition-colors">Watchmode</a>
+            <span>·</span>
+            <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer" className="hover:text-[#FF7A2F] transition-colors">TMDB</a>
           </div>
         </div>
         <div className="w-full pb-4 text-center text-[11px] text-[#666666]">
-          <span>Movie data by OMDb · Streaming data by Watchmode</span>
+          <span>No accounts · No tracking · Your picks stay in this browser</span>
         </div>
       </footer>
     </div>

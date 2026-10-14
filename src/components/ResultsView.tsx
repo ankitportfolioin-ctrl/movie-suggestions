@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Movie } from '../types';
 import { MovieCard } from './MovieCard';
-import { RotateCcw, RefreshCw, Repeat, Sparkles, AlertCircle, BadgeCheck, Info } from 'lucide-react';
+import { RotateCcw, RefreshCw, Repeat, Sparkles, AlertCircle, BadgeCheck, Info, RotateCw } from 'lucide-react';
 
 interface ResultsViewProps {
   movies: Movie[];
@@ -11,6 +11,7 @@ interface ResultsViewProps {
   onMore: () => void;
   onCycle: () => void;
   onReset: () => void;
+  onRetry: () => void;
   onBackToFilters: () => void;
   saved: Movie[];
   onToggleSave: (movie: Movie) => void;
@@ -32,6 +33,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   onMore,
   onCycle,
   onReset,
+  onRetry,
   onBackToFilters,
   saved,
   onToggleSave,
@@ -88,13 +90,34 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
               : 'Try relaxing a few filters or broadening the runtime.'}
           </p>
         </div>
+        {/* Backend guidance (e.g. why nothing matched) shows even at zero */}
+        {notices.length > 0 && (
+          <div className="w-full px-4 py-3 rounded-[12px] bg-[#1c1b1b] border border-[#FF7A2F]/40 flex flex-col gap-1.5 -my-2">
+            {notices.map((n, i) => (
+              <p key={i} className="text-xs text-[#d0d0d0] flex items-start gap-2 leading-relaxed text-left">
+                <Info size={13} className="text-[#FF7A2F] shrink-0 mt-0.5" />
+                <span>{n}</span>
+              </p>
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-3 w-full">
-          <button
-            onClick={onBackToFilters}
-            className="flex-1 py-3.5 rounded-[16px] bg-[#141414] border border-[#232323] hover:border-[#FF7A2F] text-[#F5F5F5] font-medium text-sm transition-all duration-200 cursor-pointer"
-          >
-            Adjust filters
-          </button>
+          {loadError ? (
+            <button
+              onClick={onRetry}
+              className="flex-1 py-3.5 rounded-[16px] bg-gradient-to-br from-[#E63946] to-[#FF7A2F] text-white font-heading font-semibold text-sm flex items-center justify-center gap-2 transition-all duration-200 hover:shadow-[0_0_20px_-4px_rgba(255,122,47,0.4)] cursor-pointer"
+            >
+              <RotateCw className="w-4 h-4" />
+              <span>Try again</span>
+            </button>
+          ) : (
+            <button
+              onClick={onBackToFilters}
+              className="flex-1 py-3.5 rounded-[16px] bg-[#141414] border border-[#232323] hover:border-[#FF7A2F] text-[#F5F5F5] font-medium text-sm transition-all duration-200 cursor-pointer"
+            >
+              Adjust filters
+            </button>
+          )}
           <button
             onClick={onReset}
             className="flex-1 py-3.5 rounded-[16px] bg-gradient-to-br from-[#E63946] to-[#FF7A2F] text-white font-medium text-sm transition-all duration-200 hover:shadow-[0_0_20px_-4px_rgba(255,122,47,0.4)] cursor-pointer"

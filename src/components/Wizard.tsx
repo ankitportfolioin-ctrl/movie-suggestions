@@ -28,6 +28,7 @@ interface WizardProps {
   onCancel: () => void;
   onSubmit: () => void;
   isLoading: boolean;
+  touchedSteps: number[];
 }
 
 const STEP_NAMES = [
@@ -165,20 +166,49 @@ export const Wizard: React.FC<WizardProps> = ({
         </span>
       </div>
 
-      {/* Session snapshot */}
+      {/* Session snapshot - only show choices user has made (touchedSteps) */}
       <div className="flex items-center flex-wrap gap-2 mb-8 px-4 py-2.5 rounded-[12px] bg-[#101010] border border-[#1c1c1c] text-xs text-[#8C8C8C]">
         <span className="font-medium tracking-wider uppercase text-[10px] text-[#666666]">
           Session Snapshot:
         </span>
-        <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
-          Mood: {mood}
-        </span>
-        <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
-          Genres: {genres.join(', ') || 'Any'}
-        </span>
-        <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
-          {maxRuntime}
-        </span>
+        {touchedSteps.includes(1) && (
+          <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
+            Mood: {mood}
+          </span>
+        )}
+        {touchedSteps.includes(2) && (
+          <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
+            Genres: {genres.filter(g => g !== 'Surprise me').join(', ') || 'Surprise me'}
+          </span>
+        )}
+        {touchedSteps.includes(3) && (
+          <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
+            Company: {audience}
+          </span>
+        )}
+        {touchedSteps.includes(4) && (
+          <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
+            Runtime: {maxRuntime}
+          </span>
+        )}
+        {touchedSteps.includes(5) && (
+          <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
+            Language: {languages.join(', ')}
+          </span>
+        )}
+        {touchedSteps.includes(6) && (
+          <>
+            {Object.entries(preferences).map(([key, value]) => value && (
+              <span key={key} className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
+                {key === 'highlyRated' && 'Highly rated (7+)'}
+                {key === 'hiddenGems' && 'Hidden gems'}
+                {key === 'recent' && 'Recent (5 years)'}
+                {key === 'classics' && 'Classics (pre-2000)'}
+                {key === 'mature' && 'Mature content'}
+              </span>
+            ))}
+          </>
+        )}
       </div>
 
       {/* Main Question Container */}

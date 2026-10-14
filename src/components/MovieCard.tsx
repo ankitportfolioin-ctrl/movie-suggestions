@@ -84,6 +84,17 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, onToggleSave
               <Star size={11} className="fill-[#FF7A2F] text-[#FF7A2F]" />
               <span>{movie.rating ? movie.rating.toFixed(1) : '7.5'}</span>
             </span>
+            {movie.certificate && (
+              <span className="px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#FF7A2F] text-xs font-medium">
+                {movie.certificate}
+              </span>
+            )}
+            {movie.language && (
+              <span className="px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#8C8C8C] text-xs flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#FF7A2F]" />
+                {movie.language.toUpperCase()}
+              </span>
+            )}
             <span className="text-[#8C8C8C] text-xs">•</span>
             <span className="text-[#8C8C8C] text-xs">{movie.genres.slice(0, 3).join(', ')}</span>
           </div>
