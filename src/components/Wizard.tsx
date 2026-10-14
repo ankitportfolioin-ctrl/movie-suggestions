@@ -133,6 +133,7 @@ export const Wizard: React.FC<WizardProps> = ({
   onCancel,
   onSubmit,
   isLoading,
+  touchedSteps,
 }) => {
   const { step, mood, genres, audience, maxRuntime, languages, preferences, note } = state;
 

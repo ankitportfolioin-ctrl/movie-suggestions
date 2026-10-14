@@ -1,5 +1,21 @@
 # CineMatch Release Report
 
+## Phase 1 — Real-browser setup (2026-10-14, this session)
+
+- Playwright: `@playwright/test` installed with `--legacy-peer-deps` (pre-existing esbuild peer conflict; evidence: `ERESOLVE ... Conflicting peer dependency: esbuild@0.28.2` then `added 3 packages`). `npx playwright --version` => `Version 1.64.0`.
+- Chromium: `npx playwright install chromium` => `Chrome for Testing 156.0.8078.4 (playwright chromium v1248) downloaded`.
+- Headed vs headless: headed WAS tried first (`npx playwright test e2e/smoke.spec.ts --headed` launched a real browser window, test executed). Suite runs headless for speed/reliability; headed confirmed working (no "no display" condition).
+- Harness: `playwright.config.ts` (baseURL `http://localhost:3101`), `e2e/helpers.ts` (`recordFlow` captures console error/warning, pageerror, requestfailed + status>=400, every URL; `assertClean` fails on unwhitelisted entries; `thirdPartyCalls` flags `*.tmdb.org`/`api.themoviedb.org`), `e2e/smoke.spec.ts`.
+- Prod server for QA: `NODE_ENV=production PORT=3101 npx tsx server.ts` (via `cmd.exe /c`), health `{"ok":true}` HTTP 200. Note: `npm run start` (`node server.ts`) still broken (D-START-01, open).
+- Screenshots: `release-report/screens/<viewport>-<flow>-<step>.png` (fixed `../` path bug that wrote to `Desktop/release-report/`).
+- Smoke result: `npx playwright test e2e/smoke.spec.ts` => `1 passed (7.7s)`.
+- Visual check (this session, image-view tool):
+  - `1366x768-smoke-landing.png`: dark hero, pill badge, gradient "Movie Night Picker" headline, gray subtext, orange CTA "Start Tonight's Match", 3 feature cards with icons. No clipping/overlap. Defect: N.
+  - `1366x768-smoke-results.png`: "Your 3 Tailored Matches" + 3 loaded posters (Totoro HIDDEN GEM 90%, Toy Story 98%, Soul 99%) with match badges. Cards extend below fold (page scrolls, expected). Defect: N.
+- Defects logged:
+  - D-WIZARD-01 (Critical, FIXED this phase): `Wizard.tsx` used `touchedSteps` without destructuring => ReferenceError on quiz start, blank black page. Evidence: `Continue` timeout + all-black failure screenshot + `tsc TS2304 x6`. Fix: added `touchedSteps` to destructure (1 line). Re-ran same spec => passed. Rebuilt (`vite build` exit 0).
+  - D-POSTER-01 (High, OPEN): browser requests `https://image.tmdb.org/...` directly (E11 violation). Evidence: `failedRequests: ["FAILED GET https://image.tmdb.org/t/p/w92/... :: net::ERR_BLOCKED_BY_ORB"]`. Fix planned Phase 5/6: backend `/img` proxy route + frontend switch. Temporarily whitelisted in smoke with reason.
+
 ## Phase 0 — Baseline (2026-10-14, this session)
 
 ### Environment
