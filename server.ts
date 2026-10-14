@@ -1,11 +1,12 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { randomUUID } from 'node:crypto';
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
-import cors from 'cors';
 import dotenv from 'dotenv';
 import {
   getRecommendationsWithOMDb,
+  LANGUAGE_CODES,
 } from './server/omdb.js';
 import { MovieItem } from './server/catalog.js';
 import { discoverCandidates, enrichRuntimes } from './server/discovery.js';
@@ -14,8 +15,45 @@ import { enforceHardConstraints } from './server/gate.js';
 import { runtimeCap } from './server/omdb.js';
 import { enhanceWithGemini } from './server/ai.js';
 import { attachLiveProviders } from './server/watchmode.js';
+import {
+  FALLBACK_PNG,
+  contentTypeFor,
+  fetchUpstream,
+  isValidImgHost,
+  isValidImgPath,
+  isValidImgSize,
+  readCached,
+  toLocalImg,
+  writeCached,
+} from './server/img.js';
+import {
+  LEARNING_ENABLED,
+  MAX_EVENT_BODY_BYTES,
+  EVENT_BURST_WINDOW_MS,
+  EVENT_BURST_PER_ANON,
+  EVENT_BURST_PER_IPHASH,
+  anonOverDailyCap,
+  buildContextKey,
+  burstExceeded,
+  findImpression,
+  hashIp,
+  normalizeAnonId,
+  openLearningDb,
+  recordEvent,
+  recordImpressions,
+  signImpression,
+  validateEventBody,
+  verifyImpression,
+  type BurstSlot,
+} from './server/learning.js';
 
 dotenv.config();
+
+// Learning store (Step 1): signed impressions + feedback events + priors.
+// Disabled entirely when LEARNING_ENABLED=false.
+const learningDb = LEARNING_ENABLED ? openLearningDb() : null;
+// Burst gates for /api/event: per anonId and per hashed IP (raw IPs never stored).
+const eventBursts = new Map<string, BurstSlot>();
 
 // Configuration Constants
 export const AI_ENABLED = true;
@@ -26,19 +64,10 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Security Headers
-app.use(
-  helmet({
-    frameguard: false,
-    contentSecurityPolicy: false,
-    crossOriginEmbedderPolicy: false,
-    crossOriginOpenerPolicy: false,
-    crossOriginResourcePolicy: false,
-  })
-);
+// Security Headers (same-origin app: defaults are fine)
+app.use(helmet());
 
-// CORS restricted to current host
-app.use(cors({ origin: true }));
+// Same-origin only: the client is served by this server, no CORS needed.
 app.use(express.json({ limit: '50kb' }));
 
 // In-memory rate limiting: 30 requests per 10 minutes per IP
@@ -51,8 +80,15 @@ const RATE_LIMIT_WINDOW = 10 * 60 * 1000; // 10 minutes
 const MAX_REQUESTS = 30;
 
 function rateLimiter(req: Request, res: Response, next: NextFunction) {
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  // Socket IP only: x-forwarded-for is client-controlled unless
+  // Express 'trust proxy' is set for a known proxy, so never use it here.
+  const ip = req.socket.remoteAddress || 'unknown';
   const now = Date.now();
+
+  // Occasional sweep so the map stays bounded on long-running servers.
+  if (rateLimits.size > 1000) {
+    for (const [k, v] of rateLimits) if (v.resetTime <= now) rateLimits.delete(k);
+  }
 
   const entry = rateLimits.get(ip);
   if (!entry || entry.resetTime <= now) {
@@ -72,6 +108,47 @@ function rateLimiter(req: Request, res: Response, next: NextFunction) {
 // Health Check
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ ok: true });
+});
+app.get('/healthz', (_req: Request, res: Response) => {
+  res.json({ ok: true });
+});
+
+// Artwork proxy: GET /img/:size/:host/:path* (E11 — the browser never
+// requests image.tmdb.org, m.media-amazon.com or cdn.watchmode.com
+// directly). Disk-cached, long Cache-Control.
+app.get('/img/:size/:host/*', async (req: Request, res: Response) => {
+  try {
+    const size = String(req.params.size || '');
+    const host = String(req.params.host || '');
+    const imgPath = `/${(req.params as unknown as string[])[0] || ''}`;
+    if (!isValidImgSize(size) || !isValidImgHost(host) || !isValidImgPath(imgPath)) {
+      res.status(400).json({ error: 'Invalid image request' });
+      return;
+    }
+    const cached = readCached(size, host, imgPath);
+    if (cached) {
+      res.setHeader('Content-Type', contentTypeFor(cached.ext, null));
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.send(cached.body);
+      return;
+    }
+    try {
+      const up = await fetchUpstream(size, host, imgPath);
+      writeCached(size, host, imgPath, up.body);
+      res.setHeader('Content-Type', contentTypeFor('', up.contentType));
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.send(up.body);
+    } catch {
+      // Upstream hiccup or stale hash: 200 placeholder, never a
+      // console-erroring 5xx. Not cached, so a transient failure
+      // retries upstream next time instead of poisoning the cache.
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.send(FALLBACK_PNG);
+    }
+  } catch {
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
 });
 
 // Recommend Endpoint
@@ -136,12 +213,8 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       sanitizedParams.languages.length > 0 &&
       !sanitizedParams.languages.includes('Any')
     ) {
-      const codes: Record<string, string> = {
-        English: 'en', Hindi: 'hi', Tamil: 'ta', Telugu: 'te',
-        Korean: 'ko', Japanese: 'ja', Spanish: 'es', French: 'fr',
-      };
       for (const l of sanitizedParams.languages) {
-        if (codes[l]) requestedLangCodes.push(codes[l]);
+        if (LANGUAGE_CODES[l]) requestedLangCodes.push(LANGUAGE_CODES[l]);
       }
     }
     const gated = enforceHardConstraints(recommended, {
@@ -177,9 +250,109 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       picks = await attachLiveProviders(picks, watchmodeKey, region);
     }
 
-    res.json({ movies: picks, notices: allNotices });
+    // 5. E11: serve all artwork through our /img proxy so the browser
+    // never requests image.tmdb.org (or any third-party host) directly.
+    for (const m of picks as { posterUrl: string; providers: { logoUrl: string }[] }[]) {
+      const local = toLocalImg(m.posterUrl);
+      if (local) m.posterUrl = local;
+      for (const p of m.providers || []) {
+        const ll = toLocalImg(p.logoUrl);
+        if (ll) p.logoUrl = ll;
+      }
+    }
+
+    // 6. Learning (Step 1): one signed impression per shown pick.
+    // Tokens bind impressionId + movieId + anonId + expiry; events
+    // without a valid token are rejected. Filters are untouched.
+    let impressionTokens: { movieId: number; impressionId: string; token: string }[] = [];
+    if (learningDb) {
+      const anonId = normalizeAnonId((req.body as { anonId?: unknown } | null)?.anonId);
+      const contextKey = buildContextKey(sanitizedParams, sanitizedParams.note);
+      const ts = Date.now();
+      const rows = picks.map((m, idx) => ({
+        impressionId: randomUUID(),
+        anonId,
+        ts,
+        contextKey,
+        movieId: m.id,
+        slot: idx,
+        rankPosition: idx + 1,
+        isExploration: 0,
+        explorationProb: 0,
+        scoreBreakdownJson: JSON.stringify({ matchScore: m.matchScore ?? null }),
+        variant: 'control',
+      }));
+      recordImpressions(learningDb, rows);
+      impressionTokens = rows.map((r) => ({
+        movieId: r.movieId,
+        impressionId: r.impressionId,
+        token: signImpression(r.impressionId, r.movieId, anonId),
+      }));
+    }
+
+    res.json({ movies: picks, notices: allNotices, impressionTokens });
   } catch {
     // Return generic 500 error, never leak debug or keys
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// Learning events (Step 1): feedback for a shown impression.
+// Accepts ONLY events carrying a valid HMAC token; idempotent by eventId.
+app.post('/api/event', rateLimiter, async (req: Request, res: Response) => {
+  try {
+    if (!LEARNING_ENABLED || !learningDb) {
+      res.status(503).json({ error: 'Learning is disabled' });
+      return;
+    }
+    if (JSON.stringify(req.body ?? null).length > MAX_EVENT_BODY_BYTES) {
+      res.status(413).json({ error: 'Event too large' });
+      return;
+    }
+    const validation = validateEventBody(req.body);
+    if (!validation.ok) {
+      res.status(validation.status).json({ error: validation.error });
+      return;
+    }
+    const evt = validation.value;
+    const now = Date.now();
+    if (burstExceeded(eventBursts, `anon:${evt.anonId}`, EVENT_BURST_PER_ANON, EVENT_BURST_WINDOW_MS, now)) {
+      res.status(429).json({ error: 'Too many events. Please try again later.' });
+      return;
+    }
+    const ipHash = hashIp(req.socket.remoteAddress || 'unknown');
+    if (burstExceeded(eventBursts, `ip:${ipHash}`, EVENT_BURST_PER_IPHASH, EVENT_BURST_WINDOW_MS, now)) {
+      res.status(429).json({ error: 'Too many events. Please try again later.' });
+      return;
+    }
+    const ver = verifyImpression(evt.token, evt.anonId);
+    if (!ver.ok) {
+      res.status(401).json({ error: 'Invalid or expired event token' });
+      return;
+    }
+    if (ver.impressionId !== evt.impressionId || ver.movieId !== evt.movieId) {
+      res.status(401).json({ error: 'Event does not match its token' });
+      return;
+    }
+    const imp = findImpression(learningDb, ver.impressionId);
+    if (!imp || imp.movieId !== evt.movieId || imp.anonId !== evt.anonId) {
+      res.status(401).json({ error: 'Unknown impression' });
+      return;
+    }
+    if (anonOverDailyCap(learningDb, evt.anonId, now)) {
+      res.status(429).json({ error: 'Daily event cap reached' });
+      return;
+    }
+    const outcome = recordEvent(learningDb, {
+      eventId: evt.eventId,
+      impressionId: evt.impressionId,
+      anonId: evt.anonId,
+      action: evt.action,
+      movieId: evt.movieId,
+      ts: now,
+    });
+    res.json({ ok: true, duplicate: outcome === 'duplicate' });
+  } catch {
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
