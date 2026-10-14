@@ -30,6 +30,11 @@ export interface Preferences {
   recent: boolean;
   classics: boolean;
   mature: boolean;
+  // Fine-tune options (Step 2)
+  tones?: string[]; // Light & fun, Thoughtful, Intense, Dark, Uplifting (max 2)
+  pace?: string; // Slow-burn, Medium, Fast
+  intensity?: string; // No violence, Mild, Moderate, Any
+  humorStyle?: string; // Slapstick, Witty, Dark comedy, Satirical (only when Comedy selected)
 }
 
 export interface WizardState {

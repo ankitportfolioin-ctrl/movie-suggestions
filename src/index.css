@@ -24,3 +24,19 @@
 .glow-subtle {
   box-shadow: 0 0 20px -2px rgba(230, 57, 70, 0.25);
 }
+
+/* Collapsible section animation */
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 500px;
+  }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.25s ease-out forwards;
+}

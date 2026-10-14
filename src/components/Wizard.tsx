@@ -19,6 +19,7 @@ import {
   X,
   Search,
   Loader2,
+  ChevronDown,
 } from 'lucide-react';
 import { WizardState, ReferenceMovie } from '../types';
 
@@ -126,6 +127,11 @@ const PREFERENCE_TOGGLES = [
     desc: 'Allow R-rated and dark psychological cinema (defaults OFF).',
   },
 ];
+
+const FINE_TUNE_TONES = ['Light & fun', 'Thoughtful', 'Intense', 'Dark', 'Uplifting'] as const;
+const FINE_TUNE_PACE = ['Slow-burn', 'Medium', 'Fast'] as const;
+const FINE_TUNE_INTENSITY = ['No violence', 'Mild', 'Moderate', 'Any'] as const;
+const FINE_TUNE_HUMOR = ['Slapstick', 'Witty', 'Dark comedy', 'Satirical'] as const;
 
 export const Wizard: React.FC<WizardProps> = ({
   state,
@@ -488,7 +494,7 @@ export const Wizard: React.FC<WizardProps> = ({
           </div>
         )}
 
-        {/* QUESTION 6: PREFERENCES (switch toggles) */}
+        {/* QUESTION 6: PREFERENCES (switch toggles + fine-tune) */}
         {step === 6 && (
           <div className="space-y-6">
             <div>
@@ -554,6 +560,129 @@ export const Wizard: React.FC<WizardProps> = ({
                 </div>
               )}
             </div>
+
+            {/* More ways to tune (collapsible) */}
+            <details className="group">
+              <summary className="flex items-center justify-between p-4 rounded-[12px] bg-[#141414] border border-[#232323] cursor-pointer list-none">
+                <div className="flex items-center gap-3">
+                  <span className="font-heading font-semibold text-white">More ways to tune</span>
+                  <span className="px-2 py-0.5 rounded-full bg-[#232323] text-xs text-[#8C8C8C] font-mono">
+                    Optional
+                  </span>
+                </div>
+                <span className="text-[#8C8C8C] group-open:rotate-180 transition-transform">
+                  <ChevronDown className="w-5 h-5" />
+                </span>
+              </summary>
+              <div className="space-y-5 p-4 pt-2 border-t border-[#232323] animate-slide-down">
+                {/* Tone */}
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-[#F5F5F5]">Tone (pick up to 2)</label>
+                  <div className="flex flex-wrap gap-2">
+                    {FINE_TUNE_TONES.map((tone) => {
+                      const checked = preferences.tones?.includes(tone);
+                      return (
+                        <button
+                          key={tone}
+                          type="button"
+                          onClick={() => {
+                            const current = preferences.tones || [];
+                            const next = checked
+                              ? current.filter((t) => t !== tone)
+                              : current.length < 2
+                              ? [...current, tone]
+                              : current;
+                          onChange({ preferences: { ...preferences, tones: next } });
+                          }}
+                          className={`px-3 py-2 rounded-[10px] border text-sm font-medium transition-all duration-200 cursor-pointer ${
+                            checked
+                              ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_10px_rgba(255,122,47,0.15)]'
+                              : 'bg-[#141414] border-[#232323] text-[#8C8C8C] hover:border-[#353534] hover:text-white'
+                          }`}
+                          disabled={!checked && (preferences.tones?.length || 0) >= 2}
+                        >
+                          {tone}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Pace */}
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-[#F5F5F5]">Pace</label>
+                  <div className="flex flex-wrap gap-2">
+                    {FINE_TUNE_PACE.map((p) => {
+                      const checked = preferences.pace === p;
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => onChange({ preferences: { ...preferences, pace: checked ? undefined : p } })}
+                          className={`px-3 py-2 rounded-[10px] border text-sm font-medium transition-all duration-200 cursor-pointer ${
+                            checked
+                              ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_10px_rgba(255,122,47,0.15)]'
+                              : 'bg-[#141414] border-[#232323] text-[#8C8C8C] hover:border-[#353534] hover:text-white'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Intensity */}
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-[#F5F5F5]">Intensity</label>
+                  <div className="flex flex-wrap gap-2">
+                    {FINE_TUNE_INTENSITY.map((i) => {
+                      const checked = preferences.intensity === i;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => onChange({ preferences: { ...preferences, intensity: checked ? undefined : i } })}
+                          className={`px-3 py-2 rounded-[10px] border text-sm font-medium transition-all duration-200 cursor-pointer ${
+                            checked
+                              ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_10px_rgba(255,122,47,0.15)]'
+                              : 'bg-[#141414] border-[#232323] text-[#8C8C8C] hover:border-[#353534] hover:text-white'
+                          }`}
+                        >
+                          {i}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Humor style (only when Comedy is selected) */}
+                {genres.includes('Comedy') && (
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-[#F5F5F5]">Humor style</label>
+                    <div className="flex flex-wrap gap-2">
+                      {FINE_TUNE_HUMOR.map((h) => {
+                        const checked = preferences.humorStyle === h;
+                        return (
+                          <button
+                            key={h}
+                            type="button"
+                            onClick={() => onChange({ preferences: { ...preferences, humorStyle: checked ? undefined : h } })}
+                            className={`px-3 py-2 rounded-[10px] border text-sm font-medium transition-all duration-200 cursor-pointer ${
+                              checked
+                                ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_10px_rgba(255,122,47,0.15)]'
+                                : 'bg-[#141414] border-[#232323] text-[#8C8C8C] hover:border-[#353534] hover:text-white'
+                            }`}
+                          >
+                            {h}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </details>
           </div>
         )}
 

@@ -57,6 +57,15 @@ export interface RankSignals {
     weights: Record<string, number>;
     eventCount: number;
   };
+  /** Fine-tune options (Step 2) */
+  fineTune?: {
+    tones?: string[];
+    pace?: string;
+    intensity?: string;
+    humorStyle?: string;
+  };
+  /** Movie labels for fine-tune matching */
+  movieLabels?: Map<number, { tone: string[]; pace: string; intensity: string; humor: string[] }>;
 }
 
 export const RANK_WEIGHTS = {
@@ -78,6 +87,11 @@ export const RANK_WEIGHTS = {
   diversityPerSharedGenre: 3.0,
   /** A gem leads only within this many points of the top score. */
   gemFirstMaxGap: 6.0,
+  /** Fine-tune weights (Step 2) */
+  toneMatch: 3.0, // per matching tone
+  paceMatch: 2.0, // exact pace match
+  humorMatch: 2.0, // per matching humor style
+  intensityFilterPenalty: 5.0, // penalty for movies above chosen intensity (when labeled)
 } as const;
 
 export interface RankableMovie {
@@ -237,6 +251,36 @@ export function scoreMovie(movie: RankableMovie, signals: RankSignals): number {
   // Step 3: personal taste bonus (average of matched weights, capped by confidence)
   if (signals.taste?.weights) {
     score += tasteBonus(movie, signals.taste.weights, signals.taste.eventCount);
+  }
+
+  // Step 2: fine-tune ranking bonuses (tone, pace, humor) — intensity is handled as a filter
+  if (signals.fineTune && signals.movieLabels) {
+    const labels = signals.movieLabels.get(movie.id);
+    if (labels) {
+      // Tone match bonus (per matching tone)
+      if (signals.fineTune.tones && signals.fineTune.tones.length > 0) {
+        const toneMatches = labels.tone.filter((t) => signals.fineTune!.tones!.includes(t)).length;
+        score += w.toneMatch * toneMatches;
+      }
+      // Pace match bonus
+      if (signals.fineTune.pace && labels.pace === signals.fineTune.pace) {
+        score += w.paceMatch;
+      }
+      // Humor match bonus (per matching humor style)
+      if (signals.fineTune.humorStyle && labels.humor.includes(signals.fineTune.humorStyle)) {
+        score += w.humorMatch;
+      }
+      // Intensity penalty: if movie intensity exceeds user's chosen level, penalize
+      // Only applies when movie has a confident label
+      if (signals.fineTune.intensity && labels.confidence > 0.5) {
+        const userIntensityIdx = ['No violence', 'Mild', 'Moderate', 'Any'].indexOf(signals.fineTune.intensity);
+        const movieIntensityIdx = ['No violence', 'Mild', 'Moderate', 'Any'].indexOf(labels.intensity);
+        if (userIntensityIdx >= 0 && movieIntensityIdx >= 0 && movieIntensityIdx > userIntensityIdx) {
+          // Penalize movies more intense than user wants
+          score -= w.intensityFilterPenalty * (movieIntensityIdx - userIntensityIdx);
+        }
+      }
+    }
   }
 
   return score;

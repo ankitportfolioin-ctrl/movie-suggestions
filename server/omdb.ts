@@ -9,6 +9,7 @@ import {
   RankSignals,
 } from './ranking.js';
 import { sanitizeTaste, sanitizeEventCount, tasteBonus } from './taste.js';
+import { labelMovie } from './labels.js';
 
 export interface MoviePick {
   id: number;
@@ -48,6 +49,11 @@ export interface RecommendParams {
     recent?: boolean;
     classics?: boolean;
     mature?: boolean;
+    // Fine-tune options (Step 2)
+    tones?: string[]; // Light & fun, Thoughtful, Intense, Dark, Uplifting (max 2)
+    pace?: string; // Slow-burn, Medium, Fast
+    intensity?: string; // No violence, Mild, Moderate, Any
+    humorStyle?: string; // Slapstick, Witty, Dark comedy, Satirical
   };
   note?: string;
   excludeIds?: number[];
@@ -187,6 +193,11 @@ function applyHardFilters(
     ? moodGenreList
     : params.genres.filter((g) => g !== 'Surprise me');
 
+  // Intensity filter mapping (Step 2)
+  const intensityOrder = ['No violence', 'Mild', 'Moderate', 'Any'];
+  const userIntensity = params.preferences.intensity;
+  const userIntensityIdx = userIntensity ? intensityOrder.indexOf(userIntensity) : -1;
+
   return pool.filter((movie) => {
     if (!c.dropExcludes && excludeSet.has(movie.id)) return false;
     // Named titles (loved or hated) never return.
@@ -218,6 +229,16 @@ function applyHardFilters(
     // Explicit note exclusions ("no horror"): hard ban.
     if (movie.genres.some((g) => excludeGenres.includes(g))) return false;
 
+    // Intensity filter (Step 2): exclude movies above chosen intensity level
+    // Only applies when user has selected an intensity and we can infer movie intensity
+    if (userIntensityIdx >= 0) {
+      const movieIntensity = inferIntensity(movie);
+      const movieIntensityIdx = intensityOrder.indexOf(movieIntensity);
+      if (movieIntensityIdx >= 0 && movieIntensityIdx > userIntensityIdx) {
+        return false;
+      }
+    }
+
     if (c.highlyRated && movie.rating < 7.0) return false;
 
     const currentYear = new Date().getFullYear();
@@ -233,6 +254,25 @@ function applyHardFilters(
     }
     return true;
   });
+}
+
+/** Infer intensity level from genres and certificate (for hard filtering). */
+function inferIntensity(movie: MovieItem): string {
+  const genreSet = new Set(movie.genres.map((g) => g.toLowerCase()));
+  const cert = (movie.certificate || '').toUpperCase();
+
+  // Certificate-based inference (most reliable)
+  if (['G', 'PG', 'TV-G', 'TV-Y', 'TV-Y7', 'TV-PG', 'U'].includes(cert)) return 'No violence';
+  if (['PG-13', 'TV-14', '12', '12A'].includes(cert)) return 'Mild';
+  if (['R', 'NC-17', 'TV-MA', '15', '18', '18+', 'A', 'X'].includes(cert)) return 'Any';
+
+  // Genre-based inference
+  if (genreSet.has('horror') || genreSet.has('war')) return 'Any';
+  if (genreSet.has('action') && (genreSet.has('crime') || genreSet.has('thriller'))) return 'Moderate';
+  if (genreSet.has('action') || genreSet.has('thriller') || genreSet.has('crime')) return 'Mild';
+  if (genreSet.has('family') || genreSet.has('animation') || genreSet.has('comedy')) return 'No violence';
+
+  return 'Mild'; // default
 }
 
 /**
@@ -421,6 +461,13 @@ export async function selectCandidateMovies(
   const tasteWeights = sanitizeTaste(params.taste?.weights);
   const eventCount = sanitizeEventCount(params.taste?.eventCount);
 
+  // Compute movie labels for fine-tune matching (Step 2)
+  const movieLabels = new Map<number, { tone: string[]; pace: string; intensity: string; humor: string[] }>();
+  for (const m of filtered) {
+    const labels = labelMovie(m);
+    movieLabels.set(m.id, { tone: labels.tone, pace: labels.pace, intensity: labels.intensity, humor: labels.humor });
+  }
+
   const signals: RankSignals = {
     quizGenres,
     noteGenres: note.genres,
@@ -439,6 +486,13 @@ export async function selectCandidateMovies(
     preferHiddenGems: Boolean(quiz.hiddenGems),
     mentionedTitles: note.mentionedTitles,
     taste: { weights: tasteWeights, eventCount },
+    fineTune: {
+      tones: params.preferences.tones,
+      pace: params.preferences.pace,
+      intensity: params.preferences.intensity,
+      humorStyle: params.preferences.humorStyle,
+    },
+    movieLabels,
   };
 
   // Fix 3c: normalize gem flags — a flag alone never qualifies a film.
