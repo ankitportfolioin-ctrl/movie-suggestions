@@ -8,6 +8,7 @@ import {
   AUDIENCE_FLAVOR,
   RankSignals,
 } from './ranking.js';
+import { sanitizeTaste, sanitizeEventCount, tasteBonus } from './taste.js';
 
 export interface MoviePick {
   id: number;
@@ -50,6 +51,11 @@ export interface RecommendParams {
   };
   note?: string;
   excludeIds?: number[];
+  /** Optional personal taste vector (Step 3). Sanitized at boundary, never fails. */
+  taste?: {
+    weights?: Record<string, number>;
+    eventCount?: number;
+  };
 }
 
 export const MOOD_GENRES: Record<string, string[]> = {
@@ -212,7 +218,7 @@ function applyHardFilters(
 
     if (c.highlyRated && movie.rating < 7.0) return false;
 
-    const currentYear = 2026;
+    const currentYear = new Date().getFullYear();
     if (recent && movie.year < currentYear - 5) return false;
     if (classics && movie.year >= 2000) return false;
 
@@ -398,6 +404,10 @@ export function selectCandidateMovies(
     );
   }
 
+  // Step 3: sanitize taste at boundary — never fails, never 400s.
+  const tasteWeights = sanitizeTaste(params.taste?.weights);
+  const eventCount = sanitizeEventCount(params.taste?.eventCount);
+
   const signals: RankSignals = {
     quizGenres,
     noteGenres: note.genres,
@@ -412,6 +422,7 @@ export function selectCandidateMovies(
     languageSpecific: targetLangCodes.length > 0,
     preferHiddenGems: Boolean(quiz.hiddenGems),
     mentionedTitles: note.mentionedTitles,
+    taste: { weights: tasteWeights, eventCount },
   };
 
   // Fix 3c: normalize gem flags — a flag alone never qualifies a film.
@@ -675,6 +686,13 @@ export async function getRecommendationsWithOMDb(
         const check = isDiscovery
           ? validateDiscoveryCandidate(movie, omdbData)
           : validateEnrichment(movie, omdbData);
+        if (isDiscovery && omdbData && !check.ok) {
+          // Unverifiable discovery title — drop, don't merge.
+          console.warn(
+            `[enrichment] dropped unverifiable discovery title "${movie.title}" (${movie.year}): ${check.reason}`
+          );
+          return null;
+        }
         if (omdbData && check.ok) {
           if (typeof omdbData.Rated === 'string' && omdbData.Rated !== 'N/A') {
             finalCertificate = omdbData.Rated;
@@ -717,13 +735,6 @@ export async function getRecommendationsWithOMDb(
           }
           if (typeof omdbData.Director === 'string' && omdbData.Director !== 'N/A') {
             finalDirector = omdbData.Director;
-          }
-          if (isDiscovery && !check.ok) {
-            // Fix 2f: unverifiable discovery candidate — drop, don't merge.
-            console.warn(
-              `[enrichment] dropped unverifiable discovery title "${movie.title}" (${movie.year}): ${check.reason}`
-            );
-            return null;
           }
         } else if (omdbData) {
           // Safe diagnostic: wrong-film data rejected, catalog retained.

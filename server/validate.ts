@@ -33,7 +33,7 @@ export type ValidationResult =
   | { ok: false; error: string };
 
 export function validateRecommendBody(body: any): ValidationResult {
-  const { mood, genres, audience, maxRuntime, languages, preferences, note, excludeIds } =
+  const { mood, genres, audience, maxRuntime, languages, preferences, note, excludeIds, taste } =
     body || {};
 
   if (!mood || typeof mood !== 'string' || !VALID_MOODS.has(mood)) {
@@ -71,7 +71,8 @@ export function validateRecommendBody(body: any): ValidationResult {
         mature: audience === 'Family with kids' ? false : Boolean(preferences?.mature),
       },
       note: sanitizedNote,
-      excludeIds: Array.isArray(excludeIds) ? excludeIds.filter((id) => typeof id === 'number') : [],
+      excludeIds: Array.isArray(excludeIds) ? excludeIds.filter((id) => typeof id === 'number').slice(0, 100) : [],
+      taste,
     },
   };
 }

@@ -33,6 +33,8 @@
  * so the pill reflects honest relative ranking, never an absolute claim.
  */
 
+import { tasteBonus } from './taste.js';
+
 export interface RankSignals {
   /** Genre overlap counts and names, split by source. */
   quizGenres: string[];
@@ -50,6 +52,11 @@ export interface RankSignals {
   preferHiddenGems: boolean;
   /** Normalized catalog title mentioned in the free-text note. */
   mentionedTitles: string[];
+  /** Optional personal taste vector (Step 3). Untrusted, validated at boundary. */
+  taste?: {
+    weights: Record<string, number>;
+    eventCount: number;
+  };
 }
 
 export const RANK_WEIGHTS = {
@@ -83,6 +90,7 @@ export interface RankableMovie {
   language: string;
   overview: string;
   isHiddenGem: boolean;
+  year: number;
 }
 
 function normalizeTitle(t: string): string {
@@ -224,6 +232,11 @@ export function scoreMovie(movie: RankableMovie, signals: RankSignals): number {
 
   if (signals.themeRefs.length > 0 && movie.overview) {
     score += w.themeSimilarity * themeSimilarity(movie.overview, signals.themeRefs);
+  }
+
+  // Step 3: personal taste bonus (average of matched weights, capped by confidence)
+  if (signals.taste?.weights) {
+    score += tasteBonus(movie, signals.taste.weights, signals.taste.eventCount);
   }
 
   return score;

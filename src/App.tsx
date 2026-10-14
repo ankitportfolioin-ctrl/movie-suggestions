@@ -17,6 +17,13 @@ import {
   sendFeedbackEvent,
   type ImpressionToken,
 } from './feedback';
+import {
+  getTasteVector,
+  setTasteVector,
+  applyDecay,
+  updateTasteFromEvent,
+  getTastePayload,
+} from './taste';
 
 const INITIAL_STATE: WizardState = {
   step: 0,
@@ -123,6 +130,15 @@ export default function App() {
   const [impressionTokens, setImpressionTokens] = useState<ImpressionToken[]>([]);
   // Movies the user dismissed via Seen it / Not for me (excluded going forward).
   const [dismissedIds, setDismissedIds] = useState<number[]>([]);
+  // Taste learning: number of feedback events this anonId has sent (for confidence ramp).
+  const [tasteEventCount, setTasteEventCount] = useState(() => {
+    try {
+      const raw = localStorage.getItem('cinematch:taste:eventCount');
+      return raw ? parseInt(raw, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
   const [showSaved, setShowSaved] = useState(false);
   const [saved, setSaved] = useState<Movie[]>(loadSaved);
   // Steps the user has actively answered (drives the Session Snapshot).
@@ -157,6 +173,12 @@ export default function App() {
   useEffect(() => {
     window.scrollTo({ top: 0 });
   }, [wizardState.step]);
+
+  // Step 3: apply taste decay once per page load.
+  useEffect(() => {
+    const anon = getAnonId();
+    if (anon && anon !== 'none') applyDecay(anon);
+  }, []);
 
   // Update wizard properties
   const handleUpdate = (updates: Partial<WizardState>) => {
@@ -216,6 +238,11 @@ export default function App() {
     if (isSaving) {
       const tok = tokenFor(movie.id);
       if (tok) void sendFeedbackEvent(tok, 'save');
+      const anon = getAnonId();
+      if (anon && anon !== 'none') {
+        updateTasteFromEvent(anon, movie, 'save');
+        setTasteEventCount((c) => c + 1);
+      }
     }
   };
 
@@ -225,6 +252,14 @@ export default function App() {
     // Never shown again: fold into the exclusion list for future fetches.
     setSeenMovieIds((prev) => (prev.includes(movie.id) ? prev : [...prev, movie.id]));
     setDismissedIds((prev) => (prev.includes(movie.id) ? prev : [...prev, movie.id]));
+    // Taste update for not_for_me
+    if (action === 'not_for_me') {
+      const anon = getAnonId();
+      if (anon && anon !== 'none') {
+        updateTasteFromEvent(anon, movie, 'not_for_me');
+        setTasteEventCount((c) => c + 1);
+      }
+    }
   };
 
   const handleNotForMe = (movie: Movie) => dismissMovie(movie, 'not_for_me');
@@ -236,9 +271,14 @@ export default function App() {
   };
 
   const handleResetTaste = () => {
-    // Clears the anonymous taste profile on this device (Step 2).
-    // Server-side row deletion for the anonId lands in Step 3.
+    // Clears the anonymous taste profile on this device (Step 3).
     resetTaste();
+    const anon = getAnonId();
+    if (anon && anon !== 'none') {
+      setTasteVector(anon, {});
+      localStorage.removeItem('cinematch:taste:eventCount');
+    }
+    setTasteEventCount(0);
     setDismissedIds([]);
   };
 
@@ -256,6 +296,8 @@ export default function App() {
     const currentExcludes = customExclude ?? seenMovieIds;
 
     try {
+      const anon = getAnonId();
+      const tastePayload = getTastePayload(anon, tasteEventCount);
       const payload = {
         mood: wizardState.mood,
         genres: genreOverride ?? wizardState.genres,
@@ -265,7 +307,8 @@ export default function App() {
         preferences: wizardState.preferences,
         note: wizardState.note,
         excludeIds: currentExcludes,
-        anonId: getAnonId(),
+        anonId: anon,
+        taste: tastePayload,
       };
 
       const res = await fetch('/api/recommend', {
@@ -334,9 +377,14 @@ export default function App() {
 
   const handleCycle = () => {
     // "Show different picks": one negative signal per rejected pick.
+    const anon = getAnonId();
     for (const m of movies) {
       const tok = tokenFor(m.id);
       if (tok) void sendFeedbackEvent(tok, 'different_picks');
+      if (anon && anon !== 'none') {
+        updateTasteFromEvent(anon, m, 'different_picks');
+        setTasteEventCount((c) => c + 1);
+      }
     }
     // Fresh rotation: deal a new triad excluding only what's on screen,
     // forgetting older history so the pool stays large.
