@@ -116,6 +116,64 @@ app.get('/healthz', (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// Title Search Endpoint (for reference movie chips)
+const titleSearchCache = new Map<string, { data: any; expiresAt: number }>();
+const TITLE_SEARCH_TTL = 60 * 60 * 1000; // 1 hour
+
+app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) => {
+  try {
+    const query = String(req.query.q || '').trim();
+    if (!query || query.length > 80) {
+      res.status(400).json({ error: 'Invalid query' });
+      return;
+    }
+
+    // Sanitize query - strip HTML/script tags
+    const safeQuery = query.replace(/<[^>]*>/g, '');
+
+    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
+    if (!tmdbApiKey) {
+      res.json({ results: [] });
+      return;
+    }
+
+    const cacheKey = safeQuery.toLowerCase();
+    const now = Date.now();
+    const cached = titleSearchCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      res.json({ results: cached.data });
+      return;
+    }
+
+    const searchUrl = `https://api.themoviedb.org/3/search/movie?api_key=${tmdbApiKey}&query=${encodeURIComponent(safeQuery)}&include_adult=false`;
+    const searchRes = await fetch(searchUrl, {
+      headers: { 'User-Agent': 'MovieNightPicker/1.0' },
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!searchRes.ok) {
+      res.json({ results: [] });
+      return;
+    }
+
+    const data = await searchRes.json();
+    const results = (data.results || [])
+      .filter((m: any) => m.poster_path && m.release_date)
+      .slice(0, 5)
+      .map((m: any) => ({
+        imdbId: m.id.toString(), // TMDB ID used as reference; OMDb lookup will happen later
+        title: m.title,
+        year: parseInt(m.release_date.slice(0, 4), 10),
+        posterUrl: `https://image.tmdb.org/t/p/w500${m.poster_path}`,
+      }));
+
+    titleSearchCache.set(cacheKey, { data: results, expiresAt: now + TITLE_SEARCH_TTL });
+    res.json({ results });
+  } catch {
+    res.json({ results: [] });
+  }
+});
+
 // Artwork proxy: GET /img/:size/:host/:path* (E11)
 app.get('/img/:size/:host/*', async (req: Request, res: Response) => {
   try {

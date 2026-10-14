@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ArrowRight,
   ArrowLeft,
@@ -17,12 +17,14 @@ import {
   Baby,
   Clock,
   X,
+  Search,
+  Loader2,
 } from 'lucide-react';
-import { WizardState } from '../types';
+import { WizardState, ReferenceMovie } from '../types';
 
 interface WizardProps {
-  state: WizardState;
-  onChange: (updates: Partial<WizardState>) => void;
+  state: WizardState & { referenceMovies?: ReferenceMovie[] };
+  onChange: (updates: Partial<WizardState & { referenceMovies?: ReferenceMovie[] }>) => void;
   onNext: () => void;
   onBack: () => void;
   onCancel: () => void;
@@ -154,6 +156,77 @@ export const Wizard: React.FC<WizardProps> = ({
   const genreCounter = genres.includes('Surprise me')
     ? 'Surprise me selected'
     : `${genres.filter((g) => g !== 'Surprise me').length}/3 selected`;
+
+  // Reference movie search state
+  const referenceMovies = state.referenceMovies || [];
+  const [referenceSearchQuery, setReferenceSearchQuery] = useState('');
+  const [referenceSuggestions, setReferenceSuggestions] = useState<Array<{ imdbId: string; title: string; year: number; posterUrl: string }>>([]);
+  const [referenceSearchLoading, setReferenceSearchLoading] = useState(false);
+  const [referenceSearchError, setReferenceSearchError] = useState('');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestionsContainerRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const searchReferenceMovies = async (query: string) => {
+    if (query.length < 2) {
+      setReferenceSuggestions([]);
+      return;
+    }
+    setReferenceSearchLoading(true);
+    setReferenceSearchError('');
+    try {
+      const res = await fetch(`/api/title-search?q=${encodeURIComponent(query)}`);
+      if (!res.ok) throw new Error('Search failed');
+      const data = await res.json();
+      if (data.results) {
+        setReferenceSuggestions(data.results.slice(0, 5));
+      }
+    } catch {
+      setReferenceSearchError('Could not search titles. Please try again.');
+      setReferenceSuggestions([]);
+    } finally {
+      setReferenceSearchLoading(false);
+    }
+  };
+
+  const handleReferenceSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setReferenceSearchQuery(value);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => searchReferenceMovies(value), 300);
+  };
+
+  const addReferenceMovie = (movie: { imdbId: string; title: string; year: number; posterUrl: string }) => {
+    if (referenceMovies.length >= 3) return;
+    if (referenceMovies.some((r) => r.imdbId === movie.imdbId)) return;
+    onChange({ referenceMovies: [...referenceMovies, { imdbId: movie.imdbId, title: movie.title, year: movie.year }] });
+    setReferenceSearchQuery('');
+    setReferenceSuggestions([]);
+    if (inputRef.current) inputRef.current.blur();
+  };
+
+  const removeReferenceMovie = (imdbId: string) => {
+    onChange({ referenceMovies: referenceMovies.filter((r) => r.imdbId !== imdbId) });
+  };
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (inputRef.current && !inputRef.current.contains(event.target as Node) &&
+          suggestionsContainerRef.current && !suggestionsContainerRef.current.contains(event.target as Node)) {
+        setReferenceSuggestions([]);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, []);
 
   return (
     <div className="flex flex-col flex-grow w-full max-w-2xl mx-auto px-4 py-8 justify-between">
@@ -484,7 +557,7 @@ export const Wizard: React.FC<WizardProps> = ({
           </div>
         )}
 
-        {/* QUESTION 7: OPTIONAL FREE TEXT */}
+        {/* QUESTION 7: OPTIONAL FREE TEXT + REFERENCE MOVIES */}
         {step === 7 && (
           <div className="space-y-6">
             <div>
@@ -494,6 +567,83 @@ export const Wizard: React.FC<WizardProps> = ({
               <p className="text-sm text-[#8C8C8C] mt-2">
                 A movie you loved recently, an actor you dislike, or a specific mood keyword.
               </p>
+            </div>
+
+            {/* Reference Movies Field */}
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-[#F5F5F5] mb-2">
+                Movies you liked (optional, up to 3)
+              </label>
+              <div className="relative">
+                <div className="flex items-center">
+                  <Search className="absolute left-3 text-[#8C8C8C] w-5 h-5 pointer-events-none" />
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    id="reference-movie-search"
+                    value={referenceSearchQuery}
+                    onChange={handleReferenceSearchChange}
+                    placeholder="e.g. Wolf of Wall Street, The Social Network"
+                    className="w-full pl-10 pr-4 py-3 rounded-[12px] bg-[#0A0A0A] border border-[#232323] focus:border-[#FF7A2F] text-[#F5F5F5] placeholder-[#8C8C8C] outline-none transition-all duration-200"
+                    maxLength={80}
+                  />
+                </div>
+                {referenceSearchLoading && (
+                  <div className="absolute right-10 top-1/2 -translate-y-1/2">
+                    <Loader2 className="w-5 h-5 text-[#FF7A2F] animate-spin" />
+                  </div>
+                )}
+              </div>
+              {referenceSearchError && (
+                <p className="text-xs text-[#E63946] mt-1">{referenceSearchError}</p>
+              )}
+              {referenceSuggestions.length > 0 && (
+                <ul
+                  ref={suggestionsContainerRef}
+                  className="absolute z-10 w-full mt-1 bg-[#141414] border border-[#232323] rounded-[12px] max-h-60 overflow-auto"
+                >
+                  {referenceSuggestions.map((s) => (
+                    <li
+                      key={`${s.imdbId}-${s.year}`}
+                      onClick={() => addReferenceMovie(s)}
+                      className="px-4 py-3 hover:bg-[#1c1b1b] cursor-pointer flex items-center gap-3 border-b border-[#232323] last:border-0"
+                    >
+                      <img
+                        src={s.posterUrl}
+                        alt=""
+                        className="w-12 h-18 object-cover rounded-[6px] bg-[#232323]"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#F5F5F5] truncate">{s.title}</p>
+                        <p className="text-xs text-[#8C8C8C]">{s.year}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {referenceMovies.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {referenceMovies.map((ref) => (
+                    <span
+                      key={ref.imdbId}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#1c1b1b] border border-[#FF7A2F]/40 text-xs text-[#F5F5F5]"
+                    >
+                      <span>Using</span>
+                      <span className="font-medium">{ref.title}</span>
+                      <span className="text-[#8C8C8C]">({ref.year})</span>
+                      <button
+                        type="button"
+                        onClick={() => removeReferenceMovie(ref.imdbId)}
+                        className="ml-1 p-0.5 hover:text-[#E63946] transition-colors"
+                        aria-label={`Remove ${ref.title}`}
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="space-y-2 pt-2">
@@ -533,6 +683,13 @@ export const Wizard: React.FC<WizardProps> = ({
               >
                 {maxRuntime}
               </span>
+              {referenceMovies.length > 0 && (
+                <span
+                  className="px-3 py-1.5 rounded-full bg-[#1a1a1a] border border-[#FF7A2F]/40 text-xs text-[#F5F5F5]"
+                >
+                  Refs: {referenceMovies.length}/3
+                </span>
+              )}
             </div>
 
             <button

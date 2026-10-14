@@ -18,3 +18,5 @@ server/img.ts.bak
 tests/*.bak
 release-report/
 eval/
+
+.vercel

@@ -9,8 +9,8 @@ function ids(items: { movie: { id: number } }[]): number[] {
   return items.map((i) => i.movie.id);
 }
 
-test('family mode never returns mature or horror/crime/thriller', () => {
-  const { items } = selectCandidateMovies(
+test('family mode never returns mature or horror/crime/thriller', async () => {
+  const { items } = await selectCandidateMovies(
     baseParams({ audience: 'Family with kids', genres: ['Horror'], maxRuntime: 'Any length' })
   );
   assert.ok(items.length > 0);
@@ -20,8 +20,8 @@ test('family mode never returns mature or horror/crime/thriller', () => {
   }
 });
 
-test('non-family without opt-in excludes mature titles', () => {
-  const { items } = selectCandidateMovies(
+test('non-family without opt-in excludes mature titles', async () => {
+  const { items } = await selectCandidateMovies(
     baseParams({ genres: ['Horror'], audience: 'Friends', maxRuntime: 'Any length' })
   );
   for (const { movie } of items) {
@@ -29,46 +29,46 @@ test('non-family without opt-in excludes mature titles', () => {
   }
 });
 
-test('mature opt-in allows mature titles', () => {
-  const { items } = selectCandidateMovies(
+test('mature opt-in allows mature titles', async () => {
+  const { items } = await selectCandidateMovies(
     baseParams({ genres: ['Horror'], audience: 'Friends', maxRuntime: 'Any length', preferences: { mature: true } })
   );
   assert.ok(titles(items).includes('What We Do in the Shadows'));
 });
 
-test('language is a hard filter', () => {
-  const { items } = selectCandidateMovies(
+test('language is a hard filter', async () => {
+  const { items } = await selectCandidateMovies(
     baseParams({ genres: ['Mystery'], languages: ['Korean'], maxRuntime: 'Any length' })
   );
   assert.ok(items.length > 0);
   for (const { movie } of items) assert.equal(movie.language, 'ko');
 });
 
-test('runtime is a hard filter on first pass', () => {
-  const { items } = selectCandidateMovies(
+test('runtime is a hard filter on first pass', async () => {
+  const { items } = await selectCandidateMovies(
     baseParams({ genres: ['Comedy'], maxRuntime: 'Under 90 min' })
   );
   for (const { movie } of items) assert.ok(movie.runtime <= 90, `${movie.title} is ${movie.runtime}m`);
 });
 
-test('note exclusions ban genres', () => {
-  const { items, notices } = selectCandidateMovies(
+test('note exclusions ban genres', async () => {
+  const { items, notices } = await selectCandidateMovies(
     baseParams({ genres: ['Comedy'], note: 'no scary stuff please' })
   );
   assert.ok(!titles(items).includes('What We Do in the Shadows'));
   assert.ok(notices.some((n) => n.includes('Horror')));
 });
 
-test('hated titles are excluded with a notice', () => {
-  const { items, notices } = selectCandidateMovies(
+test('hated titles are excluded with a notice', async () => {
+  const { items, notices } = await selectCandidateMovies(
     baseParams({ genres: ['Animation'], note: 'hated Toy Story' })
   );
   assert.ok(!titles(items).includes('Toy Story'));
   assert.ok(notices.some((n) => n.includes('Toy Story')));
 });
 
-test('impossible filters return honest partial + notices, never mature leaks', () => {
-  const { items, notices } = selectCandidateMovies(
+test('impossible filters return honest partial + notices, never mature leaks', async () => {
+  const { items, notices } = await selectCandidateMovies(
     baseParams({ mood: 'Curious', genres: ['Mystery'], languages: ['Korean'], maxRuntime: 'Under 90 min', preferences: { highlyRated: true } })
   );
   assert.ok(items.length < 3);
@@ -86,17 +86,17 @@ test('relaxed runtime never produces false "fits" claims downstream', async () =
   }
 });
 
-test('no-close-match returns empty with guidance', () => {
-  const { items, notices } = selectCandidateMovies(
+test('no-close-match returns empty with guidance', async () => {
+  const { items, notices } = await selectCandidateMovies(
     baseParams({ languages: ['Spanish'], genres: ['Documentary'] })
   );
   assert.equal(items.length, 0);
   assert.ok(notices.join(' ').includes('No close matches'));
 });
 
-test('excludeIds are respected until the ladder must relax them', () => {
+test('excludeIds are respected until the ladder must relax them', async () => {
   const all = [807, 10315, 862, 1104];
-  const { items, notices } = selectCandidateMovies(
+  const { items, notices } = await selectCandidateMovies(
     baseParams({ mood: 'Tired', genres: ['Comedy'], maxRuntime: 'Under 90 min', excludeIds: all })
   );
   const got = ids(items);
@@ -105,21 +105,21 @@ test('excludeIds are respected until the ladder must relax them', () => {
   assert.ok(overlap.length === 0 || notices.some((n) => n.includes('already seen')));
 });
 
-test('loved titles are never recommended back, with notice', () => {
-  const { items, notices } = selectCandidateMovies(
+test('loved titles are never recommended back, with notice', async () => {
+  const { items, notices } = await selectCandidateMovies(
     baseParams({ mood: 'Happy', genres: ['Animation'], note: 'Loved Toy Story' })
   );
   assert.ok(!titles(items).includes('Toy Story'));
   assert.ok(notices.some((n) => n.includes('Toy Story')));
 });
 
-test('fuzzy partial title match excludes; tiny fragments do not nuke results', () => {
-  const { items } = selectCandidateMovies(
+test('fuzzy partial title match excludes; tiny fragments do not nuke results', async () => {
+  const { items } = await selectCandidateMovies(
     baseParams({ mood: 'Romantic', genres: ['Romance'], audience: 'Partner', note: 'loved Sunrise' })
   );
   assert.ok(!titles(items).includes('Before Sunrise'));
   // "it" / "up" style fragments must not exclude anything
-  const res = selectCandidateMovies(
+  const res = await selectCandidateMovies(
     baseParams({ mood: 'Tired', genres: ['Comedy'], maxRuntime: 'Under 90 min', note: 'it' })
   );
   assert.ok(res.items.length >= 2);
@@ -139,27 +139,27 @@ test('2b: personExcluded matches cast and director, case-insensitively', () => {
   assert.equal(personExcluded([], undefined, ['Tom Cruise']), null); // no data
 });
 
-test('2d: quiz-vs-note conflicts are disclosed with quiz winning', () => {
-  const lang = selectCandidateMovies(
+test('2d: quiz-vs-note conflicts are disclosed with quiz winning', async () => {
+  const lang = await selectCandidateMovies(
     baseParams({ languages: ['English'], note: 'Hindi movies please' })
   );
   assert.ok(lang.notices.some((n) => n.includes('quiz language') && n.includes('Hindi')));
-  const era = selectCandidateMovies(
+  const era = await selectCandidateMovies(
     baseParams({ preferences: { classics: true }, note: 'something recent and modern' })
   );
   assert.ok(era.notices.some((n) => n.includes('kept classics')));
-  const long = selectCandidateMovies(
+  const long = await selectCandidateMovies(
     baseParams({ maxRuntime: 'Under 90 min', note: 'an epic long film' })
   );
   assert.ok(long.notices.some((n) => n.includes('Under 90 min')));
-  const mood = selectCandidateMovies(
+  const mood = await selectCandidateMovies(
     baseParams({ mood: 'Curious', note: 'I feel sad today' })
   );
   assert.ok(mood.notices.some((n) => n.includes('quiz mood')));
 });
 
-test('2e: comparatives resolve to runtime hints', () => {
-  const { items, notices } = selectCandidateMovies(
+test('2e: comparatives resolve to runtime hints', async () => {
+  const { items, notices } = await selectCandidateMovies(
     baseParams({ maxRuntime: 'Any length', note: 'something like Interstellar but shorter' })
   );
   for (const { movie } of items) assert.ok(movie.runtime <= 100, movie.title);

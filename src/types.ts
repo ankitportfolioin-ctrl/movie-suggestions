@@ -41,4 +41,11 @@ export interface WizardState {
   languages: string[];
   preferences: Preferences;
   note: string;
+  referenceMovies?: ReferenceMovie[];
+}
+
+export interface ReferenceMovie {
+  imdbId: string;
+  title: string;
+  year: number;
 }

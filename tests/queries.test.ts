@@ -56,8 +56,8 @@ const QUERIES: Query[] = [
 ];
 
 for (const q of QUERIES) {
-  test(`query: ${q.name}`, () => {
-    const { items, notices } = selectCandidateMovies(q.params);
+  test(`query: ${q.name}`, async () => {
+    const { items, notices } = await selectCandidateMovies(q.params);
     const got = titles(items);
     if (q.expectCount !== undefined) assert.equal(items.length, q.expectCount, `got [${got}]`);
     if (q.expectMinCount !== undefined) assert.ok(items.length >= q.expectMinCount, `got [${got}]`);

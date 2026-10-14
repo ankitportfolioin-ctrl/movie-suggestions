@@ -51,6 +51,8 @@ export interface RecommendParams {
   };
   note?: string;
   excludeIds?: number[];
+  /** Optional reference movie IMDb IDs (up to 3). Validated at boundary. */
+  referenceIds?: string[];
   /** Optional personal taste vector (Step 3). Sanitized at boundary, never fails. */
   taste?: {
     weights?: Record<string, number>;
@@ -238,10 +240,11 @@ function applyHardFilters(
  * maturity, language, or era constraints. Every relaxation is reported
  * via notices so the UI can show partial-result states honestly.
  */
-export function selectCandidateMovies(
+export async function selectCandidateMovies(
   params: RecommendParams,
-  extraCandidates: MovieItem[] = []
-): SelectionResult {
+  extraCandidates: MovieItem[] = [],
+  referenceOverviews: string[] = []
+): Promise<SelectionResult> {
   const notices: string[] = [];
   const note = parseNote(params.note || '');
   const excludeSet = new Set(params.excludeIds || []);
@@ -330,7 +333,17 @@ export function selectCandidateMovies(
   }
 
   const namedTitles = [...note.hatedTitles, ...note.lovedTitles];
-  const namedInPool = pool.filter((m) => titleIsNamed(m.title, namedTitles)).map((m) => m.title);
+  // Build reference titles for exclusion (never recommend reference movies back)
+  const referenceTitles: string[] = [];
+  if (params.referenceIds && params.referenceIds.length > 0) {
+    for (const refId of params.referenceIds) {
+      // Check catalog for title
+      const inCatalog = pool.find((m) => m.imdbId === refId);
+      if (inCatalog) referenceTitles.push(inCatalog.title);
+    }
+  }
+  const allNamedTitles = [...namedTitles, ...referenceTitles];
+  const namedInPool = pool.filter((m) => titleIsNamed(m.title, allNamedTitles)).map((m) => m.title);
   if (namedInPool.length > 0) {
     notices.push(`Skipping ${namedInPool.join(', ')} — you already mentioned ${namedInPool.length === 1 ? 'it' : 'them'}.`);
   }
@@ -370,7 +383,7 @@ export function selectCandidateMovies(
   ];
 
   let filtered = applyHardFilters(
-    pool, params, note.genres, note.excludeGenres, namedTitles, base,
+    pool, params, note.genres, note.excludeGenres, allNamedTitles, base,
     excludeSet, targetLangCodes, recent, classics
   );
   const constraints: FilterConstraints = { ...base };
@@ -415,9 +428,12 @@ export function selectCandidateMovies(
     mood: params.mood,
     // Fix 3b: theme anchors are the named films' own verified overviews.
     // (The films themselves are excluded from results; their plots guide.)
-    themeRefs: pool
-      .filter((m) => titleIsNamed(m.title, note.lovedTitles))
-      .map((m) => m.overview),
+    themeRefs: [
+      ...referenceOverviews,
+      ...pool
+        .filter((m) => titleIsNamed(m.title, note.lovedTitles))
+        .map((m) => m.overview),
+    ],
     maxMinutes: constraints.maxMinutes,
     languageSpecific: targetLangCodes.length > 0,
     preferHiddenGems: Boolean(quiz.hiddenGems),
@@ -454,10 +470,13 @@ export function selectCandidateMovies(
  * validateEnrichment before use.
  */
 async function fetchFromOMDb(
-  movie: { imdbId?: string; title: string; year: number },
+  movie: { imdbId: string } | { imdbId?: string; title: string; year: number },
   apiKey: string
 ): Promise<any | null> {
-  const cacheKey = (movie.imdbId || `${movie.title}_${movie.year}`).toLowerCase();
+  const isById = (m: typeof movie): m is { imdbId: string } => !!m.imdbId;
+  const cacheKey = isById(movie)
+    ? movie.imdbId.toLowerCase()
+    : `${movie.title}_${movie.year}`.toLowerCase();
   const now = Date.now();
   const cached = omdbCache.get(cacheKey);
   if (cached && cached.expiresAt > now) {
@@ -465,7 +484,7 @@ async function fetchFromOMDb(
   }
 
   try {
-    const url = movie.imdbId
+    const url = isById(movie)
       ? `https://www.omdbapi.com/?apikey=${apiKey}&i=${encodeURIComponent(movie.imdbId)}&plot=short`
       : `https://www.omdbapi.com/?apikey=${apiKey}&t=${encodeURIComponent(movie.title)}&y=${movie.year}&plot=short`;
     const res = await fetch(url, {
@@ -641,8 +660,23 @@ export async function getRecommendationsWithOMDb(
   omdbApiKey?: string,
   extraCandidates: MovieItem[] = []
 ): Promise<RecommendationResult> {
+  // Fetch reference movie overviews for theme similarity (if referenceIds provided)
+  let referenceOverviews: string[] = [];
+  if (omdbApiKey && params.referenceIds && params.referenceIds.length > 0) {
+    const referenceResults = await Promise.all(
+      params.referenceIds.map((imdbId) => fetchFromOMDb({ imdbId }, omdbApiKey))
+    );
+    referenceOverviews = referenceResults
+      .filter((r): r is any => r && r.Response === 'True' && typeof r.Plot === 'string' && r.Plot !== 'N/A')
+      .map((r) => r.Plot);
+    if (referenceOverviews.length < params.referenceIds.length) {
+      const missingCount = params.referenceIds.length - referenceOverviews.length;
+      console.warn(`[reference] Could not load ${missingCount} of ${params.referenceIds.length} reference movie(s)`);
+    }
+  }
+
   const { items: candidates, notices, usedMaxMinutes, effective } =
-    selectCandidateMovies(params, extraCandidates);
+    await selectCandidateMovies(params, extraCandidates, referenceOverviews);
 
   const quizGenres =
     params.genres.includes('Surprise me') || params.genres.length === 0

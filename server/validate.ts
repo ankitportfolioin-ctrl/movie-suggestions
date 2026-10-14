@@ -33,7 +33,7 @@ export type ValidationResult =
   | { ok: false; error: string };
 
 export function validateRecommendBody(body: any): ValidationResult {
-  const { mood, genres, audience, maxRuntime, languages, preferences, note, excludeIds, taste } =
+  const { mood, genres, audience, maxRuntime, languages, preferences, note, excludeIds, taste, referenceIds } =
     body || {};
 
   if (!mood || typeof mood !== 'string' || !VALID_MOODS.has(mood)) {
@@ -50,6 +50,14 @@ export function validateRecommendBody(body: any): ValidationResult {
   }
   if (!Array.isArray(languages) || languages.some((l: any) => typeof l !== 'string' || !VALID_LANGUAGES.has(l))) {
     return { ok: false, error: 'Invalid input parameters' };
+  }
+
+  // Validate referenceIds: max 3, each must match tt + digits pattern
+  let sanitizedReferenceIds: string[] = [];
+  if (Array.isArray(referenceIds)) {
+    sanitizedReferenceIds = referenceIds
+      .filter((id) => typeof id === 'string' && /^tt\d+$/.test(id))
+      .slice(0, 3);
   }
 
   const sanitizedNote = typeof note === 'string' ? note.trim().slice(0, 200) : '';
@@ -72,6 +80,7 @@ export function validateRecommendBody(body: any): ValidationResult {
       },
       note: sanitizedNote,
       excludeIds: Array.isArray(excludeIds) ? excludeIds.filter((id) => typeof id === 'number').slice(0, 100) : [],
+      referenceIds: sanitizedReferenceIds,
       taste,
     },
   };

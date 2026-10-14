@@ -298,6 +298,7 @@ export default function App() {
     try {
       const anon = getAnonId();
       const tastePayload = getTastePayload(anon, tasteEventCount);
+      const referenceIds = (wizardState.referenceMovies || []).map((r) => r.imdbId);
       const payload = {
         mood: wizardState.mood,
         genres: genreOverride ?? wizardState.genres,
@@ -309,6 +310,7 @@ export default function App() {
         excludeIds: currentExcludes,
         anonId: anon,
         taste: tastePayload,
+        referenceIds,
       };
 
       const res = await fetch('/api/recommend', {
