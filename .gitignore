@@ -8,3 +8,5 @@ coverage/
 !.env.example
 
 .playwright-mcp/
+test-results/
+/playwright-report/

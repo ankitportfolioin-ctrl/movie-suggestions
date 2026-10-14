@@ -1,5 +1,50 @@
 # CineMatch Release Report
 
+## Phase 2 — Visual test (2026-10-14, this session)
+
+- Suite: `e2e/visual.spec.ts` (4 tests) + `e2e/baseline.spec.ts` (1 test). Command `npx playwright test e2e/visual.spec.ts` => `4 passed (20.9s)`; matrix re-run after full-walk extension => `1 passed (26.4s)` with `LAYOUT:[]` (zero horizontal overflow on all 5 viewports x all states, measured via `scrollWidth > innerWidth+1`) and `CONSOLE_ERRORS:[] PAGEERRORS:[]`.
+- Genuine no-matches via real API: restrictive filters (Documentary + Family + Under 90 + Spanish + Highly rated) => `NOMATCH count=0 notices=["No close matches this time — try widening the runtime or genres."]`.
+- Visual baselines: `npx playwright test e2e/baseline.spec.ts --update-snapshots` => wrote `baseline-landing-desktop-win32.png`, `baseline-q1-desktop-win32.png`; re-run without flag => `1 passed (2.3s)`.
+- Contrast (measured with node luminance calc this session): `#F5F5F5`=18.16:1 PASS, `#8C8C8C` body gray=5.89:1 PASS (>=4.5), `#FF7A2F`=7.61:1 PASS, `#666666` (counters/footer 11-12px)=3.45:1 FAIL => D-CONTRAST-01.
+- Tap targets (measured 360x740 Q1 this session): mood cards 158x98, Back 99x54, Cancel 112x54, Continue 107x60 — all >=44x44 PASS. Preference switches are 48x24 (WCAG 2.2 AA min 24px: pass; Apple 44px guideline: fail) => D-TAP-01 (Low).
+- Defects logged in Phase 2:
+  - D-CLIP-01 (Low): 360px Q1 mood descs truncated by `line-clamp-1` ("Cathartic...", "Bittersweet or..."). DOM text complete; cosmetic.
+  - D-SCROLL-01 (Medium): 360px Q4 heading "Time Available" clipped at top — scroll position retained across steps, no scroll-to-top on Next.
+  - D-POSTER-02 (Medium): results cards show black/empty poster area until images arrive (no aspect-ratio placeholder/skeleton => layout jump). Posters DO load (smoke-results 822KB, all 3 visible); timing/placeholder issue. Subsumed by D-POSTER-01 fix (/img route + placeholder).
+  - D-CONTRAST-01 (Low): `#666666` secondary text 3.45:1 < 4.5.
+  - D-TAP-01 (Low): toggle switches 48x24 < 44x44.
+  - D-LAYOUT-01 (Low): 768px results show 2.5 cards (swipe row vs wrap — verify intended).
+  - D-YEAR-01 (Low): footer shows "© 2025" (current year 2026).
+- Visual table (VC = visually checked with image-view tool this session; NV = captured on disk, NOT VISUALLY CHECKED — stratified sample inspected due to volume):
+
+| screenshot | viewport | state | what I saw | defect |
+|---|---|---|---|---|
+| 360x740-visual-landing.png | 360x740 | landing | Clean dark hero, pill badge, gradient headline, full-width orange CTA, feature card top. No clipping. | N (VC) |
+| 360x740-visual-q1.png | 360x740 | Q1 | 2-col mood grid, Relaxed selected orange. "Cathartic..." / "Bittersweet or..." truncated. Snapshot empty (correct: nothing touched). | Y-low D-CLIP-01 (VC) |
+| 360x740-visual-q2.png | 360x740 | Q2 | Chips wrap cleanly, Surprise-me selected, counter, Back/Cancel/Continue visible. Footer credits OMDb·Watchmode·TMDB. | N (VC) |
+| 360x740-visual-q3.png | 360x740 | Q3 | 4 audience cards stacked, Just-me selected, full descs, action bar + footer. | N (VC) |
+| 360x740-visual-q4.png | 360x740 | Q4 | Heading clipped at top edge ("Time Available" cut). Runtime cards + bar fine. | Y-med D-SCROLL-01 (VC) |
+| 360x740-visual-q5.png | 360x740 | Q5 | Snapshot chips correct (Mood/Genres/Company/Runtime). 3-col language grid fits. | N (VC) |
+| 360x740-visual-q6-top.png | 360x740 | Q6 top | (captured, matrix green, no overflow) | N (NV) |
+| 360x740-visual-q6-bottom.png | 360x740 | Q6 bottom | 4 toggles OFF + mature row, action bar. Switch height 24px. | Y-low D-TAP-01 (VC) |
+| 360x740-visual-q7.png | 360x740 | Q7 | Textarea, 0/200 counter, summary chips, full-width Find-my-movies CTA. | N (VC) |
+| 360x740-visual-results.png | 360x740 | results | Card badges visible but poster area black/empty (image not yet arrived, no placeholder). | Y-med D-POSTER-02 (VC) |
+| 390x844-visual-*.png (landing,q1-q7,results) | 390x844 | all | Matrix green, no overflow/errors. results sampled: badges + metadata row (1990/1h26m/8.1/G/JA) visible, poster area black (same timing). | D-POSTER-02 (VC results; rest NV) |
+| 768x1024-visual-*.png | 768x1024 | all | Matrix green. results sampled: 3 cards w/ metadata, reasons, providers (Netflix/JioHotstar/VI); 2.5 cards visible in a swipe row. | Y-low D-LAYOUT-01 (VC results; rest NV) |
+| 1366x768-visual-q1-default.png + q1-mood-x8 | 1366x768 | Q1 options | (captured; matrix path green) | N (NV) |
+| 1366x768-visual-q2-surprise/3genres/attempt-4th | 1366x768 | Q2 | attempt-4th VC: Comedy/Drama/Sci-Fi checked, Horror rejected, "3/3 selected". Correct. | N (VC) |
+| 1366x768-visual-q3-x4 | 1366x768 | Q3 options | (captured) | N (NV) |
+| 1366x768-visual-q4-x4 | 1366x768 | Q4 options | (captured) | N (NV) |
+| 1366x768-visual-q5-x9 | 1366x768 | Q5 options | (captured) | N (NV) |
+| 1366x768-visual-q6-top/bottom-off/bottom-on | 1366x768 | Q6 | bottom-on VC: Highly-rated ON, Hidden-gems ON, Recent OFF, Classics ON (mutual exclusion correct), Family-mode mature row. | N (VC) |
+| 1366x768-visual-q7-empty/200chars/hindi-emoji | 1366x768 | Q7 | hindi-emoji VC: Devanagari + emoji render, counter 39/200, snapshot complete. | N (VC) |
+| 1366x768-visual-loading.png | 1366x768 | loading | Glowing sparkles icon + "Analyzing Taste Profiles..." + subtext. Intentional, not blank. (Animation not verifiable in still.) | N (VC) |
+| 1366x768-visual-results.png | 1366x768 | results | "Your 3 Tailored Matches", 3 loaded posters (Totoro GEM 90%, Toy Story 98%, Soul 99%). | N (VC) |
+| 1366x768-visual-no-matches.png | 1366x768 | no matches | "No perfect match" + guidance + notice chip + Adjust-filters/Start-over. Not blank. | N (VC) |
+| 1366x768-visual-error-blocked-api.png | 1366x768 | error | "Something went wrong / services stumbled..." + Try-again/Start-over. Friendly, not blank. | N (VC) |
+| 1920x1080-visual-*.png (landing,q1-q7,results) | 1920x1080 | all | Matrix green, no overflow/errors. | N (NV) |
+| smoke landing/results | 1366x768 | smoke | VC in Phase 1 (clean hero; 3 posters loaded). | N (VC) |
+
 ## Phase 1 — Real-browser setup (2026-10-14, this session)
 
 - Playwright: `@playwright/test` installed with `--legacy-peer-deps` (pre-existing esbuild peer conflict; evidence: `ERESOLVE ... Conflicting peer dependency: esbuild@0.28.2` then `added 3 packages`). `npx playwright --version` => `Version 1.64.0`.
