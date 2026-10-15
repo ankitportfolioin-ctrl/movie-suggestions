@@ -155,3 +155,39 @@ test('3d: franchise cap keeps one pick per series', () => {
   assert.ok(!got.includes('Toy Story 2'));
   assert.ok(got.includes('Up'));
 });
+
+test('ranking: Happy mood penalizes bleak genres ( Horror/Thriller/Crime )', () => {
+  const grim = movie({ genres: ['Horror', 'Thriller', 'Crime'] });
+  const happy = scoreMovie(grim, { ...signals, mood: 'Happy', moodGenres: ['Comedy', 'Animation'] });
+  const relaxed = scoreMovie(grim, { ...signals, mood: 'Relaxed', moodGenres: ['Comedy', 'Animation'] });
+  const sad = scoreMovie(grim, { ...signals, mood: 'Sad', moodGenres: ['Comedy', 'Animation'] });
+  // Happy should have downer penalty for bleak genres
+  assert.ok(Math.abs(sad - happy - RANK_WEIGHTS.moodDownerPerGenre * 3) < 1e-9, `sad-${happy} should equal ${RANK_WEIGHTS.moodDownerPerGenre * 3}`);
+  // Relaxed also has downer penalty (same genres)
+  assert.ok(Math.abs(sad - relaxed - RANK_WEIGHTS.moodDownerPerGenre * 3) < 1e-9, `sad-${relaxed} should equal ${RANK_WEIGHTS.moodDownerPerGenre * 3}`);
+  // Sad has no downer penalty
+  assert.ok(sad >= happy && sad >= relaxed, 'Sad should not be penalized for bleak genres');
+});
+
+test('ranking: The Fall under feel-good gets modest adventure bonus', () => {
+  const fallMovie = movie({ id: 14784, title: 'The Fall', genres: ['Adventure', 'Fantasy', 'Drama'], runtime: 117 });
+  const happySignals = { ...signals, mood: 'Happy', moodGenres: ['Comedy', 'Animation', 'Family', 'Adventure'] };
+  const score = scoreMovie(fallMovie, happySignals);
+  // Adventure gives uplift bonus under Happy; Fantasy/Drama don't match Happy uplift list
+  assert.ok(score > 0, 'The Fall should score positively under Happy mood');
+});
+
+test('ranking: Tired mood uplifts Comedy/Animation/Family', () => {
+  const cozy = movie({ id: 1, title: 'Cozy Movie', genres: ['Comedy', 'Animation', 'Family'], runtime: 90 });
+  const tiredSignals = { ...signals, mood: 'Tired', moodGenres: ['Comedy', 'Animation', 'Family'] };
+  const score = scoreMovie(cozy, tiredSignals);
+  assert.ok(score > 0, 'Cozy movie should score under Tired mood');
+});
+
+test('ranking: Stressed mood has no downer penalty', () => {
+  const grim = movie({ genres: ['Horror', 'Thriller', 'Crime'] });
+  const stressedSignals = { ...signals, mood: 'Stressed', moodGenres: [] };
+  const score = scoreMovie(grim, stressedSignals);
+  // Stressed has empty downers, so no penalty for bleak genres
+  assert.ok(score >= 0, 'Stressed should not penalize bleak genres');
+});

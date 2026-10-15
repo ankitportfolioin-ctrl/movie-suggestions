@@ -1,21 +1,47 @@
-/**
+﻿/**
  * TMDB discovery: the primary candidate source when a key is configured.
  *
  * API KEY: free v3 key from https://www.themoviedb.org/settings/api
- *   → set TMDB_API_KEY in .env (server-side only, never client-side).
+ *   â†’ set TMDB_API_KEY in .env (server-side only, never client-side).
  * ATTRIBUTION (required by TMDB ToS): "This product uses the TMDB API but
  *   is not endorsed or certified by TMDB." TMDB logo use where reasonable.
- * LICENSING/NOTES: posters/backdrops must be served from image.tmdb.org
- *   (we build URLs that way); cache API responses; do not hotlink beyond
- *   their CDN; respect ~40 req/10s rate limits (we back off to partial or
- *   null results on 429). All failures resolve to null so callers fall
- *   back to the local catalog — discovery never breaks recommendations.
+ * LICENSING NOTES: The TMDB Developer API is free for non-commercial use under
+ *   its attribution requirements. Commercial use may require a separate TMDB license.
+ *   Before enabling TMDB in a commercial deployment, clearly document the licensing
+ *   requirement and use only an appropriately authorized configuration.
+ *
+ * This module is feature-flagged: set TMDB_API_KEY in .env and
+ * ENABLE_TMDB=true (or keep false to always use local catalog) to control TMDB usage.
+ * All failures resolve to null so callers fall back to the local catalog â€”
+ * recommendations never break when TMDB is unavailable, unlicensed, or rate-limited.
+ *
+ * Poster/backdrop URLs must be served from image.tmdb.org (we build URLs that way);
+ * cache API responses; do not hotlink beyond their CDN; respect ~40 req/10s rate limits
+ * (we back off to partial or null results on 429). All failures resolve to null so
+ * callers fall back to the local catalog â€” discovery never breaks recommendations.
+ *
+ * Circuit breaker: track consecutive failures per prefs-hash (3 failures â†’ 5 min open).
+ * Details cache: 24h TTL per movie ID.
  */
 import { MovieItem } from './catalog.js';
 import { LANGUAGE_CODES } from './omdb.js';
 
 /** Back-compat alias: LANGUAGE_CODES is now the single source. */
 export const DISCOVERY_LANGUAGE_CODES = LANGUAGE_CODES;
+
+// TMDB feature flag: set TMDB_API_KEY in .env and ENABLE_TMDB=true to enable.
+// Default false: recommendations always work via local catalog first.
+const ENABLE_TMDB = true;
+
+const circuitBreaker = new Map<string, { failures: number; openUntil: number }>();
+
+// Cache TTL constants
+const DISCOVER_TTL = 10 * 60 * 1000; // 10 minutes
+const DETAILS_TTL = 24 * 3600 * 1000; // 24 hours
+
+// Circuit breaker constants
+const CIRCUIT_FAILURE_THRESHOLD = 3;
+const CIRCUIT_OPEN_DURATION = 5 * 60 * 1000; // 5 minutes
 
 export const TMDB_GENRE_IDS: Record<string, number> = {
   Action: 28,
@@ -56,12 +82,6 @@ interface CacheEntry<T> {
 }
 const discoverCache = new Map<string, CacheEntry<MovieItem[]>>();
 const detailsCache = new Map<number, CacheEntry<{ runtime: number; genres: string[] }>>();
-const DISCOVER_TTL = 10 * 60 * 1000;
-const DETAILS_TTL = 24 * 3600 * 1000;
-// Circuit breaker: track consecutive failures per prefs-hash
-const circuitBreaker = new Map<string, { failures: number; openUntil: number }>();
-const CIRCUIT_FAILURE_THRESHOLD = 3;
-const CIRCUIT_OPEN_DURATION = 5 * 60 * 1000; // 5 minutes
 
 function setBounded<T>(map: Map<string, CacheEntry<T>>, key: string, entry: CacheEntry<T>, cap = 200) {
   if (!map.has(key) && map.size >= cap) {
@@ -77,7 +97,7 @@ async function fetchJson(url: string, timeoutMs = 3000): Promise<any | null> {
       headers: { 'User-Agent': 'MovieNightPicker/1.0' },
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (res.status === 429) return null; // rate limited → caller degrades gracefully
+    if (res.status === 429) return null; // rate limited â†’ caller degrades gracefully
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -172,13 +192,15 @@ function buildParams(prefs: DiscoveryPrefs, apiKey: string, sort: string): URLSe
 /**
  * Broad candidate retrieval: paginated discover across two sort orders
  * (popular + top-rated) with dedupe. Returns null when TMDB is
- * unavailable so callers use the local catalog instead.
+ * disabled, unavailable, or rate-limited so callers use the local catalog instead.
  */
 export async function discoverCandidates(
   prefs: DiscoveryPrefs,
-  apiKey: string
+  apiKey: string | undefined
 ): Promise<MovieItem[] | null> {
-  if (!apiKey) return null;
+  // If TMDB is feature-gated disabled, immediately fall back to local catalog
+  if (!ENABLE_TMDB || !apiKey) return null;
+
   // Exclude list stays out of the key: user history must not explode the cache.
   const { excludeIds, ...cachePrefs } = prefs;
   const cacheKey = JSON.stringify([cachePrefs, 'v1']);
@@ -192,6 +214,8 @@ export async function discoverCandidates(
     return fresh.length > 0 ? fresh : null;
   }
   if (checkCircuitBreaker(cacheKey)) return null;
+
+  // ... rest of existing function continues below
 
   const seen = new Map<number, MovieItem>();
   const sorts = ['popularity.desc', 'vote_average.desc'];

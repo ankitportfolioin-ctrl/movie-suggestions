@@ -49,6 +49,8 @@ import {
 
 dotenv.config();
 
+console.log('[server] Starting server...');
+
 // Learning store (Step 1): signed impressions + feedback events + priors.
 // Disabled entirely when LEARNING_ENABLED=false.
 const learningDb = LEARNING_ENABLED ? openLearningDb() : null;
@@ -393,6 +395,22 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
             }
           }
           extraCandidates = found;
+
+          // Generate semantic embeddings for new TMDB movies (idempotent, async).
+          // This runs in the background; search will pick them up on next request.
+          try {
+            console.log('[embeddings] Starting background generation for', found.length, 'movies');
+            const { generateEmbeddingsForMovies } = await import('./server/embeddings.js');
+            console.log('[embeddings] Module imported, calling generateEmbeddingsForMovies');
+            generateEmbeddingsForMovies(found).then((count) => {
+              console.log('[embeddings] Background generation completed, count:', count);
+            }).catch((e) =>
+              console.warn('[embeddings] Background generation failed:', e?.message)
+            );
+          } catch (e) {
+            console.warn('[embeddings] Import failed:', e?.message);
+            // embeddings module unavailable (model not installed) — silent no-op
+          }
         }
       } catch {
         extraCandidates = [];
@@ -580,7 +598,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    // Dev server started cleanly
+    console.log(`[server] Listening on http://0.0.0.0:${PORT}`);
   });
 }
 

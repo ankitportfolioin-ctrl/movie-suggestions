@@ -25,6 +25,7 @@ import {
   IntensityLevel,
   WatchEffortLevel,
 } from './preferences.js';
+import { FALLBACK_CATALOG } from './catalog.js';
 
 // LLM output schema for structured JSON parsing
 const PARSE_SCHEMA = {
@@ -148,24 +149,42 @@ function parseDeterministic(query: string): ParsedPreferences {
     if (mapped) moods.push(...mapped);
   }
 
-  // Additional mood detection from keywords
-  if (/\b(tired|exhausted|low energy|brain.?dead|worn out)\b/.test(lower)) {
-    moods.push('tired', 'low_effort');
+  // Additional mood detection from keywords — with negation-aware scope
+  // "no intense action" → do NOT add intense/adrenaline; only if "intense" appears outside negation
+  const negationScope = detectNegationScope(lower);
+  const positiveKeywords = lower.split(/\s+/);
+  const foundPositive: string[] = [];
+  for (let i = 0; i < positiveKeywords.length; i++) {
+    const kw = positiveKeywords[i];
+    // Skip words inside negation scope
+    if (negationScope.contains(i)) continue;
+    if (kw === 'intense' || kw === 'adrenaline' || kw === 'edge.of.seat' || kw === 'gripping') foundPositive.push('intense');
+    if (kw === 'comforting' || kw === 'feel.good' || kw === 'uplifting' || kw === 'heartwarming' || kw === 'cozy') foundPositive.push('comforting');
+    if (kw === 'tired' || kw === 'exhausted' || kw === 'low energy' || kw === 'brain.dead' || kw === 'worn.out') foundPositive.push('tired');
+    if (kw === 'easy.watch' || kw === 'low.effort' || kw === 'mindless' || kw === 'simple') foundPositive.push('easy_watch');
   }
-  if (/\b(intense|adrenaline|edge.of.seat|heart.?pounding|gripping)\b/.test(lower)) {
-    moods.push('intense', 'adrenaline');
-  }
-  if (/\b(comforting|feel.?good|uplifting|heartwarming|cozy)\b/.test(lower)) {
-    moods.push('comforting', 'feel_good');
-  }
-  if (/\b(easy.watch|low.effort|don.t want to think|mindless|simple)\b/.test(lower)) {
-    moods.push('easy_watch', 'low_effort');
+  // Also check for phrases (split on whitespace removes phrase context)
+  if (lower.includes('easy watch') || lower.includes('easywatch')) foundPositive.push('easy_watch');
+  if (lower.includes('low effort') || lower.includes('loweffort') || lower.includes('low effort')) foundPositive.push('low_effort');
+  for (const m of foundPositive) moods.push(m);
+
+  // Mood conflict detection: tired + intense → clarification
+  const hasTired = moods.some(m => ['tired', 'low_effort', 'easy_watch'].includes(m));
+  const hasIntense = moods.some(m => ['intense', 'adrenaline', 'edge_of_seat'].includes(m)) || /\b(intense|adrenaline|edge.of.seat|gripping)\b/.test(lower) && !negationScope.containsAny();
+  if (hasTired && hasIntense) {
+    // Only set clarification if not already handled
+    if (!note.moods.some(m => ['tired', 'low_effort'].includes(m)) || !/\b(intense|adrenaline)\b/.test(lower)) {
+      // Keep going, the clarification will be set below
+    }
   }
 
   // Map note genres to internal genres
   const genres: GenreLabel[] = note.genres.filter((g): g is GenreLabel => VALID_GENRES.includes(g as GenreLabel));
 
-  // Additional genre detection
+  // Additional genre detection — negation-aware
+  // Only add a genre keyword if it's outside the negation scope.
+  // "no horror" → Horror should go into excludeGenres, not genres.
+  // When inside negation scope, the genre is added to excludeGenres instead.
   const genreKeywords: [RegExp, GenreLabel][] = [
     [/\baction\b|\baction.packed\b/, 'Action'],
     [/\badventure\b/, 'Adventure'],
@@ -186,8 +205,23 @@ function parseDeterministic(query: string): ParsedPreferences {
     [/\bmusical\b/, 'Music'],
     [/\bhistorical\b|\bperiod\b/, 'History'],
   ];
+  const negatedGenres: GenreLabel[] = [];
   for (const [re, genre] of genreKeywords) {
-    if (re.test(lower) && !genres.includes(genre)) genres.push(genre);
+    if (re.test(lower)) {
+      const isInsideNegation = negationScope.containsAny();
+      if (isInsideNegation) {
+        // Inside negation scope: collect for later addition to exclude list
+        const alreadyNegated = negatedGenres.some((g): g is GenreLabel => g === genre);
+        if (!alreadyNegated) negatedGenres.push(genre);
+      } else if (!genres.includes(genre) && !negatedGenres.includes(genre)) {
+        // Outside negation scope: normal positive match
+        genres.push(genre);
+      }
+    }
+  }
+  // Merge negated genres into exclude list after the loop
+  for (const g of negatedGenres) {
+    if (!note.excludeGenres.includes(g)) note.excludeGenres.push(g);
   }
 
   // Liked/disliked titles from note parser (already extracted)
@@ -274,11 +308,9 @@ function parseDeterministic(query: string): ParsedPreferences {
   if (/\b(easy.watch|low.effort|don.t want to think|mindless|simple|light)\b/.test(lower)) watchEffort = 'low';
   else if (/\b(complex|demanding|heavy|deep|thought.?provoking)\b/.test(lower)) watchEffort = 'high';
 
-  // Clarification detection
+  // Clarification detection — reuse hasTired/hasIntense from mood conflict detection above
   let clarificationNeeded = false;
   let clarificationQuestion: string | null = null;
-  const hasTired = moods.some(m => ['tired', 'low_effort', 'easy_watch'].includes(m));
-  const hasIntense = moods.some(m => ['intense', 'adrenaline', 'edge_of_seat'].includes(m)) || intensity === 'high';
   if (hasTired && hasIntense) {
     clarificationNeeded = true;
     clarificationQuestion = "When you say tired, do you want easy-to-follow action or something intense?";
@@ -346,6 +378,32 @@ export async function parseUserQuery(
 }
 
 /**
+ * Detect the scope of negation in a query.
+ * Words inside negation scope (following "no", "without", "never") are
+ * excluded from positive preference matching.
+ * Returns an object mapping word indices to whether they're negated.
+ */
+function detectNegationScope(lower: string): { contains: (idx: number) => boolean; containsAny: () => boolean } {
+  const words = lower.split(/\s+/);
+  const negated = new Set<number>();
+  // Common negation prefixes
+  const negationPrefixes = ['no', 'without', 'never', "n't"];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (negationPrefixes.some(p => w.startsWith(p) || w === p)) {
+      // Negation affects subsequent words up to about 6 words later
+      for (let j = i + 1; j < Math.min(i + 7, words.length); j++) {
+        negated.add(j);
+      }
+    }
+  }
+  return {
+    contains: (idx: number) => negated.has(idx),
+    containsAny: () => negated.size > 0,
+  };
+}
+
+/**
  * Infer genres from known popular titles (fallback when TMDB resolution not available).
  * This is a minimal mapping for common reference titles.
  */
@@ -382,7 +440,7 @@ function inferGenresFromTitle(title: string, genres: GenreLabel[]): void {
     'thedarkknight': ['Action', 'Crime', 'Drama', 'Thriller'],
     'inception': ['Action', 'Sci-Fi', 'Thriller'],
     'interstellar': ['Adventure', 'Drama', 'Sci-Fi'],
-    'parasite': ['Comedy', 'Drama', 'Thriller'],
+    'parasite': ['Comedy', 'Drama', 'Thriller', 'Mystery'],
     'the shawshank redemption': ['Drama'],
     'theshawshankredemption': ['Drama'],
     'fight club': ['Drama'],
@@ -416,6 +474,26 @@ export async function resolveTitle(
   mediaType: 'movie' | 'tv' = 'movie',
   tmdbApiKey?: string | null
 ): Promise<ResolvedTitle | null> {
+  if (!title.trim()) return null;
+
+  // Step 1: Try local catalog match first (no API key needed)
+  const normTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const catalogMovie of FALLBACK_CATALOG) {
+    const catalogNorm = catalogMovie.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (catalogNorm === normTitle || normTitle.includes(catalogNorm) || catalogNorm.includes(normTitle)) {
+      return {
+        tmdbId: catalogMovie.id,
+        mediaType,
+        title: catalogMovie.title,
+        year: catalogMovie.year,
+        imdbId: catalogMovie.imdbId,
+        confidence: 'high',
+        alternativeMatches: undefined,
+      };
+    }
+  }
+
+  // Step 2: Fall back to TMDB API if key is available
   if (!tmdbApiKey || !title.trim()) return null;
 
   try {

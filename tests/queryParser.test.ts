@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseUserQuery } from '../server/queryParser.js';
 import { ParsedPreferences, validatePreferences, ResolvedTitle } from '../server/preferences.js';
+import { resolveTitle } from '../server/queryParser.js';
 
 function assertValidPrefs(prefs: ParsedPreferences) {
   // All arrays should be arrays
@@ -220,4 +221,38 @@ test('parseUserQuery: disliked titles from "hate" language', async () => {
   assert.ok(prefs.dislikedTitles.length >= 1);
   const titles = prefs.dislikedTitles.map(t => t.title.toLowerCase());
   assert.ok(titles.some(t => t.includes('room') || t.includes('birdemic')));
+});
+
+test('parseUserQuery: negated horror preference excludes horror', async () => {
+  const prefs = await parseUserQuery('no horror please');
+  assertValidPrefs(prefs);
+  assert.ok(prefs.excludeGenres.includes('Horror'), 'Horror should be in excludeGenres');
+  assert.ok(!prefs.genres.includes('Horror'), 'Horror should NOT be in genres');
+});
+
+test('parseUserQuery: feel-good query maps feel_good mood', async () => {
+  const prefs = await parseUserQuery('I want a feel-good movie');
+  assertValidPrefs(prefs);
+  assert.ok(prefs.mood.includes('feel_good') || prefs.mood.includes('happy'), 'feel-good should map to feel_good or happy mood');
+});
+
+test('parseUserQuery: The Fall title resolution', async () => {
+  const resolved = await resolveTitle('The Fall');
+  assert.ok(resolved !== null, 'The Fall should resolve');
+  if (resolved) {
+    assert.ok(resolved.title === 'The Fall' || resolved.title.toLowerCase().includes('fall'));
+    assert.ok(typeof resolved.tmdbId === 'number');
+  }
+});
+
+test('parseUserQuery: runtime constraint under 90 min', async () => {
+  const prefs = await parseUserQuery('something short under 90 minutes');
+  assertValidPrefs(prefs);
+  assert.ok(prefs.maxRuntimeMinutes !== null && prefs.maxRuntimeMinutes <= 95);
+});
+
+test('parseUserQuery: negated horror in note', async () => {
+  const prefs = await parseUserQuery('I want something fun, no horror though');
+  assertValidPrefs(prefs);
+  assert.ok(prefs.excludeGenres.includes('Horror'), 'Horror should be excluded even in mixed query');
 });
