@@ -74,7 +74,13 @@ export function buildMovieText(movie) {
  * Load current embeddings file (with shared lock for concurrent reads).
  */
 async function loadEmbeddings() {
-  const release = await lockfile.lock(EMBEDDINGS_FILE, { retries: 3, retryWait: 50, stale: 5000 });
+  // shortcut: file lock can fail on read-only serverless FS; treat as empty cache, upgrade to KV/store if persistence needed.
+  let release;
+  try {
+    release = await lockfile.lock(EMBEDDINGS_FILE, { retries: 3, retryWait: 50, stale: 5000 });
+  } catch {
+    return { model: MODEL_NAME, movies: [] };
+  }
   try {
     try {
       if (!existsSync(EMBEDDINGS_FILE)) return { model: MODEL_NAME, movies: [] };
@@ -92,6 +98,7 @@ async function loadEmbeddings() {
  * Save embeddings to file (with exclusive lock for concurrent writes).
  */
 async function saveEmbeddings(data) {
+  // shortcut: throws on read-only serverless FS; caller must catch. Upgrade to KV/store if persistence needed.
   const release = await lockfile.lock(EMBEDDINGS_FILE, { retries: 3, retryWait: 50, stale: 5000 });
   try {
     writeFileSync(EMBEDDINGS_FILE, JSON.stringify(data, null, 2));
@@ -133,6 +140,7 @@ export async function generateEmbeddingsForMovies(movies) {
   }
 
   if (generated > 0) {
+    // shortcut: read-only FS (serverless) throws here; caught by caller. Upgrade to KV/store if persistence needed.
     await saveEmbeddings(data);
     console.log(`[embeddings] Saved ${generated} new embeddings to ${EMBEDDINGS_FILE}`);
   }

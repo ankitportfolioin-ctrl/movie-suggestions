@@ -53,8 +53,13 @@ const SENTENCE_TRANSFORMERS = {
 // to the deterministic pipeline (no degradation).
 // Refreshed on-demand via refreshEmbeddingsCache() to pick up dynamically added embeddings.
 let movieEmbeddings = [];
+// shortcut: guarded init; serverless FS may be read-only. Upgrade to bundled snapshot if init must be guaranteed.
 (async () => {
-  movieEmbeddings = await refreshEmbeddingsCache();
+  try {
+    movieEmbeddings = await refreshEmbeddingsCache();
+  } catch {
+    movieEmbeddings = [];
+  }
 })();
 const EMBEDDING_DIM = SENTENCE_TRANSFORMERS.embeddingDim;
 

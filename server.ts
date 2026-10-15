@@ -397,19 +397,15 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
           extraCandidates = found;
 
           // Generate semantic embeddings for new TMDB movies (idempotent, async).
-          // This runs in the background; search will pick them up on next request.
-          try {
-            console.log('[embeddings] Starting background generation for', found.length, 'movies');
-            const { generateEmbeddingsForMovies } = await import('./server/embeddings.js');
-            console.log('[embeddings] Module imported, calling generateEmbeddingsForMovies');
-            generateEmbeddingsForMovies(found).then((count) => {
-              console.log('[embeddings] Background generation completed, count:', count);
-            }).catch((e) =>
-              console.warn('[embeddings] Background generation failed:', e?.message)
-            );
-          } catch (e) {
-            console.warn('[embeddings] Import failed:', e?.message);
-            // embeddings module unavailable (model not installed) — silent no-op
+          // Gated on SEMANTIC_ENABLED so serverless never spawns python or writes files.
+          // shortcut: fire-and-forget, no retry; upgrade to a queue/worker if generation must be guaranteed.
+          if (process.env.SEMANTIC_ENABLED === 'true') {
+            try {
+              const { generateEmbeddingsForMovies } = await import('./server/embeddings.js');
+              generateEmbeddingsForMovies(found).catch(() => {});
+            } catch {
+              // embeddings module unavailable — silent no-op
+            }
           }
         }
       } catch {
