@@ -244,66 +244,132 @@ app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) =>
 });
 
 // Natural language search endpoint
+// shortcut: mirrors server.ts handler; keep both in sync manually, upgrade to a shared module if they drift again.
 app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
   try {
-    const { query, structuredInputs } = req.body;
-    if (!query || typeof query !== 'string') {
-      res.status(400).json({ error: 'Query text is required' });
+    const { query, excludeIds } = req.body || {};
+    if (!query || typeof query !== 'string' || query.trim().length < 3) {
+      res.status(400).json({ error: 'Invalid query' });
       return;
     }
 
-    // Parse the natural language query
-    const parsed = await import('./server/queryParser.js');
-    const preferences = await parsed.parseUserQuery(text, structuredInputs);
+    // Parse the natural language query into structured params
+    const { parseNote } = await import('./server/noteParser.js');
+    const note = parseNote(query);
 
-    // Build recommendation params from parsed query
-    const recParams: any = {
-      mood: preferences.mood ? preferences.mood[0] : undefined,
-      genres: preferences.genres,
-      audience: preferences.audience || 'Just me',
-      maxRuntime: preferences.maxRuntimeMinutes !== undefined ? 
-        (preferences.maxRuntimeMinutes <= 90 ? 'Under 90 min' : preferences.maxRuntimeMinutes <= 120 ? 'Under 2 hours' : 'Under 2.5 hours') : 'Any length',
-      languages: preferences.language ? [preferences.language] : ['Any'],
-      preferences: {
-        highlyRated: preferences.highlyRated || false,
-        hiddenGems: false,
-        recent: false,
-        classics: false,
-        mature: false,
-      },
-      note: preferences.originalQuery ? undefined : null,
-      excludeIds: [],
-      referenceIds: [],
+    // Build recommendation params from parsed note
+    const mood = note.moods[0] || 'Relaxed';
+    const genres = note.genres.length > 0 ? note.genres : ['Surprise me'];
+    const audience = 'Just me';
+    const maxRuntime = note.runtimeHint === 'short' ? 'Under 90 min' : 
+                       note.runtimeHint === 'long' ? 'Under 2.5 hours' : 'Under 2 hours';
+    const languages = note.languageHints.length > 0 ? note.languageHints : ['Any'];
+    const preferences = {
+      highlyRated: note.wantsHighlyRated || false,
+      hiddenGems: false,
+      recent: note.eraHint === 'recent',
+      classics: note.eraHint === 'classics',
+      mature: false,
     };
+    const excludeGenres = note.excludeGenres;
 
-    // Add any available structured data
-    if (preferences.genres && preferences.genres.length > 0) {
-      recParams.genres = preferences.genres;
-    }
-    if (preferences.mood) {
-      recParams.mood = preferences.mood;
-    }
-    if (preferences.maxRuntimeMinutes !== undefined) {
-      recParams.maxRuntime = preferences.maxRuntimeMinutes <= 90 ? 'Under 90 min' : 
-        preferences.maxRuntimeMinutes <= 120 ? 'Under 2 hours' : 'Under 2.5 hours';
-    }
-    if (preferences.language) {
-      recParams.languages = [preferences.language];
+    // Use the existing recommendation pipeline with parsed params
+    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
+    let extraCandidates: MovieItem[] = [];
+    if (tmdbApiKey) {
+      try {
+        const found = await discoverCandidates(
+          {
+            genres,
+            languages,
+            maxRuntime,
+            highlyRated: preferences.highlyRated,
+            recent: preferences.recent,
+            classics: preferences.classics,
+            family: audience === 'Family with kids',
+            mature: preferences.mature,
+            excludeIds: excludeIds || [],
+          },
+          tmdbApiKey
+        );
+        if (found && found.length > 0) {
+          const runtimes = await enrichRuntimes(found, tmdbApiKey);
+          for (const m of found) {
+            const details = runtimes.get(m.id);
+            if (details) {
+              if (details.runtime > 0) m.runtime = details.runtime;
+              if (details.genres.length > 0) m.genres = details.genres;
+            }
+          }
+          extraCandidates = found;
+        }
+      } catch {
+        extraCandidates = [];
+      }
     }
 
-    // Get recommendations
-    const omdbApiKey = process.env.OMDB_API_KEY?.trim();
-    const { movies: recommended, notices, effective } = await import('./server/omdb.js').then(m => m.getRecommendationsWithOMDb)(recParams, omdbApiKey);
+    const { FALLBACK_CATALOG } = await import('./server/catalog.js');
+    const pool = [...FALLBACK_CATALOG, ...extraCandidates];
+
+    // Apply note-based genre exclusions
+    let filtered = pool.filter(m => !excludeGenres.some(g => m.genres.includes(g)));
+
+    // Apply hard filters
+    const { runtimeCap } = await import('./server/omdb.js');
+    const maxMinutes = runtimeCap(maxRuntime);
+    filtered = filtered.filter(m => m.runtime <= maxMinutes);
+
+    if (languages.length > 0 && !languages.includes('Any')) {
+      const { LANGUAGE_CODES } = await import('./server/omdb.js');
+      const langCodes = languages.map(l => LANGUAGE_CODES[l]).filter(Boolean);
+      filtered = filtered.filter(m => langCodes.includes(m.language));
+    }
+
+    if (preferences.highlyRated) {
+      filtered = filtered.filter(m => m.rating >= 7.0);
+    }
+
+    const currentYear = new Date().getFullYear();
+    if (preferences.recent) {
+      filtered = filtered.filter(m => m.year >= currentYear - 5);
+    }
+    if (preferences.classics) {
+      filtered = filtered.filter(m => m.year < 2000);
+    }
+
+    // Remove excluded IDs
+    const excludeSet = new Set(excludeIds || []);
+    filtered = filtered.filter(m => !excludeSet.has(m.id));
+
+    // Simple ranking by genre overlap + rating
+    const moodGenresMap = (await import('./server/omdb.js')).MOOD_GENRES;
+    const moodGenreList = moodGenresMap[mood] || ['Comedy', 'Adventure'];
+    const quizGenres = genres.includes('Surprise me') ? moodGenreList : genres.filter(g => g !== 'Surprise me');
+
+    const scored = filtered.map(movie => {
+      let score = movie.rating * 2; // rating base
+      const genreOverlap = movie.genres.filter(g => quizGenres.includes(g)).length;
+      score += genreOverlap * 3;
+      const moodOverlap = movie.genres.filter(g => moodGenreList.includes(g)).length;
+      score += moodOverlap * 2;
+      return { movie, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const top3 = scored.slice(0, 3).map((s, idx) => ({
+      ...s.movie,
+      matchScore: 95 - idx * 2,
+      reason: `Matches your ${mood.toLowerCase()} mood with ${s.movie.genres.slice(0,2).join(' & ')}.`,
+    }));
 
     res.json({ 
-      preferences,
-      movies: recommended,
-      notices,
-      effective 
+      movies: top3, 
+      parsed: { mood, genres, excludeGenres, runtimeHint: note.runtimeHint, languageHints: note.languageHints, eraHint: note.eraHint },
+      notices: excludeGenres.length > 0 ? [`Excluding ${excludeGenres.join(', ')}`] : [],
     });
   } catch (err) {
-    console.error('Search error:', err);
-    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+    console.error('Natural language search error:', err);
+    res.status(500).json({ error: 'Search failed' });
   }
 });
 
