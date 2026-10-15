@@ -256,3 +256,24 @@ test('parseUserQuery: negated horror in note', async () => {
   assertValidPrefs(prefs);
   assert.ok(prefs.excludeGenres.includes('Horror'), 'Horror should be excluded even in mixed query');
 });
+test('parseUserQuery: under 2 hours maps to 120 minutes', async () => {
+  const prefs = await parseUserQuery('something fun under 2 hours');
+  assertValidPrefs(prefs);
+  assert.equal(prefs.maxRuntimeMinutes, 120);
+});
+
+test('parseUserQuery: mixed negation keeps positive genre', async () => {
+  const prefs = await parseUserQuery('I love comedy but no horror');
+  assertValidPrefs(prefs);
+  assert.ok(prefs.genres.includes('Comedy'), 'Comedy must stay positive');
+  assert.ok(prefs.excludeGenres.includes('Horror'), 'Horror must be excluded');
+  assert.ok(!prefs.excludeGenres.includes('Comedy'), 'Comedy must not leak into exclusions');
+});
+
+test('parseUserQuery: hindi post-negation excludes', async () => {
+  const prefs = await parseUserQuery('koi daravni film nahi, mazakiya chhoti movie');
+  assertValidPrefs(prefs);
+  assert.ok(prefs.genres.includes('Comedy'));
+  assert.ok(prefs.excludeGenres.includes('Horror'), 'daravni nahi must exclude Horror');
+  assert.ok(!prefs.excludeGenres.includes('Comedy'));
+});

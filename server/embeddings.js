@@ -95,13 +95,37 @@ async function loadEmbeddings() {
 }
 
 /**
- * Save embeddings to file (with exclusive lock for concurrent writes).
+ * Append new embedding entries, merging with whatever is currently on disk
+ * under a single lock acquisition. Closes the lost-update window where two
+ * concurrent generators both read, both compute, and the slower save wipes
+ * the faster one's entries.
  */
-async function saveEmbeddings(data) {
-  // shortcut: throws on read-only serverless FS; caller must catch. Upgrade to KV/store if persistence needed.
-  const release = await lockfile.lock(EMBEDDINGS_FILE, { retries: 3, retryWait: 50, stale: 5000 });
+async function appendEmbeddings(newEntries) {
+  // shortcut: single lock covers load-merge-write; generation itself stays outside
+  // the lock (minutes-long python calls must never hold a file lock). Upgrade to a
+  // job queue if exactly-once generation (not just exactly-once persistence) is required.
+  const release = await lockfile.lock(EMBEDDINGS_FILE, { retries: 10, retryWait: 100, stale: 10000 });
   try {
+    let data;
+    try {
+      data = existsSync(EMBEDDINGS_FILE)
+        ? JSON.parse(readFileSync(EMBEDDINGS_FILE, 'utf-8'))
+        : { model: MODEL_NAME, movies: [] };
+      if (!Array.isArray(data.movies)) data.movies = [];
+    } catch {
+      data = { model: MODEL_NAME, movies: [] };
+    }
+    const ids = new Set(data.movies.map((m) => m.id));
+    let added = 0;
+    for (const e of newEntries) {
+      if (!ids.has(e.id)) {
+        data.movies.push(e);
+        ids.add(e.id);
+        added++;
+      }
+    }
     writeFileSync(EMBEDDINGS_FILE, JSON.stringify(data, null, 2));
+    return added;
   } finally {
     await release();
   }
@@ -122,29 +146,27 @@ export async function generateEmbeddingsForMovies(movies) {
 
   console.log(`[embeddings] Generating embeddings for ${newMovies.length} new TMDB movies...`);
 
-  let generated = 0;
+  const newEntries = [];
   for (const movie of newMovies) {
     const embedding = await generateEmbedding(movie);
     if (embedding) {
-      data.movies.push({
+      newEntries.push({
         id: movie.id,
         title: movie.title,
         year: movie.year,
         embedding,
       });
-      generated++;
       existingIds.add(movie.id);
     } else {
       console.warn(`[embeddings] Failed to generate embedding for "${movie.title}" (id: ${movie.id})`);
     }
   }
 
-  if (generated > 0) {
-    // shortcut: read-only FS (serverless) throws here; caught by caller. Upgrade to KV/store if persistence needed.
-    await saveEmbeddings(data);
-    console.log(`[embeddings] Saved ${generated} new embeddings to ${EMBEDDINGS_FILE}`);
-  }
-  return generated;
+  if (newEntries.length === 0) return 0;
+  // shortcut: throws on read-only serverless FS; caller must catch. Upgrade to KV/store if persistence needed.
+  const added = await appendEmbeddings(newEntries);
+  console.log(`[embeddings] Saved ${added} new embeddings to ${EMBEDDINGS_FILE}`);
+  return added;
 }
 
 /**

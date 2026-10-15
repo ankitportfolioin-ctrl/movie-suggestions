@@ -147,3 +147,25 @@ test('2b: director patterns work both ways', () => {
   assert.deepEqual(parseNote('directed by Denis Villeneuve').likedPeople, ['Denis Villeneuve']);
   assert.deepEqual(parseNote('nothing directed by Michael Bay').excludedPeople, ['Michael Bay']);
 });
+
+test('hindi: halka-phulka comedy maps mood and genre', () => {
+  const s = parseNote('kuch halka-phulka comedy dikhao');
+  assert.ok(s.moods.includes('Relaxed'));
+  assert.ok(s.genres.includes('Comedy'));
+});
+
+test('hindi: dukhi maps Sad, thaka maps Tired', () => {
+  assert.ok(parseNote('bahut dukhi hoon').moods.includes('Sad'));
+  assert.ok(parseNote('thaka hua hoon, easy movie').moods.includes('Tired'));
+});
+
+test('hindi: daravni maps Horror with negation scope', () => {
+  const s = parseNote('no daravni film please');
+  assert.ok(s.excludeGenres.includes('Horror'));
+  assert.ok(!s.genres.includes('Horror'));
+});
+
+test('hindi: chhoti maps short runtime, purani maps classics', () => {
+  assert.equal(parseNote('koi chhoti movie batao').runtimeHint, 'short');
+  assert.equal(parseNote('koi purani classic film').eraHint, 'classics');
+});

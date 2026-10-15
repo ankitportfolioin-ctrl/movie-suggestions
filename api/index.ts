@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import {
   getRecommendationsWithOMDb,
   LANGUAGE_CODES,
+  type MoviePick,
 } from './server/omdb.js';
 import { MovieItem } from './server/catalog.js';
 import { discoverCandidates, enrichRuntimes } from './server/discovery.js';
@@ -62,11 +63,15 @@ interface RateLimitEntry {
   resetTime: number;
 }
 const rateLimits = new Map<string, RateLimitEntry>();
+// In-memory rate limiting: 30 requests per 10 minutes per IP.
+// shortcut: test-only override via RATE_LIMIT_MAX_REQUESTS (E2E sets it high so
+// parallel workers on one IP don't trip the limiter). Production default unchanged.
 const RATE_LIMIT_WINDOW = 10 * 60 * 1000; // 10 minutes
-const MAX_REQUESTS = 30;
+const MAX_REQUESTS = Math.max(1, parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '30', 10) || 30);
 
 function rateLimiter(req: Request, res: Response, next: NextFunction) {
-  const ip = req.socket.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = req.socket.remoteAddress || (Array.isArray(forwarded) ? forwarded[0] : forwarded) || 'unknown';
   const now = Date.now();
 
   if (rateLimits.size > 1000) {
@@ -136,9 +141,9 @@ app.get('/api/search-title', rateLimiter, async (req: Request, res: Response) =>
       const { normalizeTitle } = await import('./server/omdb.js');
       const normQuery = normalizeTitle(query);
       const results = FALLBACK_CATALOG
-        .filter(m => normalizeTitle(m.title).includes(normQuery) || normQuery.includes(normalizeTitle(m.title)))
+        .filter((m: MovieItem) => normalizeTitle(m.title).includes(normQuery) || normQuery.includes(normalizeTitle(m.title)))
         .slice(0, 10)
-        .map(m => ({
+        .map((m: MovieItem) => ({
           id: m.id,
           title: m.title,
           year: m.year,
@@ -260,7 +265,7 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     // Build recommendation params from parsed note
     const mood = note.moods[0] || 'Relaxed';
     const genres = note.genres.length > 0 ? note.genres : ['Surprise me'];
-    const audience = 'Just me';
+    const audience: string = 'Just me';
     const maxRuntime = note.runtimeHint === 'short' ? 'Under 90 min' : 
                        note.runtimeHint === 'long' ? 'Under 2.5 hours' : 'Under 2 hours';
     const languages = note.languageHints.length > 0 ? note.languageHints : ['Any'];
@@ -312,7 +317,7 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     const pool = [...FALLBACK_CATALOG, ...extraCandidates];
 
     // Apply note-based genre exclusions
-    let filtered = pool.filter(m => !excludeGenres.some(g => m.genres.includes(g)));
+    let filtered = pool.filter(m => !excludeGenres.some((g: string) => m.genres.includes(g)));
 
     // Apply hard filters
     const { runtimeCap } = await import('./server/omdb.js');
@@ -321,7 +326,7 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
 
     if (languages.length > 0 && !languages.includes('Any')) {
       const { LANGUAGE_CODES } = await import('./server/omdb.js');
-      const langCodes = languages.map(l => LANGUAGE_CODES[l]).filter(Boolean);
+      const langCodes = languages.map((l: string) => LANGUAGE_CODES[l]).filter(Boolean);
       filtered = filtered.filter(m => langCodes.includes(m.language));
     }
 
@@ -344,13 +349,13 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     // Simple ranking by genre overlap + rating
     const moodGenresMap = (await import('./server/omdb.js')).MOOD_GENRES;
     const moodGenreList = moodGenresMap[mood] || ['Comedy', 'Adventure'];
-    const quizGenres = genres.includes('Surprise me') ? moodGenreList : genres.filter(g => g !== 'Surprise me');
+    const quizGenres = genres.includes('Surprise me') ? moodGenreList : genres.filter((g: string) => g !== 'Surprise me');
 
     const scored = filtered.map(movie => {
       let score = movie.rating * 2; // rating base
-      const genreOverlap = movie.genres.filter(g => quizGenres.includes(g)).length;
+      const genreOverlap = movie.genres.filter((g: string) => quizGenres.includes(g)).length;
       score += genreOverlap * 3;
-      const moodOverlap = movie.genres.filter(g => moodGenreList.includes(g)).length;
+      const moodOverlap = movie.genres.filter((g: string) => moodGenreList.includes(g)).length;
       score += moodOverlap * 2;
       return { movie, score };
     });
@@ -522,7 +527,20 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       const anonId = mod.normalizeAnonId((req.body as { anonId?: unknown } | null)?.anonId);
       const contextKey = mod.buildContextKey(sanitizedParams, sanitizedParams.note);
       const ts = Date.now();
-      const rows = picks.map((m, idx) => ({
+      type ImpressionRow = {
+        impressionId: string;
+        anonId: string;
+        ts: number;
+        contextKey: string;
+        movieId: number;
+        slot: number;
+        rankPosition: number;
+        isExploration: number;
+        explorationProb: number;
+        scoreBreakdownJson: string;
+        variant: string;
+      };
+      const rows: ImpressionRow[] = picks.map((m: MoviePick, idx: number) => ({
         impressionId: randomUUID(),
         anonId,
         ts,

@@ -47,7 +47,11 @@ const GENRE_KEYWORDS: [RegExp, string][] = [
   [/\bdrama\b|\bmelodrama\b/, 'Drama'],
   [/\bfamily\b|\bkids\b|\bchildren\b/, 'Family'],
   [/\bfantasy\b|\bmagic\b/, 'Fantasy'],
-  [/\bhorror\b|\bsuspenseless\b/, 'Horror'], // "horror" handled; scary/gore map below
+    [/\bhorror\b|\bsuspenseless\b/, 'Horror'], // "horror" handled; scary/gore map below
+  // Romanized Hindi/Hinglish genre words.
+  [/\bmazakiya\b|\bhasya\b/, 'Comedy'],
+  [/\bdaravni\b|\bdarawani\b/, 'Horror'],
+  [/\bromantik\b|\bpyaar\b/, 'Romance'],
   [/\bmystery\b|\bdetectiv|\bwhodunit\b|\bnoir\b/, 'Mystery'],
   [/\bromance\b|\brom-com\b|\bromcom\b|\blove stor/, 'Romance'],
   [/\bsci-?fi\b|\bspace\b|\bcyberpunk\b|\bdystopi/, 'Sci-Fi'],
@@ -121,6 +125,13 @@ const MOOD_KEYWORDS: [RegExp, string][] = [
   [/\badventur|\bepic\b|\bthrill/, 'Adventurous'],
   [/\bcurious\b|\bmind-?bend|\bthought-?provoking\b|\bclever\b/, 'Curious'],
   [/\bsad\b|\bdown\b|\bblue\b|\bheartbreak\b/, 'Sad'],
+  // Romanized Hindi/Hinglish mood words (real user queries mix these with English).
+  [/\bkhush\b|\bmaza\b|\bmast\b/, 'Happy'],
+  [/\bhalka\b|\baaraam\b/, 'Relaxed'],
+  [/\bthaka\b|\bthakan\b/, 'Tired'],
+  [/\btanav\b|\bpareshan\b/, 'Stressed'],
+  [/\bpyaar\b|\bromantik\b|\bmohabbat\b/, 'Romantic'],
+  [/\budaas\b|\bdukhi\b/, 'Sad'],
 ];
 
 // Reference movie patterns: "like X", "similar to X", "in the vein of X", "reminiscent of X"
@@ -146,7 +157,7 @@ const COMPARATIVE_PATTERNS: [RegExp, string][] = [
 ];
 
 const NEGATION_WORDS =
-  'no|not|without|avoid|nothing|hate|dislike|skip|pass on|exclude|excluding|minus|except|other than|anything but|no more|free of|light on|less';
+  'no|not|without|avoid|nothing|hate|dislike|skip|pass on|exclude|excluding|minus|except|other than|anything but|no more|free of|light on|less|nahi|nahin|mat';
 
 /**
  * Fix 2: scope-aware negation. Matches "not a horror movie" and
@@ -156,9 +167,18 @@ const NEGATION_WORDS =
  */
 function hasNegationScope(text: string, index: number): boolean {
   const before = text.slice(Math.max(0, index - 64), index);
-  return new RegExp(
-    `\\b(?:${NEGATION_WORDS})\\b(?:\\s+(?:a|an|the))?(?:\\s+[a-z]+){0,3}\\s*$`
-  ).test(before);
+  if (
+    new RegExp(
+      `\\b(?:${NEGATION_WORDS})\\b(?:\\s+(?:a|an|the))?(?:\\s+[a-z]+){0,3}\\s*$`
+    ).test(before)
+  ) {
+    return true;
+  }
+  // Hindi SOV order postposes negation ("daravni nahi" = no horror). Forward
+  // scope applies ONLY to Hindi negations; English post-negation ("comedy,
+  // not really") must never exclude.
+  const after = text.slice(index, index + 40);
+  return /^\s*[a-z]+\s+(?:[a-z]+\s+){0,2}\b(nahi|nahin|mat)\b/.test(after);
 }
 
 /**
@@ -177,9 +197,11 @@ function contrastiveSpans(text: string): [number, number][] {
     const butMatch = after.match(/\bbut\b/i);
     const howeverMatch = after.match(/\bhowever\b/i);
     const sentenceEnd = after.search(/[.!?]/);
-    let end = m.index + m[0].length + (butMatch ? butMatch.index : 100);
-    if (howeverMatch && (!sentenceEnd || howeverMatch.index < sentenceEnd)) {
-      end = m.index + m[0].length + howeverMatch.index;
+    const butIndex = butMatch?.index ?? 100;
+    let end = m.index + m[0].length + butIndex;
+    const howeverIndex = howeverMatch?.index;
+    if (howeverMatch && howeverIndex !== undefined && (!sentenceEnd || howeverIndex < sentenceEnd)) {
+      end = m.index + m[0].length + howeverIndex;
     } else if (sentenceEnd >= 0) {
       end = m.index + m[0].length + sentenceEnd + 1;
     }
@@ -336,11 +358,11 @@ export function parseNote(rawNote: string): NoteSignals {
   // Fix 2e: comparatives. Bare "shorter"/"longer" (e.g. "like X but
   // shorter") resolve to the short/long hints; the quiz cap still wins
   // and any conflict is disclosed downstream.
-  if (/\bshort\b|\bshorter\b|\bquick\b|\bunder 90\b|\bbrief\b|\bsnappy\b/.test(text)) signals.runtimeHint = 'short';
-  else if (/\blong\b|\blonger\b|\bepic\b|\bextended\b/.test(text)) signals.runtimeHint = 'long';
+  if (/\bshort\b|\bshorter\b|\bquick\b|\bunder 90\b|\bbrief\b|\bsnappy\b|\bchhoti\b|\bchhota\b/.test(text)) signals.runtimeHint = 'short';
+  else if (/\blong\b|\blonger\b|\bepic\b|\bextended\b|\blambi\b|\blamba\b/.test(text)) signals.runtimeHint = 'long';
 
-  if (/\brecent\b|\bnew\b|\b2020s\b|\blast five years\b|\bmodern\b/.test(text)) signals.eraHint = 'recent';
-  else if (/\bclassic\b|\bold\b|\b90s\b|\b80s\b|\b70s\b|\bbefore 2000\b|\bgolden age\b|\bvintage\b/.test(text))
+  if (/\brecent\b|\bnew\b|\b2020s\b|\blast five years\b|\bmodern\b|\bnayi\b|\bnaya\b/.test(text)) signals.eraHint = 'recent';
+  else if (/\bclassic\b|\bold\b|\b90s\b|\b80s\b|\b70s\b|\bbefore 2000\b|\bgolden age\b|\bvintage\b|\bpurani\b|\bpurana\b/.test(text))
     signals.eraHint = 'classics';
 
   if (/\bacclaimed\b|\bmasterpiece\b|\boscar\b|\bhighly rated\b|\bbest\b|\bmust-?watch\b/.test(text)) {

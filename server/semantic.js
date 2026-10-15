@@ -74,18 +74,9 @@ const EMBEDDING_DIM = SENTENCE_TRANSFORMERS.embeddingDim;
  * @param text the sentence to encode
  * @returns Promise<float32[]> of length EMBEDDING_DIM
  */
-async function encodeText(text) {
-  // Input validation
-  if (typeof text !== 'string' || text.length === 0) {
-    return new Array(EMBEDDING_DIM).fill(0);
-  }
+const ENCODE_TIMEOUT_MS = 15000;
 
-  // Delegate to Python subprocess that holds the SentenceTransformer model
-  // The Python process caches the model in memory so each invoke is ~20–50 ms.
-  return new Promise((resolve) => {
-    const pythonProcess = spawn('python3', [
-      '-c',
-      `
+const PYTHON_CODE = `
 import sys
 import json
 from sentence_transformers import SentenceTransformer
@@ -93,12 +84,61 @@ model = SentenceTransformer('all-MiniLM-L6-v2')
 embedding = model.encode(sys.argv[1])
 print(json.dumps(embedding.tolist()))
 sys.exit(0)
-      `.trim() + ' ' + JSON.stringify(text),
-    ]);
+`.trim();
+
+let encodeWarned = false;
+function warnEncodeOnce(msg) {
+  // One warning per process; never logs the query text (user input, may be sensitive).
+  if (!encodeWarned) {
+    encodeWarned = true;
+    console.warn(`[semantic] query encoding unavailable: ${msg}`);
+  }
+}
+
+/**
+ * Encode a sentence (query or movie text) into a float32 embedding vector.
+ * Uses the real SentenceTransformer model via Python subprocess when available.
+ * Returns null when encoding is unavailable — callers must fall back to the
+ * deterministic pipeline, never present zero-vector scores as real results.
+ *
+ * @param text the sentence to encode
+ * @returns Promise<float32[]|null> 384-dim embedding, or null on any failure
+ */
+async function encodeText(text) {
+  // Input validation
+  if (typeof text !== 'string' || text.length === 0) {
+    return null;
+  }
+
+  // Delegate to Python subprocess. Script and query travel as separate argv
+  // entries so quotes, apostrophes, unicode and newlines survive intact.
+  // shortcut: one subprocess per query (~20–50ms after model warmup); upgrade to a
+  // persistent worker/queue if per-query spawn cost exceeds the latency budget.
+  return new Promise((resolve) => {
+    let done = false;
+    let pythonProcess;
+    const finish = (value) => {
+      if (!done) {
+        done = true;
+        clearTimeout(timer);
+        resolve(value);
+      }
+    };
+    const timer = setTimeout(() => {
+      try { pythonProcess.kill('SIGKILL'); } catch { /* already exited */ }
+      warnEncodeOnce('encode timed out');
+      finish(null);
+    }, ENCODE_TIMEOUT_MS);
+
+    pythonProcess = spawn('python3', ['-c', PYTHON_CODE, text]);
 
     let stdoutData = '';
+    let stderrData = '';
     pythonProcess.stdout.on('data', (data) => {
       stdoutData += data.toString();
+    });
+    pythonProcess.stderr.on('data', (data) => {
+      stderrData += data.toString();
     });
 
     pythonProcess.on('close', (code) => {
@@ -107,30 +147,25 @@ sys.exit(0)
           const embedding = JSON.parse(stdoutData);
           // Ensure correct dimensionality
           if (Array.isArray(embedding) && embedding.length === EMBEDDING_DIM) {
-            resolve(embedding);
+            finish(embedding);
           } else {
-            // Pad or truncate to expected dimension
-            const result = new Array(EMBEDDING_DIM).fill(0);
-            for (let i = 0; i < Math.min(embedding.length, EMBEDDING_DIM); i++) {
-              result[i] = embedding[i];
-            }
-            resolve(result);
+            warnEncodeOnce('unexpected embedding shape');
+            finish(null);
           }
         } catch (e) {
-          // Fallback: return zero vector on parse error
-          resolve(new Array(EMBEDDING_DIM).fill(0));
+          warnEncodeOnce('unparseable embedding output');
+          finish(null);
         }
       } else {
-        // Model unavailable or error – fall back to deterministic stub
-        const fallback = new Array(EMBEDDING_DIM).fill(0);
-        // Log stderr once per session (suppressed here; visible in server logs)
-        resolve(fallback);
+        warnEncodeOnce(`exit=${code} stderr=${stderrData.slice(0, 200)}`);
+        finish(null);
       }
     });
 
     // Prevent zombie processes
     pythonProcess.on('error', (err) => {
-      resolve(new Array(EMBEDDING_DIM).fill(0));
+      warnEncodeOnce(`spawn failed: ${err?.message || err}`);
+      finish(null);
     });
   });
 }
@@ -170,13 +205,9 @@ function buildMovieText(movie) {
  * @returns array of { id, title, year, similarity, genres }
  */
 export async function searchSemantic(query, movies, topN = 10) {
-  // Feature flag check – read from environment at runtime
-  const semanticEnabled =
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    (await import('dotenv')).config().parsed?.SEMANTIC_ENABLED === 'true' ||
-    process.env.SEMANTIC_ENABLED === 'true';
-
-  if (!semanticEnabled) return [];
+  // Feature flag check. dotenv populates process.env at server startup;
+  // read the env only (never re-parse the file per call).
+  if (process.env.SEMANTIC_ENABLED !== 'true') return [];
 
   // Refresh embeddings cache to pick up any newly generated embeddings
   movieEmbeddings = await refreshEmbeddingsCache();

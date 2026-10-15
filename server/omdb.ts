@@ -607,7 +607,7 @@ async function fetchFromOMDb(
  * Normalize a title for comparison: lowercase, alphanumeric only.
  * ("WALL·E" and "WALL-E" both become "walle".)
  */
-function normalizeTitle(t: string): string {
+export function normalizeTitle(t: string): string {
   return t.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 

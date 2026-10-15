@@ -153,7 +153,7 @@ function parseDeterministic(query: string): ParsedPreferences {
   // "no intense action" → do NOT add intense/adrenaline; only if "intense" appears outside negation
   const negationScope = detectNegationScope(lower);
   const positiveKeywords = lower.split(/\s+/);
-  const foundPositive: string[] = [];
+  const foundPositive: MoodLabel[] = [];
   for (let i = 0; i < positiveKeywords.length; i++) {
     const kw = positiveKeywords[i];
     // Skip words inside negation scope
@@ -207,8 +207,16 @@ function parseDeterministic(query: string): ParsedPreferences {
   ];
   const negatedGenres: GenreLabel[] = [];
   for (const [re, genre] of genreKeywords) {
-    if (re.test(lower)) {
-      const isInsideNegation = negationScope.containsAny();
+    // Every occurrence counts, with positional (not query-global) negation scope:
+    // "I love comedy but no horror" must keep Comedy and exclude only Horror.
+    const rx = new RegExp(re.source, 'gi');
+    let gm: RegExpExecArray | null;
+    while ((gm = rx.exec(lower)) !== null) {
+      const wordIdx = lower.slice(0, gm.index).split(/\s+/).length - 1;
+      // Hindi SOV post-negation ("daravni nahi"); English post-negation stays positive.
+      const afterMatch = lower.slice(gm.index + gm[0].length, gm.index + gm[0].length + 24);
+      const hindiPost = /^\s+(?:[a-z]+\s+){0,2}\b(nahi|nahin|mat)\b/.test(afterMatch);
+      const isInsideNegation = negationScope.contains(wordIdx) || hindiPost;
       if (isInsideNegation) {
         // Inside negation scope: collect for later addition to exclude list
         const alreadyNegated = negatedGenres.some((g): g is GenreLabel => g === genre);
@@ -279,6 +287,9 @@ function parseDeterministic(query: string): ParsedPreferences {
   // Also check for explicit minute mentions
   const minuteMatch = lower.match(/(?:under|less than|max|maximum)\s*(\d+)\s*min/);
   if (minuteMatch) maxRuntimeMinutes = parseInt(minuteMatch[1], 10);
+  // Also check for explicit hour mentions ("under 2 hours" → 120)
+  const hourMatch = lower.match(/(?:under|less than|max|maximum)\s*(\d+(?:\.\d+)?)\s*hours?/);
+  if (hourMatch) maxRuntimeMinutes = Math.round(parseFloat(hourMatch[1]) * 60);
 
   // Release period
   let releasePeriod: EraLabel | null = null;
@@ -386,8 +397,8 @@ export async function parseUserQuery(
 function detectNegationScope(lower: string): { contains: (idx: number) => boolean; containsAny: () => boolean } {
   const words = lower.split(/\s+/);
   const negated = new Set<number>();
-  // Common negation prefixes
-  const negationPrefixes = ['no', 'without', 'never', "n't"];
+  // Common negation prefixes (English + romanized Hindi: nahi/nahin = not, mat = don't)
+  const negationPrefixes = ['no', 'without', 'never', "n't", 'nahi', 'nahin', 'mat'];
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
     if (negationPrefixes.some(p => w.startsWith(p) || w === p)) {

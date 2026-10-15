@@ -79,8 +79,11 @@ interface RateLimitEntry {
   resetTime: number;
 }
 const rateLimits = new Map<string, RateLimitEntry>();
+// In-memory rate limiting: 30 requests per 10 minutes per IP.
+// shortcut: test-only override via RATE_LIMIT_MAX_REQUESTS (E2E sets it high so
+// parallel workers on one IP don't trip the limiter). Production default unchanged.
 const RATE_LIMIT_WINDOW = 10 * 60 * 1000; // 10 minutes
-const MAX_REQUESTS = 30;
+const MAX_REQUESTS = Math.max(1, parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '30', 10) || 30);
 
 function rateLimiter(req: Request, res: Response, next: NextFunction) {
   // Socket IP only: x-forwarded-for is client-controlled unless
@@ -200,7 +203,7 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     // Build recommendation params from parsed note
     const mood = note.moods[0] || 'Relaxed';
     const genres = note.genres.length > 0 ? note.genres : ['Surprise me'];
-    const audience = 'Just me';
+    const audience: string = 'Just me';
     const maxRuntime = note.runtimeHint === 'short' ? 'Under 90 min' : 
                        note.runtimeHint === 'long' ? 'Under 2.5 hours' : 'Under 2 hours';
     const languages = note.languageHints.length > 0 ? note.languageHints : ['Any'];
