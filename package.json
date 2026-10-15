@@ -11,6 +11,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test": "tsx --test \"tests/**/*.test.ts\"",
+    "ingest:tmdb": "node scripts/ingest-tmdb.mjs",
     "vercel-build": "vite build && node -e \"import('fs').then(fs => fs.cpSync('server', 'api/server', { recursive: true }))\""
   },
   "dependencies": {

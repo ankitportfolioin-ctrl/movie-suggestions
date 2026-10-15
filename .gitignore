@@ -12,6 +12,7 @@ test-results/
 /playwright-report/
 
 data/
+!data/movies.json
 *.db
 *.db-*
 server/img.ts.bak
