@@ -12,6 +12,8 @@
     "lint": "tsc --noEmit",
     "test": "tsx --test \"tests/**/*.test.ts\"",
     "ingest:tmdb": "node scripts/ingest-tmdb.mjs",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:load": "tsx scripts/load-movies-json.ts",
     "vercel-build": "vite build && node -e \"import('fs').then(fs => fs.cpSync('server', 'api/server', { recursive: true }))\""
   },
   "dependencies": {
@@ -24,6 +26,7 @@
     "helmet": "^8.3.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "pg": "^8.23.1",
     "proper-lockfile": "^4.1.2",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
@@ -36,6 +39,7 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
