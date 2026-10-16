@@ -24,6 +24,9 @@ describe('certificate mapping', () => {
     assert.equal(certToMinAge('US', 'G'), 0);
     assert.equal(certToMinAge('US', 'PG-13'), 12);
     assert.equal(certToMinAge('US', 'R'), 16);
+    assert.equal(certToMinAge('US', 'NC-17'), 18);
+    assert.equal(certToMinAge('US', 'TV-MA'), 16);
+    assert.equal(certToMinAge('US', 'TV-14'), 12);
     assert.equal(certToMinAge('IN', 'U'), 0);
     assert.equal(certToMinAge('IN', 'A'), 18);
     assert.equal(certToMinAge('GB', '15'), 16);

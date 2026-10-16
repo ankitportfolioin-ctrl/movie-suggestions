@@ -69,9 +69,9 @@ test('certificate wins over a contradicting catalog flag', () => {
   assert.equal(r.movies.length, 1);
 });
 
-test('family allows only G/PG/TV-G/TV-Y/TV-Y7/TV-PG/U; unknown excluded', () => {
+test('family allows only G/PG/TV-G/TV-Y/TV-Y7/TV-PG/U with Family/Animation genres; unknown excluded', () => {
   const mk = (certificate: string | undefined, id: number, isMature = false) =>
-    movie({ id, certificate, isMature });
+    movie({ id, certificate, isMature, genres: ['Family'] });
   const fam = { ...base(), audience: 'Family with kids' };
   for (const c of ['G', 'PG', 'TV-G', 'TV-Y', 'TV-Y7', 'TV-PG', 'U']) {
     assert.equal(enforceHardConstraints([mk(c, 1)], fam).movies.length, 1, c);
@@ -79,6 +79,36 @@ test('family allows only G/PG/TV-G/TV-Y/TV-Y7/TV-PG/U; unknown excluded', () => 
   for (const c of ['PG-13', 'R', 'TV-MA', 'TV-14', '', 'Not Rated']) {
     assert.equal(enforceHardConstraints([mk(c, 1)], fam).movies.length, 0, String(c));
   }
+  // Unknown minAge without a Family/Animation genre fails closed, even with a safe cert.
+  assert.equal(enforceHardConstraints([movie({ id: 9, certificate: 'G', genres: ['Comedy'] })], fam).movies.length, 0);
+  // Horror/Crime/Thriller never passes Family on unknown minAge.
+  assert.equal(enforceHardConstraints([movie({ id: 10, certificate: 'G', genres: ['Animation', 'Horror'] })], fam).movies.length, 0);
+});
+
+test('family allows minAge <= 6, drops minAge 12+', () => {
+  const fam = { ...base(), audience: 'Family with kids' };
+  assert.equal(enforceHardConstraints([movie({ id: 1, minAge: 0 })], fam).movies.length, 1);
+  assert.equal(enforceHardConstraints([movie({ id: 2, minAge: 6 })], fam).movies.length, 1);
+  assert.equal(enforceHardConstraints([movie({ id: 3, minAge: 12 })], fam).movies.length, 0);
+  assert.equal(enforceHardConstraints([movie({ id: 4, minAge: 18 })], fam).movies.length, 0);
+});
+
+test('mature OFF excludes minAge >= 16 even with a benign certificate', () => {
+  assert.equal(enforceHardConstraints([movie({ id: 1, certificate: 'PG', minAge: 16 })], base()).movies.length, 0);
+  assert.equal(enforceHardConstraints([movie({ id: 2, certificate: '12', minAge: 18 })], base()).movies.length, 0);
+  assert.equal(enforceHardConstraints([movie({ id: 3, certificate: 'PG-13', minAge: 12 })], base()).movies.length, 1);
+  assert.equal(enforceHardConstraints([movie({ id: 4, certificate: 'U', minAge: 0 })], base()).movies.length, 1);
+});
+
+test('mature OFF drops R, UK-15 and TV-MA titles', () => {
+  const films = [
+    movie({ id: 1, certificate: 'R', minAge: 16 }), // US R
+    movie({ id: 2, certificate: '15', minAge: 16 }), // UK 15
+    movie({ id: 3, certificate: 'TV-MA' }), // unknown age: certificate fallback still excludes
+  ];
+  const r = enforceHardConstraints(films, base());
+  assert.equal(r.movies.length, 0);
+  assert.ok(r.relaxed.some((n) => n.includes('adult ratings')));
 });
 
 test('PG-13 passes standard mature-OFF; unknown cert allowed with flag fallback', () => {

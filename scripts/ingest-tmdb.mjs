@@ -2,8 +2,10 @@
  * TMDB global ingest: upserts movies straight into Postgres (>=3000 movies
  * covering every genre, language and era the recommender must serve).
  *
- * Usage: npm run ingest:tmdb [-- --limit N]
+ * Usage: npm run ingest:tmdb [-- --limit N] [--mode ingest|backfill-cert]
  *   --limit N caps NEW detail fetches this run (default 0 = no limit).
+ *   --mode backfill-cert (or --backfill-cert) only re-fetches release_dates
+ *     for rows where minAge IS NULL and updates certificate + minAge.
  * Reads TMDB_API_KEY + DATABASE_URL from env (or .env file).
  * Safe to re-run: tmdbIds already in the DB are skipped, every batch is
  * upserted before continuing. Never writes or commits a data file.
@@ -73,13 +75,26 @@ function parseLimit(argv) {
   return 0;
 }
 
+function parseMode(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--backfill-cert") return "backfill-cert";
+    const m = argv[i].match(/^--mode(?:=(.+))?$/);
+    if (m) {
+      const v = m[1] !== undefined ? m[1] : argv[i + 1];
+      if (v !== "ingest" && v !== "backfill-cert") throw new Error("usage: --mode ingest|backfill-cert");
+      return v;
+    }
+  }
+  return "ingest";
+}
+
 /**
  * Certificate -> minAge mapping per country. Values are only ever
  * 0, 6, 12, 16 or 18. Keys are upper-cased, trimmed TMDB certifications.
  * Unknown certs fall back to numeric parsing in certToMinAge().
  */
 export const CERT_MIN_AGE = {
-  US: { G: 0, PG: 6, "PG-13": 12, R: 16, "NC-17": 18, X: 18, NR: 0, UR: 0, "NOT RATED": 0 },
+  US: { G: 0, PG: 6, "PG-13": 12, R: 16, "NC-17": 18, X: 18, NR: 0, UR: 0, "NOT RATED": 0, "TV-Y": 0, "TV-G": 0, "TV-Y7": 6, "TV-PG": 6, "TV-14": 12, "TV-MA": 16 },
   IN: { U: 0, UA: 6, "U/A": 6, "UA 7+": 6, "UA7+": 6, "UA 13+": 12, "UA13+": 12, "UA 16+": 16, "UA16+": 16, A: 18, S: 18 },
   GB: { U: 0, UC: 0, PG: 6, 12: 12, "12A": 12, 15: 16, 18: 18, R18: 18 },
   DE: { "FSK 0": 0, "FSK 6": 6, "FSK 12": 12, "FSK 16": 16, "FSK 18": 18, 0: 0, 6: 6, 12: 12, 16: 16, 18: 18, OA: 0 },
@@ -283,6 +298,61 @@ async function upsertBatch(pool, rows) {
   );
 }
 
+async function updateCertBatch(pool, rows) {
+  if (rows.length === 0) return;
+  await pool.query(
+    `UPDATE movies m SET certificate = v.certificate, minAge = v.minAge, updatedAt = NOW()
+     FROM (SELECT unnest($1::int[]) AS tmdbId, unnest($2::text[]) AS certificate,
+                  unnest($3::int[]) AS minAge) v
+     WHERE m.tmdbId = v.tmdbId`,
+    [rows.map((r) => r.tmdbId), rows.map((r) => r.certificate), rows.map((r) => r.minAge)],
+  );
+}
+
+/**
+ * Backfill mode: re-fetch release_dates for rows where minAge IS NULL and
+ * update certificate + minAge. Same pacing/429 handling as ingest.
+ * Resumable: finished rows leave the NULL set, so re-running continues
+ * where the last run stopped. (Rows with no mappable certificate stay NULL
+ * and are re-fetched on the next run.)
+ */
+async function runBackfill(pool, KEY, limit, pastDeadline) {
+  const { rows } = await pool.query("SELECT tmdbId FROM movies WHERE minAge IS NULL ORDER BY tmdbId");
+  const ids = limit > 0 ? rows.map((r) => r.tmdbId).slice(0, limit) : rows.map((r) => r.tmdbId);
+  console.log(`backfill-cert: ${ids.length} rows with minAge NULL`);
+  let fetched = 0;
+  let updated = 0;
+  let stoppedEarly = false;
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    if (pastDeadline()) { stoppedEarly = true; break; }
+    const batch = ids.slice(i, i + BATCH_SIZE);
+    const out = [];
+    for (let w = 0; w < batch.length; w += CONCURRENCY) {
+      if (pastDeadline()) { stoppedEarly = true; break; }
+      const chunk = batch.slice(w, w + CONCURRENCY);
+      const results = await Promise.all(chunk.map(async (id) => {
+        fetched++;
+        try {
+          const d = await tmdb(`/movie/${id}`, { append_to_response: "release_dates" }, KEY);
+          const info = releaseInfo(d);
+          return { tmdbId: id, certificate: info.certificate || null, minAge: info.minAge };
+        } catch (e) {
+          if (!String(e.message).startsWith("HTTP:")) throw e;
+          return null;
+        }
+      }));
+      for (const r of results) if (r) out.push(r);
+    }
+    if (out.length > 0) {
+      await updateCertBatch(pool, out);
+      updated += out.length;
+    }
+    console.log(`backfill: updated=${updated} fetched=${fetched} 429s=${req429s}`);
+  }
+  console.log(`backfill done: updated=${updated} fetched=${fetched} 429s=${req429s}` +
+    (stoppedEarly ? " (stopped early: approaching job timeout, progress saved)" : ""));
+}
+
 async function report(pool) {
   const q = (text, params) => pool.query(text, params).then((r) => r.rows);
   const [{ count: total }] = await q("SELECT count(*)::int AS count FROM movies");
@@ -327,6 +397,7 @@ async function report(pool) {
 
 async function main() {
   const limit = parseLimit(process.argv.slice(2));
+  const mode = parseMode(process.argv.slice(2));
   const env = loadEnv();
   const KEY = env.TMDB_API_KEY;
   if (!KEY) {
@@ -353,6 +424,11 @@ async function main() {
 
   const pool = new Pool({ connectionString: env.DATABASE_URL });
   try {
+    if (mode === "backfill-cert") {
+      await runBackfill(pool, KEY, limit, pastDeadline);
+      await report(pool);
+      return;
+    }
     const existing = await pool.query("SELECT tmdbId FROM movies").then((r) => r.rows);
     const seen = new Set(existing.map((r) => r.tmdbId));
     console.log(`database already holds ${seen.size} tmdbIds, skipping those`);

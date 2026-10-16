@@ -7,10 +7,11 @@
  * in `relaxed` notices computed from the DIFF between what was requested
  * and what survived — never from parser signals.
  *
- * Maturity comes from the title's certificate (OMDb `Rated`), never from
- * the hand-set catalog flag alone: on disagreement the certificate wins.
- * When the certificate is unknown we fall back to the catalog flag
- * (conservative), and log the gap server-side.
+ * Maturity comes from the title's minAge (TMDB-derived, 0/6/12/16/18)
+ * when known: mature OFF excludes minAge >= 16, Family with kids allows
+ * minAge <= 6. When minAge is unknown the certificate is the fallback
+ * (mature-OFF excludes MATURE_CERTS; Family requires a family-safe
+ * certificate AND a Family/Animation genre), then the catalog flag.
  */
 
 export interface GateConstraints {
@@ -36,6 +37,8 @@ export interface GateMovie {
   language: string;
   /** OMDb `Rated` value as served (may be '', 'N/A', 'Not Rated'). */
   certificate?: string;
+  /** TMDB-derived minimum age (0, 6, 12, 16 or 18) when known. */
+  minAge?: number | null;
   /** Catalog hand flag: fallback only when the certificate is unknown. */
   isMature?: boolean;
   /** OMDb `Type` field when known. */
@@ -63,6 +66,16 @@ export function normalizeCert(raw: unknown): string {
 
 function isFamily(audience: string): boolean {
   return audience === 'Family with kids';
+}
+
+/**
+ * Family/Animation rule for titles whose minAge is unknown: only genuine
+ * kids' genres pass, and never Horror/Crime/Thriller.
+ */
+function isKidGenre(genres: string[] | undefined): boolean {
+  const g = genres || [];
+  if (g.includes('Horror') || g.includes('Crime') || g.includes('Thriller')) return false;
+  return g.includes('Family') || g.includes('Animation');
 }
 
 export function enforceHardConstraints<T extends GateMovie>(
@@ -113,17 +126,31 @@ export function enforceHardConstraints<T extends GateMovie>(
       removedClassics += 1;
       return false;
     }
-    // Maturity: certificate is source of truth; catalog flag is fallback.
+    // Maturity: minAge is source of truth when known; otherwise the
+    // certificate, then the catalog flag (conservative).
     const cert = normalizeCert(m.certificate);
+    const age = typeof m.minAge === 'number' ? m.minAge : null;
     if (family) {
-      // Family allowlist is exhaustive: unknown certificates are excluded.
-      // For young viewers a missing rating must fail closed, never open.
-      if (cert === '' || !FAMILY_CERTS.has(cert)) {
+      if (age !== null) {
+        // Known age: kids allowed only at 6 or under.
+        if (age > 6) {
+          removedMaturity += 1;
+          return false;
+        }
+      } else if (cert === '' || !FAMILY_CERTS.has(cert) || !isKidGenre(m.genres)) {
+        // Unknown age fails closed: family-safe certificate AND the
+        // Family/Animation genre rule, never Horror/Crime/Thriller.
         removedMaturity += 1;
         return false;
       }
     } else if (!constraints.matureAllowed) {
-      if (cert !== '') {
+      if (age !== null) {
+        // Mature OFF excludes minAge 16+.
+        if (age >= 16) {
+          removedMaturity += 1;
+          return false;
+        }
+      } else if (cert !== '') {
         if (MATURE_CERTS.has(cert)) {
           removedMaturity += 1;
           return false;

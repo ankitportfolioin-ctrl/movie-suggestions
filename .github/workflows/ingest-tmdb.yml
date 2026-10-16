@@ -9,8 +9,16 @@ name: ingest-tmdb
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "ingest = add new movies; backfill-cert = fill certificate/minAge where minAge is NULL"
+        required: false
+        default: "ingest"
+        type: choice
+        options:
+          - ingest
+          - backfill-cert
       limit:
-        description: "Max NEW detail fetches this run (0 = no limit)"
+        description: "Max detail fetches this run (0 = no limit)"
         required: false
         default: "0"
   schedule:
@@ -37,7 +45,7 @@ jobs:
         id: ingest
         run: |
           set +e
-          npm run ingest:tmdb -- --limit "${{ inputs.limit || '0' }}" 2>&1 | tee ingest.log
+          npm run ingest:tmdb -- --mode "${{ inputs.mode || 'ingest' }}" --limit "${{ inputs.limit || '0' }}" 2>&1 | tee ingest.log
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
