@@ -2,7 +2,7 @@
  * TMDB global ingest: upserts movies straight into Postgres (>=3000 movies
  * covering every genre, language and era the recommender must serve).
  *
- * Usage: npm run ingest:tmdb [-- --limit N] [--mode ingest|backfill-cert]
+ * Usage: npm run ingest:tmdb [-- --limit N] [--mode ingest|backfill-cert] [--force]
  *   --limit N caps NEW detail fetches this run (default 0 = no limit).
  *   --mode backfill-cert (or --backfill-cert) only re-fetches release_dates
  *     for rows where minAge IS NULL and updates certificate + minAge.
@@ -98,6 +98,7 @@ export function storedCertAge(cert) {
   const raw = typeof cert === "string" ? cert.trim() : "";
   if (!raw) return null;
   const key = raw.toUpperCase();
+  if (key === "A") return null; // MX all-ages vs IN adult: country unknown
   for (const country of ["US", "IN", "GB"]) {
     if (key in CERT_MIN_AGE[country]) return { certificate: raw, minAge: CERT_MIN_AGE[country][key] };
   }
@@ -135,7 +136,8 @@ export const CERT_MIN_AGE = {
 };
 
 // Certs that mean "all ages" in any country (checked before numeric parsing).
-const ALL_AGES = new Set(["G", "U", "L", "AA", "A", "AL", "T", "SU", "LIVRE", "ALL", "GENEL", "BTL", "APT", "APTA", "BO", "E", "C", "OA", "UC", "TUTTI", "Tutti"]);
+// No bare "A": MX all-audiences vs IN adult-only is country-dependent.
+const ALL_AGES = new Set(["G", "U", "L", "AA", "AL", "T", "SU", "LIVRE", "ALL", "GENEL", "BTL", "APT", "APTA", "BO", "E", "C", "OA", "UC", "TUTTI", "Tutti"]);
 
 function numToMinAge(n) {
   if (n <= 0) return 0;
@@ -158,23 +160,59 @@ export function certToMinAge(country, cert) {
   return null;
 }
 
+const ALLOWED_AGES = [0, 6, 12, 16, 18];
+
+// Snap a median up to the nearest allowed age (conservative for maturity).
+function snapUp(v) {
+  for (const t of ALLOWED_AGES) if (v <= t) return t;
+  return 18;
+}
+
 /**
- * Read release_dates for ALL countries and return the raw certificate plus
- * the HIGHEST minAge across countries that disagree.
+ * Read release_dates for ALL countries. Per country keeps the highest mapped
+ * age ("A" maps per country: MX 0 vs IN 18). Returns the raw cert of the
+ * strictest entry (legacy `certificate`), the median age across countries
+ * (floored at 16 when US/GB/DE says 16+), the strictest age, the count of
+ * countries at 18, and the per-country raw certs.
  */
-export function releaseInfo(details) {
+export function releaseAges(details) {
   const results = (details.release_dates && details.release_dates.results) || [];
-  let best = { certificate: "", minAge: null };
+  const byCountry = new Map();
+  let strictCert = "";
+  let strictAge = null;
   for (const entry of results) {
+    const iso = entry.iso_3166_1;
     for (const r of entry.release_dates || []) {
       const raw = (r.certification || "").trim();
       if (!raw) continue;
-      const age = certToMinAge(entry.iso_3166_1, raw);
+      const age = certToMinAge(iso, raw);
       if (age === null) continue;
-      if (best.minAge === null || age > best.minAge) best = { certificate: raw, minAge: age };
+      const cur = byCountry.get(iso);
+      if (!cur || age > cur.age) byCountry.set(iso, { age, cert: raw });
+      if (strictAge === null || age > strictAge) { strictAge = age; strictCert = raw; }
     }
   }
-  return best;
+  const certByCountry = {};
+  const ages = [];
+  for (const [iso, v] of byCountry) { certByCountry[iso] = v.cert; ages.push(v.age); }
+  if (ages.length === 0) {
+    return { certificate: "", minAge: null, minAgeStrict: null, adultVotes: 0, certByCountry };
+  }
+  ages.sort((a, b) => a - b);
+  const mid = Math.floor(ages.length / 2);
+  const median = ages.length % 2 ? ages[mid] : (ages[mid - 1] + ages[mid]) / 2;
+  let minAge = snapUp(median);
+  for (const iso of ["US", "GB", "DE"]) {
+    const v = byCountry.get(iso);
+    if (v && v.age >= 16 && minAge < 16) minAge = 16;
+  }
+  return {
+    certificate: strictCert,
+    minAge,
+    minAgeStrict: ages[ages.length - 1],
+    adultVotes: ages.filter((a) => a === 18).length,
+    certByCountry,
+  };
 }
 
 function keepMovie(d) {
@@ -186,7 +224,7 @@ function keepMovie(d) {
   const genres = Array.isArray(d.genres) ? d.genres.map((g) => g.name).filter(Boolean) : [];
   if (genres.length === 0) return null;
   const keywords = (((d.keywords || {}).keywords) || []).map((k) => k.name).filter(Boolean).slice(0, 10);
-  const { certificate, minAge } = releaseInfo(d);
+  const info = releaseAges(d);
   return {
     tmdbId: d.id,
     imdbId: d.imdb_id || null,
@@ -202,8 +240,11 @@ function keepMovie(d) {
     votes: typeof d.vote_count === "number" ? d.vote_count : 0,
     popularity: typeof d.popularity === "number" ? d.popularity : null,
     posterPath: d.poster_path || null,
-    certificate: certificate || null,
-    minAge,
+    certificate: info.certificate || null,
+    minAge: info.minAge,
+    minAgeStrict: info.minAgeStrict,
+    adultVotes: info.adultVotes,
+    certByCountry: Object.keys(info.certByCountry).length > 0 ? JSON.stringify(info.certByCountry) : null,
     keywords,
     productionCountries: Array.isArray(d.production_countries) ? d.production_countries.map((c) => c.iso_3166_1).filter(Boolean) : [],
   };
@@ -293,7 +334,8 @@ async function tmdb(pathname, params, key) {
 
 const UPSERT_COLS = ["tmdbId", "imdbId", "title", "originalTitle", "year", "runtime",
   "genres", "originalLanguage", "spokenLanguages", "overview", "rating", "votes",
-  "popularity", "posterPath", "certificate", "minAge", "keywords", "productionCountries"];
+  "popularity", "posterPath", "certificate", "minAge", "minAgeStrict", "adultVotes",
+  "certByCountry", "keywords", "productionCountries"];
 
 async function upsertBatch(pool, rows) {
   if (rows.length === 0) return;
@@ -301,7 +343,8 @@ async function upsertBatch(pool, rows) {
   const tuples = rows.map((m) => {
     const vals = [m.tmdbId, m.imdbId, m.title, m.originalTitle, m.year, m.runtime,
       m.genres, m.originalLanguage, m.spokenLanguages, m.overview, m.rating, m.votes,
-      m.popularity, m.posterPath, m.certificate, m.minAge, m.keywords, m.productionCountries];
+      m.popularity, m.posterPath, m.certificate, m.minAge, m.minAgeStrict ?? null,
+      m.adultVotes ?? null, m.certByCountry ?? null, m.keywords, m.productionCountries];
     const base = params.length;
     vals.forEach((v) => params.push(v));
     return `(${vals.map((_, k) => `$${base + k + 1}`).join(",")})`;
@@ -317,28 +360,36 @@ async function upsertBatch(pool, rows) {
 export async function updateCertBatch(pool, rows) {
   if (rows.length === 0) return 0;
   const { rowCount } = await pool.query(
-    `UPDATE movies m SET certificate = v.certificate, minAge = v.minAge, updatedAt = NOW()
+    `UPDATE movies m SET certificate = v.certificate, minAge = v.minAge,
+       minAgeStrict = v.minAgeStrict, adultVotes = v.adultVotes,
+       certByCountry = v.ccb::jsonb, updatedAt = NOW()
      FROM (SELECT unnest($1::int[]) AS tmdbId, unnest($2::text[]) AS certificate,
-                  unnest($3::int[]) AS minAge) v
+                  unnest($3::int[]) AS minAge, unnest($4::int[]) AS minAgeStrict,
+                  unnest($5::int[]) AS adultVotes, unnest($6::text[]) AS ccb) v
      WHERE m.tmdbId = v.tmdbId`,
-    [rows.map((r) => r.tmdbId), rows.map((r) => r.certificate), rows.map((r) => r.minAge)],
+    [rows.map((r) => r.tmdbId), rows.map((r) => r.certificate),
+     rows.map((r) => r.minAge), rows.map((r) => r.minAgeStrict ?? null),
+     rows.map((r) => r.adultVotes ?? null), rows.map((r) => r.certByCountry ?? null)],
   );
   return rowCount ?? 0;
 }
 
 /**
- * Backfill mode: re-fetch release_dates for rows where minAge IS NULL and
- * update certificate + minAge. Same pacing/429 handling as ingest.
- * Resumable: finished rows leave the NULL set, so re-running continues
- * where the last run stopped. (Rows with no mappable certificate stay NULL
- * and are re-fetched on the next run.)
+ * Backfill mode: re-fetch release_dates and update certificate + minAge +
+ * minAgeStrict + adultVotes + certByCountry. Same pacing/429 handling.
+ * Default selects rows where minAge IS NULL; --force selects everything
+ * still missing certByCountry (reprocesses legacy rows). Resumable: finished
+ * rows leave the selected set, so re-running continues where it stopped.
+ * (Rows with no mappable certificate stay NULL and are re-fetched next run.)
  */
-async function runBackfill(pool, KEY, limit, pastDeadline) {
-  const { rows } = await pool.query("SELECT tmdbId, certificate FROM movies WHERE minAge IS NULL ORDER BY tmdbId");
+async function runBackfill(pool, KEY, limit, pastDeadline, force) {
+  const { rows } = force
+    ? await pool.query("SELECT tmdbId, certificate FROM movies WHERE certByCountry IS NULL ORDER BY tmdbId")
+    : await pool.query("SELECT tmdbId, certificate FROM movies WHERE minAge IS NULL ORDER BY tmdbId");
   const stored = new Map(rows.map((r) => [r.tmdbid, r.certificate]));
   const allIds = pgIds(rows);
   const ids = limit > 0 ? allIds.slice(0, limit) : allIds;
-  console.log(`backfill-cert: ${ids.length} rows with minAge NULL`);
+  console.log(`backfill-cert${force ? " --force" : ""}: ${ids.length} rows to process`);
   let fetched = 0;
   let updated = 0;
   let noCert = 0;
@@ -355,16 +406,22 @@ async function runBackfill(pool, KEY, limit, pastDeadline) {
         fetched++;
         try {
           const d = await tmdb(`/movie/${id}`, { append_to_response: "release_dates" }, KEY);
-          const info = releaseInfo(d);
+          const info = releaseAges(d);
           if (!info.certificate) {
             // TMDB had no usable certification: fall back to the stored one.
             const fb = storedCertAge(stored.get(id));
             noCert++;
-            if (fb) return { tmdbId: id, certificate: fb.certificate, minAge: fb.minAge };
+            if (fb) {
+              return { tmdbId: id, certificate: fb.certificate, minAge: fb.minAge,
+                minAgeStrict: fb.minAge, adultVotes: fb.minAge === 18 ? 1 : 0, certByCountry: null };
+            }
           }
           // shortcut: rows with nothing mappable stay NULL and are re-fetched
           // next run; upgrade by persisting an attempted-at marker to skip them.
-          return { tmdbId: id, certificate: info.certificate || null, minAge: info.minAge };
+          return { tmdbId: id, certificate: info.certificate || null, minAge: info.minAge,
+            minAgeStrict: info.minAgeStrict, adultVotes: info.adultVotes,
+            certByCountry: Object.keys(info.certByCountry).length > 0
+              ? JSON.stringify(info.certByCountry) : null };
         } catch (e) {
           if (!String(e.message).startsWith("HTTP:")) throw e;
           return null;
@@ -455,6 +512,7 @@ async function report(pool) {
 async function main() {
   const limit = parseLimit(process.argv.slice(2));
   const mode = parseMode(process.argv.slice(2));
+  const force = process.argv.slice(2).includes("--force");
   const env = loadEnv();
   const KEY = env.TMDB_API_KEY;
   if (!KEY) {
@@ -482,7 +540,7 @@ async function main() {
   const pool = new Pool({ connectionString: env.DATABASE_URL });
   try {
     if (mode === "backfill-cert") {
-      await runBackfill(pool, KEY, limit, pastDeadline);
+      await runBackfill(pool, KEY, limit, pastDeadline, force);
       await report(pool);
       return;
     }

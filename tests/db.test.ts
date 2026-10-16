@@ -13,6 +13,12 @@ describe('postgres index', { skip: !hasDb || undefined }, () => {
       "SELECT tablename FROM pg_tables WHERE tablename='movies'"
     );
     assert.equal(rows.length, 1);
+    const cols = await dbQuery<{ column_name: string }>(
+      "SELECT column_name FROM information_schema.columns WHERE table_name='movies'"
+    );
+    for (const c of ['certbycountry', 'minagestrict', 'adultvotes']) {
+      assert.ok(cols.some((r) => r.column_name === c), `missing column ${c}`);
+    }
   });
 
   test('backfill UPDATE matches the row pg returns (lowercase tmdbid)', async () => {

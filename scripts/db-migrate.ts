@@ -33,6 +33,9 @@ CREATE INDEX IF NOT EXISTS movies_lang_idx ON movies (originalLanguage);
 CREATE INDEX IF NOT EXISTS movies_genres_gin ON movies USING GIN (genres);
 CREATE INDEX IF NOT EXISTS movies_minage_idx ON movies (minAge);
 CREATE INDEX IF NOT EXISTS movies_rating_idx ON movies (rating);
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS certByCountry JSONB;
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS minAgeStrict INTEGER;
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS adultVotes INTEGER;
 `;
 
 if (!isDbConfigured()) {

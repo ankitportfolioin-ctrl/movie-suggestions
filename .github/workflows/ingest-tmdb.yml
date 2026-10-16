@@ -21,6 +21,11 @@ on:
         description: "Max detail fetches this run (0 = no limit)"
         required: false
         default: "0"
+      force:
+        description: "backfill-cert reprocesses rows that already have minAge (fills new columns)"
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: "0 3 * * 0"
 
@@ -45,7 +50,9 @@ jobs:
         id: ingest
         run: |
           set +e
-          npm run ingest:tmdb -- --mode "${{ inputs.mode || 'ingest' }}" --limit "${{ inputs.limit || '0' }}" 2>&1 | tee ingest.log
+          EXTRA=""
+          if [ "${{ inputs.force }}" = "true" ]; then EXTRA="--force"; fi
+          npm run ingest:tmdb -- --mode "${{ inputs.mode || 'ingest' }}" --limit "${{ inputs.limit || '0' }}" $EXTRA 2>&1 | tee ingest.log
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
