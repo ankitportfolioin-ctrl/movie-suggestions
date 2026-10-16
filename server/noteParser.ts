@@ -29,6 +29,14 @@ export interface NoteSignals {
   /** Language names from the quiz vocabulary (e.g. "Korean"). */
   languageHints: string[];
   runtimeHint?: 'short' | 'long';
+  /** Explicit minute bounds ("under 2 hours", "over 150 minutes", "lambi"). */
+  runtimeMinMinutes?: number;
+  runtimeMaxMinutes?: number;
+  /** Explicit year bounds ("after 2015", "before 1990", "in 2019"). */
+  yearMin?: number;
+  yearMax?: number;
+  /** Set when min and max contradict ("under 60 but over 180 minutes"). */
+  contradiction?: string;
   eraHint?: 'recent' | 'classics';
   wantsHighlyRated?: boolean;
   /** Plot/theme keywords extracted from query. */
@@ -38,7 +46,7 @@ export interface NoteSignals {
 }
 
 const GENRE_KEYWORDS: [RegExp, string][] = [
-  [/\baction\b|\baction-packed\b|\bmartial arts\b/, 'Action'],
+  [/\baction\b|\baction-packed\b|\bmartial arts\b|\bsuperhero\b/, 'Action'],
   [/\badventure\b|\bquest\b|\bexplor/, 'Adventure'],
   [/\banimat|\bcartoon\b|\banime\b|\bpixar\b|\bghibli\b/, 'Animation'],
   [/\bcomed|\bfunny\b|\bhilarious\b|\blaugh/, 'Comedy'],
@@ -53,8 +61,8 @@ const GENRE_KEYWORDS: [RegExp, string][] = [
   [/\bdaravni\b|\bdarawani\b/, 'Horror'],
   [/\bromantik\b|\bpyaar\b/, 'Romance'],
   [/\bmystery\b|\bdetectiv|\bwhodunit\b|\bnoir\b/, 'Mystery'],
-  [/\bromance\b|\brom-com\b|\bromcom\b|\blove stor/, 'Romance'],
-  [/\bsci-?fi\b|\bspace\b|\bcyberpunk\b|\bdystopi/, 'Sci-Fi'],
+  [/\bromance\b|\brom-com\b|\bromcom\b|\brom com\b|\blove stor|\bromantic\b/, 'Romance'],
+  [/\bsci-?fi\b|\bscience fiction\b|\bspace\b|\bcyberpunk\b|\bdystopi/, 'Sci-Fi'],
   [/\bthriller\b|\bspy\b|\bespionage\b/, 'Thriller'],
 ];
 
@@ -157,7 +165,7 @@ const COMPARATIVE_PATTERNS: [RegExp, string][] = [
 ];
 
 const NEGATION_WORDS =
-  'no|not|without|avoid|nothing|hate|dislike|skip|pass on|exclude|excluding|minus|except|other than|anything but|no more|free of|light on|less|nahi|nahin|mat';
+  'no|not|without|avoid|nothing|hate|dislike|skip|pass on|exclude|excluding|minus|except|other than|anything but|no more|free of|light on|less|nahi|nahin|mat|don\'t|don’t';
 
 /**
  * Fix 2: scope-aware negation. Matches "not a horror movie" and
@@ -360,6 +368,55 @@ export function parseNote(rawNote: string): NoteSignals {
   // and any conflict is disclosed downstream.
   if (/\bshort\b|\bshorter\b|\bquick\b|\bunder 90\b|\bbrief\b|\bsnappy\b|\bchhoti\b|\bchhota\b/.test(text)) signals.runtimeHint = 'short';
   else if (/\blong\b|\blonger\b|\bepic\b|\bextended\b|\blambi\b|\blamba\b/.test(text)) signals.runtimeHint = 'long';
+
+  // Explicit minute bounds beat bare hints; "long" is a minimum, never a max.
+  let rMinPhrase = '';
+  let rMaxPhrase = '';
+  {
+    let rm: RegExpMatchArray | null;
+    if ((rm = text.match(/\bunder\s+(\d+)\s*hours?\b/))) {
+      signals.runtimeMaxMinutes = Number(rm[1]) * 60; rMaxPhrase = rm[0].trim();
+    } else if ((rm = text.match(/\bunder\s+(\d+)\s*min(?:utes?)?\b/))) {
+      signals.runtimeMaxMinutes = Number(rm[1]); rMaxPhrase = rm[0].trim();
+    } else if ((rm = text.match(/(\d+)\s*ghante?\s*se\s*kam\b/))) {
+      signals.runtimeMaxMinutes = Number(rm[1]) * 60; rMaxPhrase = rm[0].trim();
+    }
+    if ((rm = text.match(/\blonger\s+than\s+(\d+)\s*min(?:utes?)?\b/))) {
+      signals.runtimeMinMinutes = Number(rm[1]); rMinPhrase = rm[0].trim();
+    } else if ((rm = text.match(/\bover\s+(\d+)\s*hours?\b/))) {
+      signals.runtimeMinMinutes = Number(rm[1]) * 60; rMinPhrase = rm[0].trim();
+    } else if ((rm = text.match(/\bover\s+(\d+)\s*min(?:utes?)?\b/))) {
+      signals.runtimeMinMinutes = Number(rm[1]); rMinPhrase = rm[0].trim();
+    }
+  }
+  if (signals.runtimeHint === 'long' && signals.runtimeMinMinutes === undefined) {
+    signals.runtimeMinMinutes = 150;
+  }
+  if (signals.runtimeMinMinutes !== undefined && signals.runtimeMaxMinutes !== undefined &&
+    signals.runtimeMinMinutes > signals.runtimeMaxMinutes) {
+    signals.contradiction =
+      `No movie can be both ${rMaxPhrase || 'short'} and ${rMinPhrase || 'long'}`;
+  }
+
+  // Explicit year bounds.
+  {
+    let ym: RegExpMatchArray | null;
+    if ((ym = text.match(/(\d{4})\s+or\s+later\b/))) {
+      const y = Number(ym[1]);
+      if (y >= 1900 && y <= 2100) signals.yearMin = y;
+    }
+    if ((ym = text.match(/\bafter\s+(19\d{2}|20\d{2})\b/))) signals.yearMin = Number(ym[1]) + 1;
+    if ((ym = text.match(/\bbefore\s+(19\d{2}|20\d{2})\b/))) signals.yearMax = Number(ym[1]) - 1;
+    if ((ym = text.match(/\bfrom\s+the\s+(\d{2})s\b/))) {
+      signals.yearMin = 1900 + Number(ym[1]); signals.yearMax = 1900 + Number(ym[1]) + 9;
+    } else if ((ym = text.match(/\bfrom\s+the\s+((?:19|20)\d{2})s\b/))) {
+      const d = Math.floor(Number(ym[1]) / 10) * 10;
+      signals.yearMin = d; signals.yearMax = d + 9;
+    }
+    if ((ym = text.match(/\bin\s+(19\d{2}|20\d{2})\b/))) {
+      signals.yearMin = Number(ym[1]); signals.yearMax = Number(ym[1]);
+    }
+  }
 
   if (/\brecent\b|\bnew\b|\b2020s\b|\blast five years\b|\bmodern\b|\bnayi\b|\bnaya\b/.test(text)) signals.eraHint = 'recent';
   else if (/\bclassic\b|\bold\b|\b90s\b|\b80s\b|\b70s\b|\bbefore 2000\b|\bgolden age\b|\bvintage\b|\bpurani\b|\bpurana\b/.test(text))

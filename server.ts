@@ -206,8 +206,8 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     const mood = note.moods[0] || 'Relaxed';
     const genres = note.genres.length > 0 ? note.genres : ['Surprise me'];
     const audience: string = 'Just me';
-    const maxRuntime = note.runtimeHint === 'short' ? 'Under 90 min' : 
-                       note.runtimeHint === 'long' ? 'Under 2.5 hours' : 'Under 2 hours';
+    // Explicit bounds win; bare "long" is a minimum (150+ min), never a cap.
+    const maxRuntime = note.runtimeHint === 'short' ? 'Under 90 min' : '';
     const languages = note.languageHints.length > 0 ? note.languageHints : ['Any'];
     const preferences = {
       highlyRated: note.wantsHighlyRated || false,
@@ -219,9 +219,18 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     const excludeGenres = note.excludeGenres;
     const excludePeople = note.excludedPeople;
 
+    if (note.contradiction) {
+      res.json({
+        movies: [],
+        parsed: { mood, genres, excludeGenres, runtimeHint: note.runtimeHint, languageHints: note.languageHints, eraHint: note.eraHint },
+        notices: [note.contradiction],
+      });
+      return;
+    }
+
     // One shared pipeline: Postgres candidates -> ranking.ts -> gate last.
     const { runtimeCap, LANGUAGE_CODES, MOOD_GENRES } = await import('./server/omdb.js');
-    const maxMinutes = runtimeCap(maxRuntime);
+    const maxMinutes = note.runtimeMaxMinutes ?? runtimeCap(maxRuntime);
     const langCodes = languages.includes('Any')
       ? []
       : languages.map((l) => LANGUAGE_CODES[l]).filter(Boolean);
@@ -232,9 +241,10 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
 
     const filters: DbFilters = {
       genres: wantedGenres, excludeGenres, languages: langCodes,
-      runtimeMin: null, runtimeMax: maxMinutes,
-      yearMin: preferences.recent ? currentYear - 5 : null,
-      yearMax: preferences.classics ? 1999 : null,
+      runtimeMin: note.runtimeMinMinutes ?? null,
+      runtimeMax: Number.isFinite(maxMinutes) ? maxMinutes : null,
+      yearMin: note.yearMin ?? (preferences.recent ? currentYear - 5 : null),
+      yearMax: note.yearMax ?? (preferences.classics ? 1999 : null),
       ratingFloor: preferences.highlyRated ? 7.0 : null,
       audience, matureAllowed: false,
       excludeIds: (excludeIds || []).map(Number).filter(Number.isFinite),

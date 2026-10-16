@@ -169,3 +169,60 @@ test('hindi: chhoti maps short runtime, purani maps classics', () => {
   assert.equal(parseNote('koi chhoti movie batao').runtimeHint, 'short');
   assert.equal(parseNote('koi purani classic film').eraHint, 'classics');
 });
+
+// STEP 2 regression: every genre phrase maps to a filterable genre.
+for (const [phrase, genre] of [
+  ['romantic', 'Romance'], ['romance', 'Romance'], ['rom-com', 'Romance'],
+  ['science fiction', 'Sci-Fi'], ['sci-fi', 'Sci-Fi'], ['documentary', 'Documentary'],
+  ['superhero', 'Action'], ['thriller', 'Thriller'], ['animated', 'Animation'],
+  ['family', 'Family'],
+] as [string, string][]) {
+  test(`genre phrase "${phrase}" -> ${genre}`, () => {
+    const s = parseNote(`show me a ${phrase} movie`);
+    assert.ok(s.genres.includes(genre), `${phrase}: got ${JSON.stringify(s.genres)}`);
+  });
+}
+
+// STEP 2 regression: year phrases -> explicit yearMin/yearMax.
+for (const [phrase, min, max] of [
+  ['2023 or later', 2023, undefined], ['after 2015', 2016, undefined],
+  ['before 1990', undefined, 1989], ['from the 80s', 1980, 1989], ['in 2019', 2019, 2019],
+] as [string, number | undefined, number | undefined][]) {
+  test(`year phrase "${phrase}"`, () => {
+    const s = parseNote(`a good movie from ${phrase}`);
+    assert.equal(s.yearMin, min);
+    assert.equal(s.yearMax, max);
+  });
+}
+
+// STEP 2 regression: runtime phrases -> explicit min/max minutes.
+for (const [phrase, min, max] of [
+  ['under 2 hours', undefined, 120], ['under 60 minutes', undefined, 60],
+  ['2 ghante se kam', undefined, 120], ['longer than 150 minutes', 150, undefined],
+  ['over 2 hours', 120, undefined],
+] as [string, number | undefined, number | undefined][]) {
+  test(`runtime phrase "${phrase}"`, () => {
+    const s = parseNote(`a movie that is ${phrase}`);
+    assert.equal(s.runtimeMinMinutes, min);
+    assert.equal(s.runtimeMaxMinutes, max);
+  });
+}
+
+test('"lambi" and bare "long" mean a minimum, never a maximum', () => {
+  for (const q of ['koi lambi movie', 'a long epic movie']) {
+    const s = parseNote(q);
+    assert.equal(s.runtimeMinMinutes, 150);
+    assert.equal(s.runtimeMaxMinutes, undefined);
+  }
+});
+
+test('contradiction names both bounds', () => {
+  const s = parseNote('a movie under 60 minutes and over 180 minutes');
+  assert.equal(s.contradiction, 'No movie can be both under 60 minutes and over 180 minutes');
+});
+
+test('negation before genre extraction: horror excluded, comedy kept', () => {
+  const s = parseNote("horror comedy, but I don't want horror");
+  assert.deepEqual(s.genres, ['Comedy']);
+  assert.deepEqual(s.excludeGenres, ['Horror']);
+});
