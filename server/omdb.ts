@@ -1,13 +1,13 @@
 import { FALLBACK_CATALOG, MovieItem } from './catalog.js';
 import { parseNote } from './noteParser.js';
 import {
-  scoreMovie,
+  scoreWithFeatures,
   selectDiverse,
   buildReason,
   qualifiesAsGem,
-  AUDIENCE_FLAVOR,
   RankSignals,
 } from './ranking.js';
+import type { FitFeature } from './ranking.js';
 import { sanitizeTaste, sanitizeEventCount, tasteBonus } from './taste.js';
 import { labelMovie } from './labels.js';
 
@@ -23,8 +23,8 @@ export interface MoviePick {
   providers: { name: string; logoUrl: string; type?: string }[];
   reason: string;
   isHiddenGem: boolean;
-  /** Relative fit score (90-99) derived from backend ranking. */
-  matchScore: number;
+  /** Relative fit score (90-99) derived from backend ranking. Not a probability. */
+  fitScore: number;
   /** Original/primary language code (ISO 639-1). Used by the final gate. */
   language: string;
   /** OMDb `Rated` certificate as served (may be missing). Used by the final gate. */
@@ -179,7 +179,7 @@ export function runtimeCap(label: string): number {
 }
 
 export interface SelectionResult {
-  items: { movie: MovieItem; score: number; matchScore: number }[];
+  items: { movie: MovieItem; score: number; fitScore: number; features: FitFeature[] }[];
   /** User-facing notes: applied note signals + any relaxed constraints. */
   notices: string[];
   /** Runtime cap actually enforced after ladder relaxations. */
@@ -546,7 +546,14 @@ export async function selectCandidateMovies(
     ...m,
     isHiddenGem: qualifiesAsGem(m),
   }));
-  const scored = gemChecked.map((movie) => ({ movie, score: scoreMovie(movie, signals) }));
+  const scored = gemChecked.map((movie) => {
+    const breakdown = scoreWithFeatures(movie, signals, {
+      languageLabel: params.languages.length === 1 && params.languages[0] !== 'Any'
+        ? params.languages[0]
+        : undefined,
+    });
+    return { movie, score: breakdown.score, features: breakdown.features };
+  });
   const items = selectDiverse(
     scored,
     Math.min(3, scored.length),
@@ -774,28 +781,17 @@ export async function getRecommendationsWithOMDb(
     }
   }
 
-  const { items: candidates, notices, usedMaxMinutes, effective } =
+  const { items: candidates, notices, effective } =
     await selectCandidateMovies(params, extraCandidates, referenceOverviews);
 
-  const quizGenres =
-    params.genres.includes('Surprise me') || params.genres.length === 0
-      ? MOOD_GENRES[params.mood] || []
-      : params.genres.filter((g) => g !== 'Surprise me');
   const note = parseNote(params.note || '');
-  const acceptedGenres = [...quizGenres, ...note.genres];
-  const singleLanguage =
-    params.languages.length === 1 && params.languages[0] !== 'Any'
-      ? params.languages[0]
-      : null;
-  const audienceFlavor =
-    AUDIENCE_FLAVOR[params.audience] ?? AUDIENCE_FLAVOR['Just me'];
 
   // If OMDb API key is provided, enrich in parallel.
   // ID-less discovery candidates get the STRICT check (Fix 2f); a failed
   // check drops the candidate instead of merging dubious data.
   const catalogIds = new Set(FALLBACK_CATALOG.map((m) => m.id));
   const enriched = await Promise.all(
-    candidates.map(async ({ movie, matchScore }) => {
+    candidates.map(async ({ movie, fitScore, features }) => {
       const isDiscovery = !catalogIds.has(movie.id);
       let finalTitle = movie.title;
       let finalYear = movie.year;
@@ -877,8 +873,6 @@ export async function getRecommendationsWithOMDb(
         }
       }
 
-      const matchedGenres = finalGenres.filter((g) => acceptedGenres.includes(g));
-
       return {
         id: movie.id,
         title: finalTitle,
@@ -889,25 +883,9 @@ export async function getRecommendationsWithOMDb(
         overview: finalOverview,
         posterUrl: finalPoster,
         providers: movie.providers,
-        reason: buildReason(
-          {
-            title: finalTitle,
-            genres: finalGenres,
-            rating: finalRating,
-            runtime: finalRuntime,
-            language: movie.language,
-            isHiddenGem: movie.isHiddenGem,
-          },
-          {
-            matchedGenres,
-            maxMinutes: usedMaxMinutes,
-            maxRuntimeLabel: capLabel(usedMaxMinutes),
-            languageLabel: singleLanguage,
-            audienceFlavor,
-          }
-        ),
+        reason: buildReason(features),
         isHiddenGem: movie.isHiddenGem,
-        matchScore,
+        fitScore,
         language: movie.language,
         certificate: finalCertificate,
         mediaType: finalMediaType,

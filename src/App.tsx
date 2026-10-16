@@ -112,7 +112,7 @@ const HOW_IT_WORKS = [
   {
     step: '02',
     title: 'Get 3 tailored matches',
-    desc: 'A curated triage with match scores, including one hidden gem every time.',
+      desc: 'A curated triage with fit scores, including one hidden gem every time.',
   },
   {
     step: '03',

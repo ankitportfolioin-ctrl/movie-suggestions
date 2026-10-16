@@ -239,15 +239,15 @@ export async function enhanceWithGemini(
   for (const pick of result.picks) {
     const movie = movieMap.get(pick.id);
     if (movie) {
-      // Compute matchScore from ranking score + moodFit
-      const baseScore = movie.matchScore || 90;
+      // Recompute fit score from ranking score + moodFit (keeps existing formula).
+      const baseScore = movie.fitScore || 90;
       const moodBoost = Math.round((pick.moodFit - 3) * 2); // -4 to +4
-      const matchScore = Math.min(95, Math.max(90, baseScore + moodBoost));
+      const fitScore = Math.min(95, Math.max(90, baseScore + moodBoost));
 
       pickedMovies.push({
         ...movie,
         reason: pick.reason.slice(0, 200),
-        matchScore,
+        fitScore,
       });
     }
   }

@@ -42,7 +42,7 @@ test('OMDb enriches a real film end to end', { skip: !OMDB_KEY }, async () => {
   assert.ok(toy, 'Toy Story should be recommended');
   assert.ok(toy!.rating > 0 && toy!.posterUrl.startsWith('http'));
   assert.ok(toy!.reason.length > 10 && !/guaranteed/i.test(toy!.reason));
-  assert.ok(toy!.matchScore >= 90 && toy!.matchScore <= 99);
+  assert.ok(toy!.fitScore >= 90 && toy!.fitScore <= 99);
   assert.ok(Array.isArray(notices));
 });
 

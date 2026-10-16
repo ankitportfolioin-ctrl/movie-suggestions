@@ -29,8 +29,9 @@
  *   film is never promoted above a much stronger match; it can still enter
  *   later through normal diverse selection. Obscurity is not relevance.
  *
- * MATCH % DISPLAY: selectDiverse normalizes the final 1–3 scores to 90–99
+ * FIT SCORE DISPLAY: selectDiverse normalizes the final 1-3 scores to 90-99
  * so the pill reflects honest relative ranking, never an absolute claim.
+ * It is not a probability: never render it with a % sign or "match" claim.
  */
 
 import { tasteBonus } from './taste.js';
@@ -203,54 +204,147 @@ export const MOOD_TONE: Record<string, { uplift: string[]; downers: string[] }> 
   Sad: { uplift: ['Drama', 'Romance', 'Family', 'Comedy'], downers: [] },
 };
 
-export function scoreMovie(movie: RankableMovie, signals: RankSignals): number {
+export interface FitFeature {
+  key: string;
+  label: string;
+  /** Signed contribution under current RANK_WEIGHTS. */
+  contribution: number;
+  /** Verified fact (e.g. "108 min"). Absent when there is nothing true to cite. */
+  evidence?: string;
+  status: 'matched' | 'partial' | 'not_matched' | 'unknown';
+}
+
+export interface ScoreBreakdown {
+  /** Identical to what scoreMovie returns; features explain the same total. */
+  score: number;
+  features: FitFeature[];
+}
+
+/**
+ * Score with per-feature contributions. Every additive term of the original
+ * formula appears exactly once below with the same weight and condition, so
+ * breakdown.score === scoreMovie(...) for all inputs. Evidence strings cite
+ * only values actually evaluated here.
+ */
+export function scoreWithFeatures(
+  movie: RankableMovie, signals: RankSignals, opts?: { languageLabel?: string },
+): ScoreBreakdown {
   const w = RANK_WEIGHTS;
-  let score = w.ratingBase * movie.rating;
+  const features: FitFeature[] = [];
+  let score = 0;
+
+  const ratingPart = w.ratingBase * movie.rating;
+  score += ratingPart;
+  features.push({
+    key: 'rating', label: 'Rating', contribution: ratingPart,
+    evidence: movie.rating > 0 ? `rated ${movie.rating.toFixed(1)}` : undefined,
+    status: movie.rating > 0 ? 'matched' : 'unknown',
+  });
 
   const quizOverlap = movie.genres.filter((g) => signals.quizGenres.includes(g));
   score += w.genrePerMatch * quizOverlap.length;
+  features.push({
+    key: 'genre', label: 'Genre', contribution: w.genrePerMatch * quizOverlap.length,
+    evidence: quizOverlap.length > 0 ? quizOverlap.slice(0, 3).join(' + ') : undefined,
+    status: quizOverlap.length > 0 ? 'matched' : 'not_matched',
+  });
 
   const noteOverlap = movie.genres.filter((g) => signals.noteGenres.includes(g));
   score += w.noteGenrePerMatch * noteOverlap.length;
+  features.push({
+    key: 'note_genre', label: 'Note genre', contribution: w.noteGenrePerMatch * noteOverlap.length,
+    evidence: noteOverlap.length > 0 ? noteOverlap.slice(0, 3).join(' + ') : undefined,
+    status: noteOverlap.length > 0 ? 'matched' : 'not_matched',
+  });
 
-  if (movie.genres.some((g) => signals.moodGenres.includes(g))) {
-    score += w.moodAffinity;
-  }
+  const moodOverlap = movie.genres.filter((g) => signals.moodGenres.includes(g));
+  const moodPart = moodOverlap.length > 0 ? w.moodAffinity : 0;
+  score += moodPart;
+  features.push({
+    key: 'mood', label: 'Mood', contribution: moodPart,
+    evidence: moodOverlap.length > 0 ? moodOverlap.slice(0, 3).join(' + ') : undefined,
+    status: moodOverlap.length > 0 ? 'matched' : 'not_matched',
+  });
 
   const tone = MOOD_TONE[signals.mood];
   if (tone) {
-    const uplift = movie.genres.filter((g) => tone.uplift.includes(g)).length;
-    score += w.moodUpliftPerGenre * uplift;
-    const downers = movie.genres.filter((g) => tone.downers.includes(g)).length;
-    score -= w.moodDownerPerGenre * downers;
+    const uplift = movie.genres.filter((g) => tone.uplift.includes(g));
+    const downers = movie.genres.filter((g) => tone.downers.includes(g));
+    const tonePart = w.moodUpliftPerGenre * uplift.length - w.moodDownerPerGenre * downers.length;
+    score += tonePart;
+    features.push({
+      key: 'mood_tone', label: 'Mood tone', contribution: tonePart,
+      evidence: uplift.length > 0 ? `uplifting ${uplift.slice(0, 3).join(' + ')}` : undefined,
+      status: uplift.length > 0 ? 'matched' : 'not_matched',
+    });
   }
 
-  score += w.ratingConfidence * (Math.min(movie.voteCount || 0, 5000) / 5000);
+  const votePart = w.ratingConfidence * (Math.min(movie.voteCount || 0, 5000) / 5000);
+  score += votePart;
+  features.push({
+    key: 'votes', label: 'Votes', contribution: votePart,
+    evidence: (movie.voteCount || 0) > 0 ? `${movie.voteCount} votes` : undefined,
+    status: (movie.voteCount || 0) > 0 ? 'matched' : 'unknown',
+  });
 
-  if (Number.isFinite(signals.maxMinutes) && movie.runtime <= signals.maxMinutes - 15) {
-    score += w.runtimeFit;
-  }
+  const runtimeOk = Number.isFinite(signals.maxMinutes) && movie.runtime <= signals.maxMinutes - 15;
+  if (runtimeOk) score += w.runtimeFit;
+  features.push({
+    key: 'runtime', label: 'Runtime', contribution: runtimeOk ? w.runtimeFit : 0,
+    evidence: movie.runtime > 0
+      ? (Number.isFinite(signals.maxMinutes)
+        ? (runtimeOk ? `${movie.runtime} min, within your ${signals.maxMinutes}-minute limit` : `${movie.runtime} min`)
+        : `${movie.runtime} min`)
+      : undefined,
+    status: runtimeOk ? 'matched' : (movie.runtime > 0 ? 'not_matched' : 'unknown'),
+  });
 
-  if (signals.languageSpecific) {
-    score += w.languageFit;
-  }
+  if (signals.languageSpecific) score += w.languageFit;
+  features.push({
+    key: 'language', label: 'Language', contribution: signals.languageSpecific ? w.languageFit : 0,
+    evidence: signals.languageSpecific
+      ? (opts?.languageLabel ? `${opts.languageLabel}-language original` : `original language ${movie.language}`)
+      : undefined,
+    status: signals.languageSpecific ? 'matched' : 'not_matched',
+  });
 
-  if (signals.preferHiddenGems && movie.isHiddenGem) {
-    score += w.hiddenGemBonus;
-  }
+  const gemApplied = signals.preferHiddenGems && movie.isHiddenGem;
+  if (gemApplied) score += w.hiddenGemBonus;
+  features.push({
+    key: 'hidden_gem', label: 'Hidden gem', contribution: gemApplied ? w.hiddenGemBonus : 0,
+    evidence: gemApplied ? 'a lesser-known gem' : undefined,
+    status: gemApplied ? 'matched' : 'not_matched',
+  });
 
   const normTitle = normalizeTitle(movie.title);
-  if (signals.mentionedTitles.some((t) => t === normTitle)) {
-    score += w.titleAffinity;
-  }
+  const titleApplied = signals.mentionedTitles.some((t) => t === normTitle);
+  if (titleApplied) score += w.titleAffinity;
+  features.push({
+    key: 'title', label: 'Named title', contribution: titleApplied ? w.titleAffinity : 0,
+    evidence: titleApplied ? `you named "${movie.title}"` : undefined,
+    status: titleApplied ? 'matched' : 'not_matched',
+  });
 
   if (signals.themeRefs.length > 0 && movie.overview) {
-    score += w.themeSimilarity * themeSimilarity(movie.overview, signals.themeRefs);
+    const sim = themeSimilarity(movie.overview, signals.themeRefs);
+    const themePart = w.themeSimilarity * sim;
+    score += themePart;
+    features.push({
+      key: 'theme', label: 'Theme', contribution: themePart,
+      evidence: sim > 0 ? 'shares themes with your references' : undefined,
+      status: sim > 0 ? 'matched' : 'not_matched',
+    });
   }
 
   // Step 3: personal taste bonus (average of matched weights, capped by confidence)
   if (signals.taste?.weights) {
-    score += tasteBonus(movie, signals.taste.weights, signals.taste.eventCount);
+    const tastePart = tasteBonus(movie, signals.taste.weights, signals.taste.eventCount);
+    score += tastePart;
+    features.push({
+      key: 'taste', label: 'Taste', contribution: tastePart,
+      evidence: tastePart > 0 ? 'matches your past picks' : undefined,
+      status: tastePart > 0 ? 'matched' : 'not_matched',
+    });
   }
 
   // Step 2: fine-tune ranking bonuses (tone, pace, humor) — intensity is handled as a filter
@@ -259,16 +353,34 @@ export function scoreMovie(movie: RankableMovie, signals: RankSignals): number {
     if (labels) {
       // Tone match bonus (per matching tone)
       if (signals.fineTune.tones && signals.fineTune.tones.length > 0) {
-        const toneMatches = labels.tone.filter((t) => signals.fineTune!.tones!.includes(t)).length;
-        score += w.toneMatch * toneMatches;
+        const toneMatches = labels.tone.filter((t) => signals.fineTune!.tones!.includes(t));
+        const tonePart = w.toneMatch * toneMatches.length;
+        score += tonePart;
+        features.push({
+          key: 'ft_tone', label: 'Tone', contribution: tonePart,
+          evidence: toneMatches.length > 0 ? `matching ${toneMatches.join(' + ')} tone` : undefined,
+          status: toneMatches.length > 0 ? 'matched' : 'not_matched',
+        });
       }
       // Pace match bonus
-      if (signals.fineTune.pace && labels.pace === signals.fineTune.pace) {
-        score += w.paceMatch;
+      if (signals.fineTune.pace) {
+        const paceApplied = labels.pace === signals.fineTune.pace;
+        if (paceApplied) score += w.paceMatch;
+        features.push({
+          key: 'ft_pace', label: 'Pace', contribution: paceApplied ? w.paceMatch : 0,
+          evidence: paceApplied ? 'matching pace' : undefined,
+          status: paceApplied ? 'matched' : 'not_matched',
+        });
       }
       // Humor match bonus (per matching humor style)
-      if (signals.fineTune.humorStyle && labels.humor.includes(signals.fineTune.humorStyle)) {
-        score += w.humorMatch;
+      if (signals.fineTune.humorStyle) {
+        const humorApplied = labels.humor.includes(signals.fineTune.humorStyle);
+        if (humorApplied) score += w.humorMatch;
+        features.push({
+          key: 'ft_humor', label: 'Humor', contribution: humorApplied ? w.humorMatch : 0,
+          evidence: humorApplied ? 'matching humor' : undefined,
+          status: humorApplied ? 'matched' : 'not_matched',
+        });
       }
       // Intensity penalty: if movie intensity exceeds user's chosen level, penalize
       // Only applies when movie has a confident label
@@ -277,13 +389,21 @@ export function scoreMovie(movie: RankableMovie, signals: RankSignals): number {
         const movieIntensityIdx = ['No violence', 'Mild', 'Moderate', 'Any'].indexOf(labels.intensity);
         if (userIntensityIdx >= 0 && movieIntensityIdx >= 0 && movieIntensityIdx > userIntensityIdx) {
           // Penalize movies more intense than user wants
-          score -= w.intensityFilterPenalty * (movieIntensityIdx - userIntensityIdx);
+          const penalty = w.intensityFilterPenalty * (movieIntensityIdx - userIntensityIdx);
+          score -= penalty;
+          features.push({
+            key: 'ft_intensity', label: 'Intensity', contribution: -penalty, status: 'not_matched',
+          });
         }
       }
     }
   }
 
-  return score;
+  return { score, features };
+}
+
+export function scoreMovie(movie: RankableMovie, signals: RankSignals): number {
+  return scoreWithFeatures(movie, signals).score;
 }
 
 /**
@@ -291,16 +411,16 @@ export function scoreMovie(movie: RankableMovie, signals: RankSignals): number {
  * overlap with already-selected titles. Optionally guarantees one
  * hidden gem when available (flagged, not fabricated).
  */
-export function selectDiverse<T extends RankableMovie>(
-  candidates: { movie: T; score: number }[],
+export function selectDiverse<T extends RankableMovie, C extends { movie: T; score: number }>(
+  candidates: C[],
   count: number,
   ensureHiddenGem: boolean,
   protectedGenres: string[] = [],
   franchiseCap = Infinity
-): { movie: T; score: number; matchScore: number }[] {
+): (C & { fitScore: number })[] {
   const w = RANK_WEIGHTS;
   const remaining = [...candidates].sort((a, b) => b.score - a.score);
-  const selected: { movie: T; score: number }[] = [];
+  const selected: C[] = [];
 
   const takeIndex = (idx: number) => {
     const [picked] = remaining.splice(idx, 1);
@@ -355,62 +475,22 @@ export function selectDiverse<T extends RankableMovie>(
   const max = Math.max(...scores);
   return selected.map((s) => ({
     ...s,
-    matchScore:
+    fitScore:
       max === min ? 96 : 90 + Math.round((9 * (s.score - min)) / (max - min)),
   }));
 }
 
 /**
- * Factual, citation-style reason built ONLY from verified fields.
- * Never invents plot points, awards, or availability.
+ * Reason assembled ONLY from positively contributing features with verified
+ * evidence. No audience, safety, or availability claims: scoring has no such
+ * features, so the rationale must not invent them. Neutral fallback when
+ * nothing qualifies.
  */
-export function buildReason(
-  movie: {
-    title: string;
-    genres: string[];
-    rating: number;
-    runtime: number;
-    language: string;
-    isHiddenGem: boolean;
-  },
-  ctx: {
-    matchedGenres: string[];
-    maxMinutes: number;
-    maxRuntimeLabel: string;
-    languageLabel: string | null;
-    audienceFlavor: string;
-  }
-): string {
-  const facts: string[] = [];
-  if (ctx.matchedGenres.length > 0) {
-    facts.push(ctx.matchedGenres.slice(0, 2).join(' & '));
-  }
-  if (movie.rating > 0) {
-    facts.push(`rated ${movie.rating.toFixed(1)}`);
-  }
-  if (movie.runtime > 0) {
-    const h = Math.floor(movie.runtime / 60);
-    const m = movie.runtime % 60;
-    const len = h > 0 ? `${h}h${m > 0 ? ` ${m}m` : ''}` : `${m}m`;
-    facts.push(
-      Number.isFinite(ctx.maxMinutes)
-        ? `${len}, fits ${ctx.maxRuntimeLabel.toLowerCase()}`
-        : `${len} long`
-    );
-  }
-  if (ctx.languageLabel) {
-    facts.push(`${ctx.languageLabel}-language original`);
-  }
-  if (movie.isHiddenGem) {
-    facts.push('a lesser-known gem');
-  }
-  const head = facts.length > 0 ? facts.join(' • ') : movie.genres.slice(0, 2).join(' & ');
-  return `${head}. ${ctx.audienceFlavor}`;
+export function buildReason(features: FitFeature[]): string {
+  const supported = features
+    .filter((f) => f.status === 'matched' && f.contribution > 0 && f.evidence)
+    .sort((a, b) => b.contribution - a.contribution)
+    .slice(0, 3);
+  if (supported.length === 0) return 'Recommended based on your selected filters.';
+  return supported.map((f) => f.evidence as string).join(' · ');
 }
-
-export const AUDIENCE_FLAVOR: Record<string, string> = {
-  'Family with kids': 'Wholesome enough for every age in the house tonight.',
-  Partner: 'Crafted for a cozy evening for two.',
-  Friends: 'Built to be experienced together.',
-  'Just me': 'A solid solo watch for tonight.',
-};

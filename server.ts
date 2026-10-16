@@ -213,10 +213,8 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
       const cause = await diagnoseEmptyPool(filters).catch(() => null);
       notices.push(cause ?? 'Nothing matches all of those filters together — try removing one constraint.');
     }
-    const top3 = picks.map((m) => ({
-      ...m,
-      reason: `Matches your ${mood.toLowerCase()} mood with ${m.genres.slice(0,2).join(' & ')}.`,
-    }));
+    // Reason comes from the rank features (never a mood template).
+    const top3 = picks;
 
     res.json({ 
       movies: top3, 
@@ -433,7 +431,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
         rankPosition: idx + 1,
         isExploration: 0,
         explorationProb: 0,
-        scoreBreakdownJson: JSON.stringify({ matchScore: m.matchScore ?? null }),
+        scoreBreakdownJson: JSON.stringify({ fitScore: m.fitScore ?? null }),
         variant: 'control',
       }));
       recordImpressions(learningDb, rows);

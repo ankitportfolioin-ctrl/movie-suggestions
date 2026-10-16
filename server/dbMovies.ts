@@ -7,13 +7,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Pool } from 'pg';
-import { scoreMovie, selectDiverse } from './ranking.js';
+import { scoreWithFeatures, selectDiverse, buildReason } from './ranking.js';
 import type { RankSignals } from './ranking.js';
 import { enforceHardConstraints } from './gate.js';
 import type { GateConstraints, GateMovie } from './gate.js';
 import { FALLBACK_CATALOG } from './catalog.js';
 import type { MovieItem } from './catalog.js';
-import { fetchFromOMDb } from './omdb.js';
+import { fetchFromOMDb, LANGUAGE_CODES } from './omdb.js';
+
+/** Reverse lookup: ISO code -> quiz label ("ko" -> "Korean"). */
+function languageLabel(code: string): string | undefined {
+  for (const [name, c] of Object.entries(LANGUAGE_CODES)) if (c === code) return name;
+  return undefined;
+}
 
 let pool: Pool | null = null;
 
@@ -220,17 +226,23 @@ export async function diagnoseEmptyPool(f: DbFilters): Promise<string | null> {
   }
 }
 
-/** Rank with ranking.ts, then gate last. Returns match-scored picks + disclosures. */
+/** Rank with ranking.ts, then gate last. Returns fit-scored picks + disclosures. */
 export function rankGateMovies(
   items: DbItem[], signals: RankSignals, gate: GateConstraints, count: number,
-): { movies: (DbItem & { matchScore: number })[]; relaxed: string[] } {
-  const scored = items.map((movie) => ({ movie, score: scoreMovie(movie, signals) }));
+): { movies: (DbItem & { fitScore: number; reason: string })[]; relaxed: string[] } {
+  const scored = items.map((movie) => {
+    const breakdown = scoreWithFeatures(movie, signals, { languageLabel: languageLabel(movie.language) });
+    return { movie, score: breakdown.score, features: breakdown.features };
+  });
   const diverse = selectDiverse(scored, count, false);
-  const ms = new Map(diverse.map((d) => [d.movie.id, d.matchScore]));
+  const byId = new Map(diverse.map((d) => [d.movie.id, d]));
   const gated = enforceHardConstraints<DbItem & GateMovie>(
     diverse.map((d) => d.movie), gate);
   return {
-    movies: gated.movies.map((m) => ({ ...m, matchScore: ms.get(m.id) ?? 95 })),
+    movies: gated.movies.map((m) => {
+      const d = byId.get(m.id);
+      return { ...m, fitScore: d?.fitScore ?? 95, reason: buildReason(d?.features ?? []) };
+    }),
     relaxed: gated.relaxed,
   };
 }

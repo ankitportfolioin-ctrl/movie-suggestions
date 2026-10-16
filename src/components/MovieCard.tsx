@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
 import { Movie } from '../types';
+
+/** Display score: new fitScore, with old saved matchScore tolerated on read. */
+export function fitScoreOf(m: { fitScore?: number; matchScore?: number }): number {
+  return m.fitScore ?? m.matchScore ?? 95;
+}
 import { Star, Clock, BookmarkPlus, BookmarkCheck, ExternalLink, Shuffle, ThumbsDown, Eye } from 'lucide-react';
 
 interface MovieCardProps {
@@ -26,7 +31,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
     return h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''}` : `${m}m`;
   };
 
-  const matchScore = movie.matchScore ?? 95;
+  const fitScore = fitScoreOf(movie);
 
   const handleWatchOptions = () => {
     onWatchOptions?.(movie);
@@ -47,9 +52,11 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
         </div>
       )}
 
-      {/* Match Score Pill Tag */}
+      {/* Fit Score Pill Tag (not a probability: no % sign) */}
       <div className="absolute top-3 right-3 z-10 px-3 py-1 rounded-full bg-gradient-to-r from-[#E63946] to-[#FF7A2F] text-white text-xs font-bold shadow-md">
-        {matchScore}% Match
+        <span aria-label={`Fit score ${fitScore} out of 100`}>
+          Fit {fitScore}/100
+        </span>
       </div>
 
       {/* Poster Image Container */}

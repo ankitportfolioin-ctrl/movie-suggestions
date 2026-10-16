@@ -16,8 +16,8 @@ export interface Movie {
   providers: Provider[];
   reason: string;
   isHiddenGem?: boolean;
-  /** Relative fit score (90-99) computed by the backend ranking. */
-  matchScore?: number;
+  /** Relative fit score (90-99) computed by the backend ranking. Not a probability. */
+  fitScore?: number;
   /** Original/primary language code (ISO 639-1). */
   language?: string;
   /** OMDb `Rated` certificate as served. */

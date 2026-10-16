@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { scoreMovie, selectDiverse, buildReason, themeSimilarity, qualifiesAsGem, franchiseKey, RANK_WEIGHTS, RankSignals } from '../server/ranking.js';
+import { scoreMovie, scoreWithFeatures, selectDiverse, buildReason, themeSimilarity, qualifiesAsGem, franchiseKey, RANK_WEIGHTS, RankSignals } from '../server/ranking.js';
+import type { FitFeature } from '../server/ranking.js';
 import type { MovieItem } from '../server/catalog.js';
 
 function movie(over: Partial<MovieItem> = {}): MovieItem {
@@ -100,10 +101,10 @@ test('diversity penalizes near-identical genre sets', () => {
   assert.deepEqual(picked, [1, 3]);
 });
 
-test('match scores normalize to 90..99 by rank', () => {
+test('fit scores normalize to 90..99 by rank (same numbers, new name)', () => {
   const mk = (id: number, score: number) => ({ movie: movie({ id }), score });
   const out = selectDiverse([mk(1, 30), mk(2, 20), mk(3, 10)], 3, false);
-  assert.deepEqual(out.map((o) => o.matchScore), [99, 95, 90]);
+  assert.deepEqual(out.map((o) => o.fitScore), [99, 95, 90]);
 });
 
 test('competitive gem still leads (within gap)', () => {
@@ -123,13 +124,91 @@ test('Fix 3: much weaker gem does not outrank a strong match', () => {
   assert.equal(out[0].movie.id, 1);
 });
 
-test('buildReason cites only verified facts', () => {
-  const r = buildReason(
-    { title: 'X', genres: ['Comedy'], rating: 8.3, runtime: 81, language: 'en', isHiddenGem: true },
-    { matchedGenres: ['Comedy'], maxMinutes: 90, maxRuntimeLabel: 'Under 90 min', languageLabel: null, audienceFlavor: 'Solo.' }
-  );
-  assert.ok(r.includes('Comedy') && r.includes('8.3') && r.includes('1h 21m') && r.includes('gem') && r.includes('Solo.'));
-  assert.ok(!r.toLowerCase().includes('oscar') && !r.toLowerCase().includes('spoiler'));
+test('score invariance: recorded pre-change scores, order and fit values', () => {
+  const mk = (id: number, genres: string[], rating: number, runtime: number, votes: number) =>
+    movie({ id, title: 'F' + id, genres, rating, runtime, voteCount: votes, year: 2010,
+      overview: 'A soldier fights aliens in a time loop.' });
+  const sig: RankSignals = {
+    quizGenres: ['Sci-Fi', 'Comedy'], noteGenres: [], moodGenres: ['Comedy'],
+    mood: 'Happy', themeRefs: [], maxMinutes: 120, languageSpecific: false,
+    preferHiddenGems: false, mentionedTitles: [],
+  };
+  const pool = [
+    mk(1, ['Sci-Fi'], 8.0, 108, 2000), mk(2, ['Comedy'], 7.0, 95, 500),
+    mk(3, ['Sci-Fi', 'Comedy'], 7.5, 130, 8000), mk(4, ['Drama'], 9.0, 100, 100),
+  ];
+  for (const [m, expected] of [[pool[0], 19.8], [pool[1], 22.2], [pool[2], 27], [pool[3], 19.04]] as const) {
+    assert.equal(scoreWithFeatures(m, sig).score, expected);
+    assert.equal(scoreMovie(m, sig), expected);
+  }
+  const out = selectDiverse(pool.map((m) => {
+    const b = scoreWithFeatures(m, sig);
+    return { movie: m, score: b.score, features: b.features };
+  }), 3, false);
+  assert.deepEqual(out.map((o) => o.movie.id), [3, 2, 4]);
+  assert.deepEqual(out.map((o) => o.fitScore), [99, 94, 90]);
+});
+
+test('buildReason cites only positively contributing known features', () => {
+  const reason = buildReason([
+    { key: 'genre', label: 'Genre', contribution: 6, evidence: 'Science fiction + comedy', status: 'matched' },
+    { key: 'runtime', label: 'Runtime', contribution: 1, evidence: '108 min, within your 120-minute limit', status: 'matched' },
+    { key: 'audience', label: 'Audience', contribution: 0, status: 'unknown' },
+    { key: 'availability', label: 'Availability', contribution: 0, status: 'unknown' },
+  ]);
+  assert.ok(reason.includes('Science fiction + comedy'));
+  assert.ok(reason.includes('108 min'));
+  assert.ok(!reason.toLowerCase().includes('solo'));
+  assert.ok(!reason.toLowerCase().includes('available'));
+});
+
+test('reason names actual overlapping genres', () => {
+  const b = scoreWithFeatures(movie({ genres: ['Comedy', 'Drama'] }), signals);
+  const r = buildReason(b.features);
+  assert.ok(r.includes('Comedy'));
+  assert.ok(!r.includes('Drama'));
+});
+
+test('runtime clause needs both runtime and a satisfied limit', () => {
+  const bare: RankSignals = {
+    quizGenres: [], noteGenres: [], moodGenres: [], mood: '', themeRefs: [],
+    maxMinutes: 90, languageSpecific: false, preferHiddenGems: false, mentionedTitles: [],
+  };
+  const fit = scoreWithFeatures(
+    movie({ genres: ['Drama'], rating: 0, runtime: 60, voteCount: 0 }), bare);
+  assert.ok(buildReason(fit.features).includes('60 min, within your 90-minute limit'));
+  const noRuntime = scoreWithFeatures(
+    movie({ genres: ['Drama'], rating: 0, runtime: 0, voteCount: 0 }), bare);
+  assert.ok(!buildReason(noRuntime.features).includes('min'));
+  const overLimit = scoreWithFeatures(
+    movie({ genres: ['Drama'], rating: 0, runtime: 200, voteCount: 0 }), bare);
+  assert.ok(!buildReason(overLimit.features).includes('within your'));
+});
+
+test('no audience claim for friends; unknown fields stay silent', () => {
+  const b = scoreWithFeatures(movie(), { ...signals, mood: 'Romantic' });
+  const r = buildReason(b.features).toLowerCase();
+  for (const word of ['solo', 'friends', 'family', 'safe', 'gore', 'available', 'subscription']) {
+    assert.ok(!r.includes(word), word);
+  }
+});
+
+test('neutral fallback when nothing qualifies', () => {
+  const r = buildReason([
+    { key: 'genre', label: 'Genre', contribution: 0, status: 'not_matched' },
+    { key: 'rating', label: 'Rating', contribution: 0, status: 'unknown' },
+  ]);
+  assert.equal(r, 'Recommended based on your selected filters.');
+});
+
+test('cited features are the largest positive contributions', () => {
+  const feats: FitFeature[] = [
+    { key: 'a', label: 'A', contribution: 1, evidence: 'small', status: 'matched' },
+    { key: 'b', label: 'B', contribution: 9, evidence: 'big', status: 'matched' },
+    { key: 'c', label: 'C', contribution: 4, evidence: 'mid', status: 'matched' },
+    { key: 'd', label: 'D', contribution: 12, evidence: 'huge', status: 'matched' },
+  ];
+  assert.equal(buildReason(feats), 'huge · big · mid');
 });
 
 test('3c: gem eligibility needs rating>=7, modest votes, no blockbusters', () => {
