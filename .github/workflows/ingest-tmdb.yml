@@ -1,18 +1,23 @@
-# TMDB ingest: builds data/movies.json on GitHub Actions (the index is too
-# big to build on machines where the ISP blocks api.themoviedb.org).
+# TMDB global ingest: upserts movies straight into Postgres (no data file).
 #
-# Triggers: manual (Actions tab) + weekly schedule. Needs the repo secret
-# TMDB_API_KEY (Settings > Secrets and variables > Actions).
-# Only data/movies.json is ever committed; progress/log files stay local.
+# Triggers: manual (Actions tab) + weekly schedule. Needs repo secrets
+# TMDB_API_KEY and DATABASE_URL (Settings > Secrets and variables > Actions).
+# Nothing is ever committed; progress lives in the database (tmdbIds already
+# present are skipped), so re-runs and limit-capped test runs are safe.
 name: ingest-tmdb
 
 on:
   workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max NEW detail fetches this run (0 = no limit)"
+        required: false
+        default: "0"
   schedule:
     - cron: "0 3 * * 0"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   ingest:
@@ -32,11 +37,12 @@ jobs:
         id: ingest
         run: |
           set +e
-          npm run ingest:tmdb 2>&1 | tee ingest.log
+          npm run ingest:tmdb -- --limit "${{ inputs.limit || '0' }}" 2>&1 | tee ingest.log
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JOB_TIMEOUT_MINUTES: "340"
 
       - name: Upload log
         if: always()
@@ -45,30 +51,8 @@ jobs:
           name: ingest-log
           path: ingest.log
 
-      - name: Upload partial index when coverage unmet (exit 2)
-        if: steps.ingest.outputs.exit_code == '2'
-        uses: actions/upload-artifact@v4
-        with:
-          name: partial-movies
-          path: |
-            data/movies.json
-            ingest.log
-
-      - name: Commit refreshed index
-        if: steps.ingest.outputs.exit_code == '0'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/movies.json
-          if git diff --cached --quiet; then
-            echo "movies.json unchanged, nothing to commit"
-          else
-            git commit -m "chore: refresh movie index"
-            git push origin "HEAD:${{ github.ref_name }}"
-          fi
-
       - name: Fail on ingest error
         if: steps.ingest.outputs.exit_code != '0'
         run: |
-          echo "ingest exited with code ${{ steps.ingest.outputs.exit_code }} (2 = coverage unmet, index NOT committed; 3/1 = unreachable or error)"
+          echo "ingest exited with code ${{ steps.ingest.outputs.exit_code }} (1 = error, 3 = unreachable/misconfigured; coverage gaps are exit 0 with UNMET lines in the log)"
           exit 1
