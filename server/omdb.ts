@@ -604,11 +604,11 @@ export async function fetchFromOMDb(
 }
 
 /**
- * Normalize a title for comparison: lowercase, alphanumeric only.
- * ("WALL·E" and "WALL-E" both become "walle".)
+ * Normalize a title for comparison: lowercase, alphanumeric only, with
+ * diacritics folded ("Amélie" matches "amelie"; "WALL·E" becomes "walle").
  */
 export function normalizeTitle(t: string): string {
-  return t.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 /**

@@ -121,71 +121,18 @@ app.get('/healthz', (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-// Exact Title Search Endpoint
+// Exact Title Search Endpoint (logic in server/titleSearch.ts: provider
+// outage is a retryable 502, never a masked empty result).
 app.get('/api/search-title', rateLimiter, async (req: Request, res: Response) => {
   try {
-    const query = String(req.query.q || '').trim();
-    if (!query || query.length > 120) {
-      res.status(400).json({ error: 'Invalid query' });
-      return;
-    }
-
-    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
-    if (!tmdbApiKey) {
-      // Fallback to local catalog
-      const { FALLBACK_CATALOG } = await import('./server/catalog.js');
-      const { normalizeTitle } = await import('./server/omdb.js');
-      const normQuery = normalizeTitle(query);
-      const results = FALLBACK_CATALOG
-        .filter(m => normalizeTitle(m.title).includes(normQuery) || normQuery.includes(normalizeTitle(m.title)))
-        .slice(0, 10)
-        .map(m => ({
-          id: m.id,
-          title: m.title,
-          year: m.year,
-          genres: m.genres,
-          runtime: m.runtime,
-          rating: m.rating,
-          overview: m.overview,
-          posterUrl: m.posterUrl,
-          language: m.language,
-        }));
-      res.json({ results, source: 'local' });
-      return;
-    }
-
-    // Search TMDB
-    const searchUrl = `https://api.themoviedb.org/3/search/movie?api_key=${tmdbApiKey}&query=${encodeURIComponent(query)}&include_adult=false`;
-    const searchRes = await fetch(searchUrl, {
-      headers: { 'User-Agent': 'MovieNightPicker/1.0' },
-      signal: AbortSignal.timeout(3000),
+    const { searchTitles } = await import('./server/titleSearch.js');
+    const { status, body } = await searchTitles(req.query.q, {
+      tmdbKey: process.env.TMDB_API_KEY?.trim(),
     });
-
-    if (!searchRes.ok) {
-      res.json({ results: [], source: 'tmdb', error: 'Search failed' });
-      return;
-    }
-
-    const data = await searchRes.json();
-    const results = (data.results || [])
-      .filter((m: any) => m.poster_path && m.release_date)
-      .slice(0, 10)
-      .map((m: any) => ({
-        id: m.id,
-        title: m.title,
-        year: parseInt(m.release_date.slice(0, 4), 10),
-        genres: [],
-        runtime: 0,
-        rating: typeof m.vote_average === 'number' ? Math.round(m.vote_average * 10) / 10 : 0,
-        overview: m.overview || '',
-        posterUrl: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : '',
-        language: m.original_language || 'en',
-      }));
-
-    res.json({ results, source: 'tmdb' });
+    res.status(status).json(body);
   } catch (err) {
     console.error('Title search error:', err);
-    res.status(500).json({ error: 'Search failed' });
+    res.status(502).json({ error: 'Title search is temporarily unavailable. Please try again.', retryable: true });
   }
 });
 

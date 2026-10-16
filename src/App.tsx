@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   Award,
@@ -589,29 +589,44 @@ function Hero({ onStart }: { onStart: () => void }) {
   const [searchNotices, setSearchNotices] = useState<string[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [searchMode, setSearchMode] = useState<'title' | 'natural'>('title');
+  // Stale-response guard: only the latest search may write results.
+  const searchSeqRef = useRef(0);
+
+  const readError = async (res: Response, fallback: string) => {
+    try {
+      const data = await res.json();
+      if (typeof data?.error === 'string' && data.error) return data.error;
+    } catch { /* non-JSON error body */ }
+    return fallback;
+  };
 
   const handleTitleSearch = async (query: string) => {
     if (!query.trim() || query.trim().length < 2) {
       setSearchResults([]);
       return;
     }
+    const seq = ++searchSeqRef.current;
+    const stale = () => seq !== searchSeqRef.current;
     setSearchLoading(true);
     setSearchError('');
     setSearchNotices([]);
     try {
       const res = await fetch(`/api/search-title?q=${encodeURIComponent(query.trim())}`);
+      if (stale()) return;
       if (res.status === 429) throw new Error('RATE_LIMITED');
-      if (!res.ok) throw new Error('Search failed');
+      if (!res.ok) throw new Error(await readError(res, 'Search failed. Please try again.'));
       const data = await res.json();
+      if (stale()) return;
       setSearchResults(data.results || []);
       setShowResults(true);
     } catch (e) {
+      if (stale()) return;
       setSearchError(e instanceof Error && e.message === 'RATE_LIMITED'
         ? 'Too many searches, try again in a few minutes.'
-        : 'Search failed. Please try again.');
+        : e instanceof Error ? e.message : 'Search failed. Please try again.');
       setSearchResults([]);
     } finally {
-      setSearchLoading(false);
+      if (!stale()) setSearchLoading(false);
     }
   };
 
@@ -620,6 +635,8 @@ function Hero({ onStart }: { onStart: () => void }) {
       setSearchResults([]);
       return;
     }
+    const seq = ++searchSeqRef.current;
+    const stale = () => seq !== searchSeqRef.current;
     setSearchLoading(true);
     setSearchError('');
     setSearchNotices([]);
@@ -629,19 +646,22 @@ function Hero({ onStart }: { onStart: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query.trim() }),
       });
+      if (stale()) return;
       if (res.status === 429) throw new Error('RATE_LIMITED');
-      if (!res.ok) throw new Error('Search failed');
+      if (!res.ok) throw new Error(await readError(res, 'Search failed. Please try again.'));
       const data = await res.json();
+      if (stale()) return;
       setSearchResults(data.movies || []);
       setSearchNotices(Array.isArray(data.notices) ? data.notices : []);
       setShowResults(true);
     } catch (e) {
+      if (stale()) return;
       setSearchError(e instanceof Error && e.message === 'RATE_LIMITED'
         ? 'Too many searches, try again in a few minutes.'
-        : 'Search failed. Please try again.');
+        : e instanceof Error ? e.message : 'Search failed. Please try again.');
       setSearchResults([]);
     } finally {
-      setSearchLoading(false);
+      if (!stale()) setSearchLoading(false);
     }
   };
 

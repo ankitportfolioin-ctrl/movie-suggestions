@@ -195,23 +195,12 @@ app.get('/api/search-title', rateLimiter, async (req: Request, res: Response) =>
   }
 });
 
-// Title Search Endpoint (for reference movie chips)
+// Title Search Endpoint (for reference movie chips; core in server/titleSearch.ts)
 app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) => {
   try {
-    const query = String(req.query.q || '').trim();
-    if (!query || query.length > 80) {
-      res.status(400).json({ error: 'Invalid query' });
-      return;
-    }
-
+    const { searchTitles } = await import('../server/titleSearch.js');
     // Sanitize query - strip HTML/script tags
-    const safeQuery = query.replace(/<[^>]*>/g, '');
-
-    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
-    if (!tmdbApiKey) {
-      res.json({ results: [] });
-      return;
-    }
+    const safeQuery = String(req.query.q || '').replace(/<[^>]*>/g, '');
 
     const cacheKey = safeQuery.toLowerCase();
     const now = Date.now();
@@ -221,32 +210,28 @@ app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) =>
       return;
     }
 
-    const searchUrl = `https://api.themoviedb.org/3/search/movie?api_key=${tmdbApiKey}&query=${encodeURIComponent(safeQuery)}&include_adult=false`;
-    const searchRes = await fetch(searchUrl, {
-      headers: { 'User-Agent': 'MovieNightPicker/1.0' },
-      signal: AbortSignal.timeout(3000),
+    const { status, body } = await searchTitles(safeQuery, {
+      tmdbKey: process.env.TMDB_API_KEY?.trim(),
     });
-
-    if (!searchRes.ok) {
-      res.json({ results: [] });
+    if (status !== 200) {
+      res.status(status).json(body);
       return;
     }
-
-    const data = await searchRes.json();
-    const results = (data.results || [])
-      .filter((m: any) => m.poster_path && m.release_date)
+    // shortcut: imdbId here is really the TMDB id; the reference-movie flow
+    // that consumes it needs rework to resolve real IMDb ids (queued next).
+    const results = ((body.results as { id: number; title: string; year: number; posterUrl: string }[]) || [])
       .slice(0, 5)
-      .map((m: any) => ({
+      .map((m) => ({
         imdbId: m.id.toString(), // TMDB ID used as reference; OMDb lookup will happen later
         title: m.title,
-        year: parseInt(m.release_date.slice(0, 4), 10),
-        posterUrl: `https://image.tmdb.org/t/p/w500${m.poster_path}`,
+        year: m.year,
+        posterUrl: m.posterUrl,
       }));
 
     titleSearchCache.set(cacheKey, { data: results, expiresAt: now + TITLE_SEARCH_TTL });
     res.json({ results });
   } catch {
-    res.json({ results: [] });
+    res.status(502).json({ error: 'Title search is temporarily unavailable. Please try again.', retryable: true });
   }
 });
 
