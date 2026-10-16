@@ -586,6 +586,7 @@ function Hero({ onStart }: { onStart: () => void }) {
   const [searchResults, setSearchResults] = useState<Array<{ id: number; title: string; year: number; genres: string[]; runtime: number; rating: number; overview: string; posterUrl: string; language: string }>>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const [searchNotices, setSearchNotices] = useState<string[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [searchMode, setSearchMode] = useState<'title' | 'natural'>('title');
 
@@ -596,14 +597,18 @@ function Hero({ onStart }: { onStart: () => void }) {
     }
     setSearchLoading(true);
     setSearchError('');
+    setSearchNotices([]);
     try {
       const res = await fetch(`/api/search-title?q=${encodeURIComponent(query.trim())}`);
+      if (res.status === 429) throw new Error('RATE_LIMITED');
       if (!res.ok) throw new Error('Search failed');
       const data = await res.json();
       setSearchResults(data.results || []);
       setShowResults(true);
-    } catch {
-      setSearchError('Search failed. Please try again.');
+    } catch (e) {
+      setSearchError(e instanceof Error && e.message === 'RATE_LIMITED'
+        ? 'Too many searches, try again in a few minutes.'
+        : 'Search failed. Please try again.');
       setSearchResults([]);
     } finally {
       setSearchLoading(false);
@@ -617,18 +622,23 @@ function Hero({ onStart }: { onStart: () => void }) {
     }
     setSearchLoading(true);
     setSearchError('');
+    setSearchNotices([]);
     try {
       const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query.trim() }),
       });
+      if (res.status === 429) throw new Error('RATE_LIMITED');
       if (!res.ok) throw new Error('Search failed');
       const data = await res.json();
       setSearchResults(data.movies || []);
+      setSearchNotices(Array.isArray(data.notices) ? data.notices : []);
       setShowResults(true);
-    } catch {
-      setSearchError('Search failed. Please try again.');
+    } catch (e) {
+      setSearchError(e instanceof Error && e.message === 'RATE_LIMITED'
+        ? 'Too many searches, try again in a few minutes.'
+        : 'Search failed. Please try again.');
       setSearchResults([]);
     } finally {
       setSearchLoading(false);
@@ -638,7 +648,13 @@ function Hero({ onStart }: { onStart: () => void }) {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = searchQuery.trim();
-    if (!q) return;
+    if (!q) {
+      setSearchError('Type what you want to watch');
+      setSearchResults([]);
+      setSearchNotices([]);
+      setShowResults(false);
+      return;
+    }
     if (searchMode === 'title') {
       handleTitleSearch(q);
     } else {
@@ -716,6 +732,13 @@ function Hero({ onStart }: { onStart: () => void }) {
             )}
             {showResults && searchResults.length === 0 && !searchLoading && (
               <p className="mt-2 text-xs text-[#8C8C8C] text-center">No results found. Try a different query.</p>
+            )}
+            {showResults && searchNotices.length > 0 && !searchLoading && (
+              <div className="mt-2 text-xs text-[#8C8C8C] text-center">
+                {searchNotices.map((n, i) => (
+                  <p key={i}>{n}</p>
+                ))}
+              </div>
             )}
           </form>
           {showResults && searchResults.length > 0 && (

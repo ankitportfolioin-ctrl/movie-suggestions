@@ -11,7 +11,7 @@ import {
   type MoviePick,
 } from '../server/omdb.js';
 import { MovieItem } from '../server/catalog.js';
-import { loadDbCandidates, rankGateMovies, ensureMinAge } from '../server/dbMovies.js';
+import { loadDbCandidates, rankGateMovies, ensureMinAge, diagnoseEmptyPool } from '../server/dbMovies.js';
 import type { DbFilters } from '../server/dbMovies.js';
 import { discoverCandidates, enrichRuntimes } from '../server/discovery.js';
 import { validateRecommendBody } from '../server/validate.js';
@@ -87,7 +87,7 @@ function rateLimiter(req: Request, res: Response, next: NextFunction) {
   }
 
   if (entry.count >= MAX_REQUESTS) {
-    res.status(429).json({ error: 'Too many requests. Please try again later.' });
+    res.status(429).json({ error: 'Too many searches, try again in a few minutes.' });
     return;
   }
 
@@ -321,6 +321,11 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
       classics: preferences.classics, audience, matureAllowed: false,
     }, 3);
     const { movies: picks, notices: ageNotices } = await ensureMinAge(ranked, audience, false);
+    const notices = [...(excludeGenres.length > 0 ? [`Excluding ${excludeGenres.join(', ')}`] : []), ...relaxed, ...ageNotices];
+    if (picks.length === 0) {
+      const cause = await diagnoseEmptyPool(filters).catch(() => null);
+      notices.push(cause ?? 'Nothing matches all of those filters together — try removing one constraint.');
+    }
     const top3 = picks.map((m) => ({
       ...m,
       reason: `Matches your ${mood.toLowerCase()} mood with ${m.genres.slice(0,2).join(' & ')}.`,
@@ -329,7 +334,7 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     res.json({ 
       movies: top3, 
       parsed: { mood, genres, excludeGenres, runtimeHint: note.runtimeHint, languageHints: note.languageHints, eraHint: note.eraHint },
-      notices: [...(excludeGenres.length > 0 ? [`Excluding ${excludeGenres.join(', ')}`] : []), ...relaxed, ...ageNotices],
+      notices,
     });
   } catch (err) {
     console.error('Natural language search error:', err);

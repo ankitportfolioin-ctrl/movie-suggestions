@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildWhereClause, matchesFilters } from '../server/dbMovies.js';
-import type { DbFilters } from '../server/dbMovies.js';
+import { buildWhereClause, matchesFilters, pickEmptyCause } from '../server/dbMovies.js';
+import type { DbFilters, EmptyPoolCounts } from '../server/dbMovies.js';
 
 function base(): DbFilters {
   return {
@@ -80,5 +80,21 @@ describe('matchesFilters (fallback mirror)', () => {
     assert.equal(matchesFilters(item({ genres: ['Animation'] }), fam), true);
     assert.equal(matchesFilters(item({ genres: ['Comedy'] }), fam), false);
     assert.equal(matchesFilters(item({ genres: ['Family', 'War'] }), fam), false);
+  });
+});
+
+describe('pickEmptyCause', () => {
+  const zero: EmptyPoolCounts =
+    { genres: 0, languages: 0, runtime: 0, year: 0, rating: 0, maturity: 0 };
+  const f = () => ({ ...base(), genres: ['Horror'] });
+
+  test('names the constraint whose removal refills the pool', () => {
+    assert.ok(pickEmptyCause({ ...zero, genres: 5 }, f())!.includes('Horror'));
+    assert.ok(pickEmptyCause({ ...zero, runtime: 5 }, f())!.includes('length'));
+    assert.ok(pickEmptyCause({ ...zero, maturity: 5 }, f())!.includes('maturity'));
+  });
+
+  test('null when nothing single-handedly emptied it', () => {
+    assert.equal(pickEmptyCause(zero, f()), null);
   });
 });

@@ -173,6 +173,53 @@ export async function loadDbCandidates(f: DbFilters): Promise<{ items: DbItem[];
   }
 }
 
+export interface EmptyPoolCounts {
+  genres: number; languages: number; runtime: number;
+  year: number; rating: number; maturity: number;
+}
+
+/** Pure: name the constraint whose removal refills the pool (tested). */
+export function pickEmptyCause(n: EmptyPoolCounts, f: DbFilters): string | null {
+  if (n.genres > 0) return `Nothing in ${f.genres.join(' / ')} fits your other filters — try a different genre or widen the year.`;
+  if (n.languages > 0) return 'Nothing in that language fits your other filters — try Any language.';
+  if (n.runtime > 0) return 'Nothing fits that length — try widening the runtime.';
+  if (n.year > 0) return 'Nothing from those years fits — try widening the year range.';
+  if (n.rating > 0) return 'Nothing rated that high fits — try dropping "highly rated".';
+  if (n.maturity > 0) return 'Your maturity setting filtered everything out — what matches is 16+ or Horror.';
+  return null;
+}
+
+/**
+ * Empty pool honesty: drop each constraint once and count. Names the one
+ * that emptied the pool, with a suggestion. Null when nothing single-handedly
+ * did (or the DB is unreachable — caller falls back to a generic notice).
+ */
+export async function diagnoseEmptyPool(f: DbFilters): Promise<string | null> {
+  const relaxed: DbFilters[] = [
+    { ...f, genres: [] },
+    { ...f, languages: [] },
+    { ...f, runtimeMin: null, runtimeMax: null },
+    { ...f, yearMin: null, yearMax: null },
+    { ...f, ratingFloor: null },
+    { ...f, audience: 'Just me', matureAllowed: true },
+  ];
+  try {
+    const counts = await Promise.all(relaxed.map(async (rf) => {
+      const { text, params } = buildWhereClause(rf);
+      const { rows } = await getDbPool().query(
+        `SELECT count(*)::int AS n FROM movies ${text}`, params);
+      return rows[0].n as number;
+    }));
+    const n: EmptyPoolCounts = {
+      genres: counts[0], languages: counts[1], runtime: counts[2],
+      year: counts[3], rating: counts[4], maturity: counts[5],
+    };
+    return pickEmptyCause(n, f);
+  } catch {
+    return null;
+  }
+}
+
 /** Rank with ranking.ts, then gate last. Returns match-scored picks + disclosures. */
 export function rankGateMovies(
   items: DbItem[], signals: RankSignals, gate: GateConstraints, count: number,
