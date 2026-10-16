@@ -9,14 +9,16 @@ import {
   getRecommendationsWithOMDb,
   LANGUAGE_CODES,
   type MoviePick,
-} from './server/omdb.js';
-import { MovieItem } from './server/catalog.js';
-import { discoverCandidates, enrichRuntimes } from './server/discovery.js';
-import { validateRecommendBody } from './server/validate.js';
-import { enforceHardConstraints } from './server/gate.js';
-import { runtimeCap } from './server/omdb.js';
-import { enhanceWithGemini } from './server/ai.js';
-import { attachLiveProviders } from './server/watchmode.js';
+} from '../server/omdb.js';
+import { MovieItem } from '../server/catalog.js';
+import { loadDbCandidates, rankGateMovies, ensureMinAge } from '../server/dbMovies.js';
+import type { DbFilters } from '../server/dbMovies.js';
+import { discoverCandidates, enrichRuntimes } from '../server/discovery.js';
+import { validateRecommendBody } from '../server/validate.js';
+import { enforceHardConstraints } from '../server/gate.js';
+import { runtimeCap } from '../server/omdb.js';
+import { enhanceWithGemini } from '../server/ai.js';
+import { attachLiveProviders } from '../server/watchmode.js';
 import {
   FALLBACK_PNG,
   contentTypeFor,
@@ -27,7 +29,7 @@ import {
   readCached,
   toLocalImg,
   writeCached,
-} from './server/img.js';
+} from '../server/img.js';
 
 // Learning module loaded dynamically to avoid better-sqlite3 on Vercel
 let learningModule: any = null;
@@ -37,7 +39,7 @@ async function loadLearningModule() {
   if (!LEARNING_ENABLED) return null;
   if (!learningModule) {
     try {
-      learningModule = await import('./server/learning.js');
+      learningModule = await import('../server/learning.js');
     } catch (e) {
       console.warn('Learning module unavailable (likely better-sqlite3 not supported):', e);
       return null;
@@ -137,8 +139,8 @@ app.get('/api/search-title', rateLimiter, async (req: Request, res: Response) =>
     const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
     if (!tmdbApiKey) {
       // Fallback to local catalog
-      const { FALLBACK_CATALOG } = await import('./server/catalog.js');
-      const { normalizeTitle } = await import('./server/omdb.js');
+      const { FALLBACK_CATALOG } = await import('../server/catalog.js');
+      const { normalizeTitle } = await import('../server/omdb.js');
       const normQuery = normalizeTitle(query);
       const results = FALLBACK_CATALOG
         .filter((m: MovieItem) => normalizeTitle(m.title).includes(normQuery) || normQuery.includes(normalizeTitle(m.title)))
@@ -248,8 +250,7 @@ app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) =>
   }
 });
 
-// Natural language search endpoint
-// shortcut: mirrors server.ts handler; keep both in sync manually, upgrade to a shared module if they drift again.
+// Natural language search endpoint (shared pipeline with server.ts)
 app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
   try {
     const { query, excludeIds } = req.body || {};
@@ -259,7 +260,7 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     }
 
     // Parse the natural language query into structured params
-    const { parseNote } = await import('./server/noteParser.js');
+    const { parseNote } = await import('../server/noteParser.js');
     const note = parseNote(query);
 
     // Build recommendation params from parsed note
@@ -278,99 +279,47 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     };
     const excludeGenres = note.excludeGenres;
 
-    // Use the existing recommendation pipeline with parsed params
-    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
-    let extraCandidates: MovieItem[] = [];
-    if (tmdbApiKey) {
-      try {
-        const found = await discoverCandidates(
-          {
-            genres,
-            languages,
-            maxRuntime,
-            highlyRated: preferences.highlyRated,
-            recent: preferences.recent,
-            classics: preferences.classics,
-            family: audience === 'Family with kids',
-            mature: preferences.mature,
-            excludeIds: excludeIds || [],
-          },
-          tmdbApiKey
-        );
-        if (found && found.length > 0) {
-          const runtimes = await enrichRuntimes(found, tmdbApiKey);
-          for (const m of found) {
-            const details = runtimes.get(m.id);
-            if (details) {
-              if (details.runtime > 0) m.runtime = details.runtime;
-              if (details.genres.length > 0) m.genres = details.genres;
-            }
-          }
-          extraCandidates = found;
-        }
-      } catch {
-        extraCandidates = [];
-      }
-    }
-
-    const { FALLBACK_CATALOG } = await import('./server/catalog.js');
-    const pool = [...FALLBACK_CATALOG, ...extraCandidates];
-
-    // Apply note-based genre exclusions
-    let filtered = pool.filter(m => !excludeGenres.some((g: string) => m.genres.includes(g)));
-
-    // Apply hard filters
-    const { runtimeCap } = await import('./server/omdb.js');
+    // One shared pipeline: Postgres candidates -> ranking.ts -> gate last.
+    const { runtimeCap, LANGUAGE_CODES, MOOD_GENRES } = await import('../server/omdb.js');
     const maxMinutes = runtimeCap(maxRuntime);
-    filtered = filtered.filter(m => m.runtime <= maxMinutes);
-
-    if (languages.length > 0 && !languages.includes('Any')) {
-      const { LANGUAGE_CODES } = await import('./server/omdb.js');
-      const langCodes = languages.map((l: string) => LANGUAGE_CODES[l]).filter(Boolean);
-      filtered = filtered.filter(m => langCodes.includes(m.language));
-    }
-
-    if (preferences.highlyRated) {
-      filtered = filtered.filter(m => m.rating >= 7.0);
-    }
-
+    const langCodes = languages.includes('Any')
+      ? []
+      : languages.map((l: string) => LANGUAGE_CODES[l]).filter(Boolean);
     const currentYear = new Date().getFullYear();
-    if (preferences.recent) {
-      filtered = filtered.filter(m => m.year >= currentYear - 5);
-    }
-    if (preferences.classics) {
-      filtered = filtered.filter(m => m.year < 2000);
-    }
+    const wantedGenres = genres.filter((g: string) => g !== 'Surprise me');
+    const moodGenreList = MOOD_GENRES[mood] || ['Comedy', 'Adventure'];
+    const quizGenres = genres.includes('Surprise me') ? moodGenreList : wantedGenres;
 
-    // Remove excluded IDs
-    const excludeSet = new Set(excludeIds || []);
-    filtered = filtered.filter(m => !excludeSet.has(m.id));
-
-    // Simple ranking by genre overlap + rating
-    const moodGenresMap = (await import('./server/omdb.js')).MOOD_GENRES;
-    const moodGenreList = moodGenresMap[mood] || ['Comedy', 'Adventure'];
-    const quizGenres = genres.includes('Surprise me') ? moodGenreList : genres.filter((g: string) => g !== 'Surprise me');
-
-    const scored = filtered.map(movie => {
-      let score = movie.rating * 2; // rating base
-      const genreOverlap = movie.genres.filter((g: string) => quizGenres.includes(g)).length;
-      score += genreOverlap * 3;
-      const moodOverlap = movie.genres.filter((g: string) => moodGenreList.includes(g)).length;
-      score += moodOverlap * 2;
-      return { movie, score };
-    });
-
-    scored.sort((a, b) => b.score - a.score);
-    const top3 = scored.slice(0, 3).map((s, idx) => ({
-      ...s.movie,
-      matchScore: 95 - idx * 2,
-      reason: `Matches your ${mood.toLowerCase()} mood with ${s.movie.genres.slice(0,2).join(' & ')}.`,
+    const filters: DbFilters = {
+      genres: wantedGenres, excludeGenres, languages: langCodes,
+      runtimeMin: null, runtimeMax: maxMinutes,
+      yearMin: preferences.recent ? currentYear - 5 : null,
+      yearMax: preferences.classics ? 1999 : null,
+      ratingFloor: preferences.highlyRated ? 7.0 : null,
+      audience, matureAllowed: false,
+      excludeIds: (excludeIds || []).map(Number).filter(Number.isFinite),
+      limit: 500,
+    };
+    const { items } = await loadDbCandidates(filters);
+    const { movies: ranked, relaxed } = rankGateMovies(items, {
+      quizGenres, noteGenres: [], moodGenres: moodGenreList, mood, themeRefs: [],
+      maxMinutes, languageSpecific: langCodes.length > 0,
+      preferHiddenGems: false, mentionedTitles: [],
+    }, {
+      maxMinutes, maxRuntimeLabel: maxRuntime, langCodes,
+      highlyRated: preferences.highlyRated, recent: preferences.recent,
+      classics: preferences.classics, audience, matureAllowed: false,
+    }, 3);
+    const { movies: picks, notices: ageNotices } = await ensureMinAge(ranked, audience, false);
+    const top3 = picks.map((m) => ({
+      ...m,
+      reason: `Matches your ${mood.toLowerCase()} mood with ${m.genres.slice(0,2).join(' & ')}.`,
     }));
 
     res.json({ 
       movies: top3, 
       parsed: { mood, genres, excludeGenres, runtimeHint: note.runtimeHint, languageHints: note.languageHints, eraHint: note.eraHint },
-      notices: excludeGenres.length > 0 ? [`Excluding ${excludeGenres.join(', ')}`] : [],
+      notices: [...(excludeGenres.length > 0 ? [`Excluding ${excludeGenres.join(', ')}`] : []), ...relaxed, ...ageNotices],
     });
   } catch (err) {
     console.error('Natural language search error:', err);
@@ -454,6 +403,32 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       } catch {
         extraCandidates = [];
       }
+    }
+
+    // 2b. Database candidates join the pool (SQL-filtered by the shared pipeline).
+    try {
+      const currentYear = new Date().getFullYear();
+      const langs = sanitizedParams.languages.includes('Any')
+        ? []
+        : sanitizedParams.languages.map((l: string) => LANGUAGE_CODES[l]).filter(Boolean);
+      const { items: dbItems } = await loadDbCandidates({
+        genres: sanitizedParams.genres.filter((g: string) => g !== 'Surprise me'),
+        excludeGenres: [],
+        languages: langs,
+        runtimeMin: null,
+        runtimeMax: runtimeCap(sanitizedParams.maxRuntime),
+        yearMin: sanitizedParams.preferences?.recent ? currentYear - 5 : null,
+        yearMax: sanitizedParams.preferences?.classics ? 1999 : null,
+        ratingFloor: sanitizedParams.preferences?.highlyRated ? 7.0 : null,
+        audience: sanitizedParams.audience,
+        matureAllowed: sanitizedParams.audience !== 'Family with kids' &&
+          Boolean(sanitizedParams.preferences?.mature),
+        excludeIds: (sanitizedParams.excludeIds || []).map(Number).filter(Number.isFinite),
+        limit: 500,
+      });
+      extraCandidates.push(...dbItems);
+    } catch {
+      // loader falls back internally; never break recommend
     }
 
     // 3. Recommend (filter → rank → diversify) + enrich via OMDb API

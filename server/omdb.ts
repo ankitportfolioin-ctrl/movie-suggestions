@@ -568,7 +568,7 @@ export async function selectCandidateMovies(
  * to the legacy title+year search (`t=`), whose result MUST pass
  * validateEnrichment before use.
  */
-async function fetchFromOMDb(
+export async function fetchFromOMDb(
   movie: { imdbId: string } | { imdbId?: string; title: string; year: number },
   apiKey: string
 ): Promise<any | null> {
