@@ -390,44 +390,64 @@ async function runBackfill(pool, KEY, limit, pastDeadline) {
     (stoppedEarly ? " (stopped early: approaching job timeout, progress saved)" : ""));
 }
 
+/** Missing/non-numeric counts are UNMET, never met. Pure for testing. */
+export function coverageUnmet(c) {
+  const bad = (v) => typeof v !== "number" || !Number.isFinite(v);
+  const show = (v) => (bad(v) ? "MISSING" : String(v));
+  const unmet = [];
+  if (bad(c.total) || c.total < TARGET_TOTAL) unmet.push(`total ${show(c.total)}<${TARGET_TOTAL}`);
+  const lang = c.byLang || {};
+  for (const [l, n] of Object.entries(TARGET_LANGS)) {
+    if (bad(lang[l]) || lang[l] < n) unmet.push(`${l} ${show(lang[l])}<${n}`);
+  }
+  if (bad(lang.en) || lang.en < TARGET_EN) unmet.push(`en ${show(lang.en)}<${TARGET_EN}`);
+  const genre = c.byGenre || {};
+  for (const g of TARGET_GENRES) {
+    if (bad(genre[g]) || genre[g] < 150) unmet.push(`${g} ${show(genre[g])}<150`);
+  }
+  if (bad(c.pre1990) || c.pre1990 < TARGET_PRE1990) unmet.push(`pre1990 ${show(c.pre1990)}<${TARGET_PRE1990}`);
+  if (bad(c.recent) || c.recent < TARGET_RECENT) unmet.push(`recent ${show(c.recent)}<${TARGET_RECENT}`);
+  if (bad(c.shortEn) || c.shortEn < TARGET_SHORT_EN) unmet.push(`shortEn ${show(c.shortEn)}<${TARGET_SHORT_EN}`);
+  if (bad(c.shortHi) || c.shortHi < TARGET_SHORT_HI) unmet.push(`shortHi ${show(c.shortHi)}<${TARGET_SHORT_HI}`);
+  return unmet;
+}
+
 async function report(pool) {
   const q = (text, params) => pool.query(text, params).then((r) => r.rows);
-  const [{ count: total }] = await q("SELECT count(*)::int AS count FROM movies");
+  // One query for every scalar (aliases stay lowercase: pg folds unquoted names).
+  const [s] = await q(
+    `SELECT count(*)::int AS total,
+      count(*) FILTER (WHERE minAge IS NOT NULL)::int AS withage,
+      count(*) FILTER (WHERE imdbId IS NOT NULL)::int AS withimdb,
+      count(*) FILTER (WHERE year < 1990)::int AS pre1990,
+      count(*) FILTER (WHERE year >= 2023)::int AS recent,
+      count(*) FILTER (WHERE originalLanguage='en' AND runtime < 90)::int AS shorten,
+      count(*) FILTER (WHERE originalLanguage='hi' AND runtime < 90)::int AS shorthi
+     FROM movies`);
   const langRows = await q(
     "SELECT originalLanguage AS lang, count(*)::int AS n FROM movies GROUP BY 1 ORDER BY 2 DESC");
   const genreRows = await q(
     "SELECT g AS genre, count(*)::int AS n FROM movies, unnest(genres) g GROUP BY 1 ORDER BY 2 DESC");
-  const [{ pre1990 }] = await q("SELECT count(*) FILTER (WHERE year < 1990)::int AS pre1990 FROM movies");
-  const [{ recent }] = await q("SELECT count(*) FILTER (WHERE year >= 2023)::int AS recent FROM movies");
-  const [{ withAge }] = await q("SELECT count(*) FILTER (WHERE minAge IS NOT NULL)::int AS withAge FROM movies");
-  const [{ withImdb }] = await q("SELECT count(*) FILTER (WHERE imdbId IS NOT NULL)::int AS withImdb FROM movies");
-  const [{ shortHi }] = await q(
-    "SELECT count(*) FILTER (WHERE originalLanguage='hi' AND runtime < 90)::int AS shortHi FROM movies");
-  const [{ shortEn }] = await q(
-    "SELECT count(*) FILTER (WHERE originalLanguage='en' AND runtime < 90)::int AS shortEn FROM movies");
-  const byLang = Object.fromEntries(langRows.map((r) => [r.lang, r.n]));
-  const byGenre = Object.fromEntries(genreRows.map((r) => [canonGenre(r.genre), r.n]));
+  const counts = {
+    total: s.total, withAge: s.withage, withImdb: s.withimdb,
+    pre1990: s.pre1990, recent: s.recent, shortEn: s.shorten, shortHi: s.shorthi,
+    byLang: Object.fromEntries(langRows.map((r) => [r.lang, r.n])),
+    byGenre: Object.fromEntries(genreRows.map((r) => [canonGenre(r.genre), r.n])),
+  };
+  const show = (v) => (typeof v !== "number" || !Number.isFinite(v) ? "MISSING" : String(v));
 
   console.log("---- coverage (from database) ----");
-  console.log(`total=${total}`);
+  console.log(`total=${show(counts.total)}`);
   console.log("lang:  " + ["en", ...Object.keys(TARGET_LANGS)].map((l) => {
-    const n = byLang[l] || 0;
+    const n = counts.byLang[l];
     const need = l === "en" ? TARGET_EN : TARGET_LANGS[l];
-    return `${l}=${n}${n >= need ? "" : " SHORT"}`;
+    return `${l}=${show(n)}${typeof n === "number" && n >= need ? "" : " SHORT"}`;
   }).join(" "));
   console.log("genre: " + TARGET_GENRES.map((g) =>
-    `${g}=${byGenre[g] || 0}${(byGenre[g] || 0) >= 150 ? "" : " SHORT"}`).join(" "));
-  console.log(`era:   pre1990=${pre1990} recent2023+=${recent} shortEn=${shortEn} shortHi=${shortHi}`);
-  console.log(`share: minAge=${withAge}/${total} imdbId=${withImdb}/${total} shortHi=${shortHi}`);
-  const unmet = [];
-  if (total < TARGET_TOTAL) unmet.push(`total ${total}<${TARGET_TOTAL}`);
-  for (const [l, n] of Object.entries(TARGET_LANGS)) if ((byLang[l] || 0) < n) unmet.push(`${l} ${byLang[l] || 0}<${n}`);
-  if ((byLang.en || 0) < TARGET_EN) unmet.push(`en ${byLang.en || 0}<${TARGET_EN}`);
-  for (const g of TARGET_GENRES) if ((byGenre[g] || 0) < 150) unmet.push(`${g} ${byGenre[g] || 0}<150`);
-  if (pre1990 < TARGET_PRE1990) unmet.push(`pre1990 ${pre1990}<${TARGET_PRE1990}`);
-  if (recent < TARGET_RECENT) unmet.push(`recent ${recent}<${TARGET_RECENT}`);
-  if (shortEn < TARGET_SHORT_EN) unmet.push(`shortEn ${shortEn}<${TARGET_SHORT_EN}`);
-  if (shortHi < TARGET_SHORT_HI) unmet.push(`shortHi ${shortHi}<${TARGET_SHORT_HI}`);
+    `${g}=${show(counts.byGenre[g])}${typeof counts.byGenre[g] === "number" && counts.byGenre[g] >= 150 ? "" : " SHORT"}`).join(" "));
+  console.log(`era:   pre1990=${show(counts.pre1990)} recent2023+=${show(counts.recent)} shortEn=${show(counts.shortEn)} shortHi=${show(counts.shortHi)}`);
+  console.log(`share: minAge=${show(counts.withAge)}/${show(counts.total)} imdbId=${show(counts.withImdb)}/${show(counts.total)} shortHi=${show(counts.shortHi)}`);
+  const unmet = coverageUnmet(counts);
   if (unmet.length > 0) console.log("UNMET: " + unmet.join("; "));
   else console.log("all coverage targets met");
 }
