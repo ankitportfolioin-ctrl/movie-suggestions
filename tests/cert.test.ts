@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CERT_MIN_AGE, certToMinAge, releaseInfo } from '../scripts/ingest-tmdb.mjs';
+import { CERT_MIN_AGE, certToMinAge, releaseInfo, storedCertAge } from '../scripts/ingest-tmdb.mjs';
 
 const COUNTRIES = ['US', 'IN', 'GB', 'DE', 'FR', 'KR', 'JP', 'BR', 'AU', 'ES',
   'IT', 'RU', 'CA', 'MX', 'TR', 'NL', 'SE', 'PL', 'TH', 'ID', 'SG', 'ZA'];
@@ -97,5 +97,16 @@ describe('certificate mapping', () => {
   test('no usable release dates gives empty certificate and null minAge', () => {
     assert.deepEqual(releaseInfo({}), { certificate: '', minAge: null });
     assert.deepEqual(releaseInfo({ release_dates: { results: [] } }), { certificate: '', minAge: null });
+  });
+
+  test('storedCertAge derives minAge from known US/IN/GB certificates', () => {
+    assert.deepEqual(storedCertAge('R'), { certificate: 'R', minAge: 16 });
+    assert.deepEqual(storedCertAge('UA'), { certificate: 'UA', minAge: 6 });
+    assert.deepEqual(storedCertAge('15'), { certificate: '15', minAge: 16 });
+    assert.deepEqual(storedCertAge('U'), { certificate: 'U', minAge: 0 });
+    assert.deepEqual(storedCertAge('  pg-13 '), { certificate: 'pg-13', minAge: 12 });
+    assert.equal(storedCertAge('ZZZ-no-such-rating'), null);
+    assert.equal(storedCertAge(''), null);
+    assert.equal(storedCertAge(null), null);
   });
 });

@@ -15,6 +15,24 @@ describe('postgres index', { skip: !hasDb || undefined }, () => {
     assert.equal(rows.length, 1);
   });
 
+  test('backfill UPDATE matches the row pg returns (lowercase tmdbid)', async () => {
+    const { upsertMovies } = await import('../scripts/load-movies-json.js');
+    const { updateCertBatch, pgIds } = await import('../scripts/ingest-tmdb.mjs');
+    const { dbQuery, getPool } = await import('../server/db.js');
+    await upsertMovies([
+      { tmdbId: -3, title: 'Backfill Test Film', year: 2001, runtime: 90, genres: ['Comedy'], originalLanguage: 'en', overview: 't', rating: 7, votes: 5 },
+    ]);
+    await dbQuery('UPDATE movies SET minAge = NULL WHERE tmdbId = -3');
+    // Same round-trip as runBackfill: ids come from pg rows, certs go back in.
+    const { rows } = await getPool().query('SELECT tmdbId FROM movies WHERE tmdbId = -3');
+    const n = await updateCertBatch(getPool(),
+      pgIds(rows).map((tmdbId: number) => ({ tmdbId, certificate: 'PG', minAge: 6 })));
+    assert.equal(n, 1);
+    const [row] = await dbQuery<{ minage: number }>('SELECT minAge FROM movies WHERE tmdbId = -3');
+    assert.equal(row.minage, 6);
+    await dbQuery('DELETE FROM movies WHERE tmdbId = -3');
+  });
+
   test('upserting the same rows twice creates no duplicates', async () => {
     const { upsertMovies } = await import('../scripts/load-movies-json.js');
     const { dbQuery } = await import('../server/db.js');

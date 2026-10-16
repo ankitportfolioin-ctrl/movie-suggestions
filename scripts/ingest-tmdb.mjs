@@ -88,6 +88,22 @@ function parseMode(argv) {
   return "ingest";
 }
 
+// pg lowercases unquoted column names, so rows carry `tmdbid`, not `tmdbId`.
+export function pgIds(rows) {
+  return rows.map((r) => r.tmdbid);
+}
+
+/** minAge from a stored US/IN/GB certificate, or null when unknown. */
+export function storedCertAge(cert) {
+  const raw = typeof cert === "string" ? cert.trim() : "";
+  if (!raw) return null;
+  const key = raw.toUpperCase();
+  for (const country of ["US", "IN", "GB"]) {
+    if (key in CERT_MIN_AGE[country]) return { certificate: raw, minAge: CERT_MIN_AGE[country][key] };
+  }
+  return null;
+}
+
 /**
  * Certificate -> minAge mapping per country. Values are only ever
  * 0, 6, 12, 16 or 18. Keys are upper-cased, trimmed TMDB certifications.
@@ -298,15 +314,16 @@ async function upsertBatch(pool, rows) {
   );
 }
 
-async function updateCertBatch(pool, rows) {
-  if (rows.length === 0) return;
-  await pool.query(
+export async function updateCertBatch(pool, rows) {
+  if (rows.length === 0) return 0;
+  const { rowCount } = await pool.query(
     `UPDATE movies m SET certificate = v.certificate, minAge = v.minAge, updatedAt = NOW()
      FROM (SELECT unnest($1::int[]) AS tmdbId, unnest($2::text[]) AS certificate,
                   unnest($3::int[]) AS minAge) v
      WHERE m.tmdbId = v.tmdbId`,
     [rows.map((r) => r.tmdbId), rows.map((r) => r.certificate), rows.map((r) => r.minAge)],
   );
+  return rowCount ?? 0;
 }
 
 /**
@@ -317,12 +334,16 @@ async function updateCertBatch(pool, rows) {
  * and are re-fetched on the next run.)
  */
 async function runBackfill(pool, KEY, limit, pastDeadline) {
-  const { rows } = await pool.query("SELECT tmdbId FROM movies WHERE minAge IS NULL ORDER BY tmdbId");
-  const ids = limit > 0 ? rows.map((r) => r.tmdbId).slice(0, limit) : rows.map((r) => r.tmdbId);
+  const { rows } = await pool.query("SELECT tmdbId, certificate FROM movies WHERE minAge IS NULL ORDER BY tmdbId");
+  const stored = new Map(rows.map((r) => [r.tmdbid, r.certificate]));
+  const allIds = pgIds(rows);
+  const ids = limit > 0 ? allIds.slice(0, limit) : allIds;
   console.log(`backfill-cert: ${ids.length} rows with minAge NULL`);
   let fetched = 0;
   let updated = 0;
+  let noCert = 0;
   let stoppedEarly = false;
+  let aborted = false;
   for (let i = 0; i < ids.length; i += BATCH_SIZE) {
     if (pastDeadline()) { stoppedEarly = true; break; }
     const batch = ids.slice(i, i + BATCH_SIZE);
@@ -335,6 +356,14 @@ async function runBackfill(pool, KEY, limit, pastDeadline) {
         try {
           const d = await tmdb(`/movie/${id}`, { append_to_response: "release_dates" }, KEY);
           const info = releaseInfo(d);
+          if (!info.certificate) {
+            // TMDB had no usable certification: fall back to the stored one.
+            const fb = storedCertAge(stored.get(id));
+            noCert++;
+            if (fb) return { tmdbId: id, certificate: fb.certificate, minAge: fb.minAge };
+          }
+          // shortcut: rows with nothing mappable stay NULL and are re-fetched
+          // next run; upgrade by persisting an attempted-at marker to skip them.
           return { tmdbId: id, certificate: info.certificate || null, minAge: info.minAge };
         } catch (e) {
           if (!String(e.message).startsWith("HTTP:")) throw e;
@@ -343,13 +372,21 @@ async function runBackfill(pool, KEY, limit, pastDeadline) {
       }));
       for (const r of results) if (r) out.push(r);
     }
+    let batchUpdated = 0;
     if (out.length > 0) {
-      await updateCertBatch(pool, out);
-      updated += out.length;
+      batchUpdated = await updateCertBatch(pool, out);
+      updated += batchUpdated;
     }
-    console.log(`backfill: updated=${updated} fetched=${fetched} 429s=${req429s}`);
+    console.log(`backfill: updated=${updated} noCert=${noCert} fetched=${fetched} 429s=${req429s}`);
+    if (batch.length === BATCH_SIZE && batchUpdated === 0) {
+      console.log(`backfill ABORTED: full batch of ${BATCH_SIZE} produced 0 updates (UPDATEs matching nothing, or every detail fetch failing) — fix before re-running`);
+      process.exitCode = 1;
+      aborted = true;
+      break;
+    }
   }
-  console.log(`backfill done: updated=${updated} fetched=${fetched} 429s=${req429s}` +
+  console.log(`backfill done: updated=${updated} noCert=${noCert} fetched=${fetched} 429s=${req429s}` +
+    (aborted ? " (ABORTED, see above)" : "") +
     (stoppedEarly ? " (stopped early: approaching job timeout, progress saved)" : ""));
 }
 
@@ -430,7 +467,7 @@ async function main() {
       return;
     }
     const existing = await pool.query("SELECT tmdbId FROM movies").then((r) => r.rows);
-    const seen = new Set(existing.map((r) => r.tmdbId));
+    const seen = new Set(pgIds(existing));
     console.log(`database already holds ${seen.size} tmdbIds, skipping those`);
 
     let detailCalls = 0;
