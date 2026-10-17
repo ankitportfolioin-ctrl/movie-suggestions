@@ -219,12 +219,15 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     const quizGenres = genres.includes('Surprise me') ? moodGenreList : wantedGenres;
 
     const filters: DbFilters = {
+      // NL search is movies-only until the note names a kind (Step 5 wires it).
+      types: ['movie'],
       genres: wantedGenres, excludeGenres, languages: langCodes,
       runtimeMin: note.runtimeMinMinutes ?? null,
       runtimeMax: Number.isFinite(maxMinutes) ? maxMinutes : null,
       yearMin: note.yearMin ?? (preferences.recent ? currentYear - 5 : null),
       yearMax: note.yearMax ?? (preferences.classics ? 1999 : null),
       ratingFloor: preferences.highlyRated ? 7.0 : null,
+      seasonsMax: null,
       audience, matureAllowed: false,
       excludeIds: (excludeIds || []).map(Number).filter(Number.isFinite),
       limit: 500,
@@ -252,6 +255,7 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
       maxMinutes, maxRuntimeLabel: maxRuntime, langCodes,
       highlyRated: preferences.highlyRated, recent: preferences.recent,
       classics: preferences.classics, audience, matureAllowed: false,
+      types: ['movie'], seasonsMax: null,
     }, 3);
     const { movies: picks, notices: ageNotices } = await ensureMinAge(ranked, audience, false);
     const notices = [...(excludeGenres.length > 0 ? [`Excluding ${excludeGenres.join(', ')}`] : []), ...relaxed, ...ageNotices];
@@ -383,6 +387,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
         ? []
         : sanitizedParams.languages.map((l) => LANGUAGE_CODES[l]).filter(Boolean);
       const { items: dbItems } = await loadDbCandidates({
+        types: sanitizedParams.types ?? ['movie'],
         genres: sanitizedParams.genres.filter((g) => g !== 'Surprise me'),
         excludeGenres: [],
         languages: langs,
@@ -391,6 +396,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
         yearMin: sanitizedParams.preferences?.recent ? currentYear - 5 : null,
         yearMax: sanitizedParams.preferences?.classics ? 1999 : null,
         ratingFloor: sanitizedParams.preferences?.highlyRated ? 7.0 : null,
+        seasonsMax: sanitizedParams.maxRuntime === 'Miniseries (1 season)' ? 1 : null,
         audience: sanitizedParams.audience,
         matureAllowed: sanitizedParams.audience !== 'Family with kids' &&
           Boolean(sanitizedParams.preferences?.mature),
@@ -433,6 +439,8 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       matureAllowed:
         sanitizedParams.audience !== 'Family with kids' &&
         Boolean(sanitizedParams.preferences?.mature),
+      types: sanitizedParams.types ?? ['movie'],
+      seasonsMax: sanitizedParams.maxRuntime === 'Miniseries (1 season)' ? 1 : null,
     });
     let picks = gated.movies;
     const allNotices = [...notices, ...gated.relaxed];

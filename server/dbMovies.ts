@@ -34,6 +34,8 @@ export function getDbPool(): Pool {
 }
 
 export interface DbFilters {
+  /** Media kinds to include ([] = any). Default at every caller: ['movie']. */
+  types: string[];
   genres: string[]; // wanted, at least one match ([] = any)
   excludeGenres: string[];
   languages: string[]; // codes ([] = any)
@@ -42,6 +44,8 @@ export interface DbFilters {
   yearMin: number | null;
   yearMax: number | null;
   ratingFloor: number | null;
+  /** Series only: max season count (1 = miniseries). null = no limit. */
+  seasonsMax: number | null;
   audience: string;
   matureAllowed: boolean;
   excludeIds: number[];
@@ -52,10 +56,22 @@ export interface DbFilters {
 export interface DbItem extends MovieItem {
   minAge: number | null;
   tmdbId: number;
+  /** 'movie' (41+ min), 'short' (1-40 min) or 'series'. */
+  type?: string;
+  seasons?: number;
+  episodes?: number;
+  /** Series: one episode's length (also mirrored into `runtime`). */
+  episodeRuntime?: number;
+  status?: string;
+  network?: string;
+  firstAirYear?: number;
+  lastAirYear?: number;
+  webSeries?: boolean;
 }
 
 const DB_COLS = `tmdbId, imdbId, title, year, runtime, genres, originalLanguage,
-  overview, rating, votes, popularity, posterPath, certificate, minAge, adult`;
+  overview, rating, votes, popularity, posterPath, certificate, minAge, adult,
+  type, seasons, episodes, episodeRuntime, status, network, firstAirYear, lastAirYear, webSeries`;
 
 /** Pure SQL builder (tested without a database). */
 export function buildWhereClause(f: DbFilters): { text: string; params: unknown[] } {
@@ -71,6 +87,9 @@ export function buildWhereClause(f: DbFilters): { text: string; params: unknown[
   if (f.yearMax !== null) clauses.push(`year <= ${next(f.yearMax)}`);
   if (f.ratingFloor !== null) clauses.push(`rating >= ${next(f.ratingFloor)}`);
   if (f.excludeIds.length > 0) clauses.push(`NOT (tmdbId = ANY(${next(f.excludeIds)}))`);
+  // Type clause after the existing params so old call shapes keep their order.
+  if (f.types.length > 0) clauses.push(`type = ANY(${next(f.types)})`);
+  if (f.seasonsMax !== null) clauses.push(`seasons <= ${next(f.seasonsMax)}`);
   if (f.audience === 'Family with kids') {
     clauses.push(`((minAge IS NOT NULL AND minAge <= 6) OR (minAge IS NULL AND ` +
       `genres && '{Family,Animation}' AND NOT (genres && '{Horror,Crime,Thriller,War}')))`);
@@ -83,6 +102,7 @@ export function buildWhereClause(f: DbFilters): { text: string; params: unknown[
 
 function toDbItem(r: Record<string, unknown>): DbItem {
   const poster = typeof r.posterpath === 'string' ? r.posterpath : null;
+  const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
   return {
     id: r.tmdbid as number,
     tmdbId: r.tmdbid as number,
@@ -102,6 +122,15 @@ function toDbItem(r: Record<string, unknown>): DbItem {
     providers: [],
     certificate: (r.certificate as string) || '',
     minAge: (r.minage as number) ?? null,
+    type: (r.type as string) || 'movie',
+    seasons: num(r.seasons),
+    episodes: num(r.episodes),
+    episodeRuntime: num(r.episoderuntime),
+    status: (r.status as string) || undefined,
+    network: (r.network as string) || undefined,
+    firstAirYear: num(r.firstairyear),
+    lastAirYear: num(r.lastairyear),
+    webSeries: r.webseries === true,
   };
 }
 
@@ -147,10 +176,15 @@ interface Filterable {
   year: number;
   rating: number;
   minAge?: number | null;
+  /** Media kind; absent means 'movie' (file/catalog fallbacks). */
+  type?: string;
+  seasons?: number;
 }
 
 /** JS mirror of the SQL predicates for the file/catalog fallbacks (tested). */
 export function matchesFilters(m: Filterable, f: DbFilters): boolean {
+  if (f.types.length > 0 && !f.types.includes(m.type ?? 'movie')) return false;
+  if (f.seasonsMax !== null && !(typeof m.seasons === 'number' && m.seasons <= f.seasonsMax)) return false;
   const wanted = expandGenres(f.genres);
   const banned = expandGenres(f.excludeGenres);
   if (f.genres.length > 0 && !m.genres.some((g) => wanted.includes(g))) return false;
@@ -183,6 +217,7 @@ function jsonToItem(r: Record<string, unknown>): DbItem {
     posterUrl: poster ? `https://image.tmdb.org/t/p/w342${poster}` : '',
     language: (r.originalLanguage as string) || 'en', isMature: false, isHiddenGem: false,
     providers: [], certificate: (r.certificate as string) || '', minAge: null,
+    type: typeof r.type === 'string' ? r.type : 'movie',
   };
 }
 
@@ -285,10 +320,12 @@ const OMDB_RATED_AGE: Record<string, number> = {
 /**
  * For final picks only: NULL minAge -> OMDb Rated by imdbId, cached in the
  * DB, maturity re-applied. Failed lookup keeps the pick with a
- * "Rating not confirmed" card note.
+ * "Rating not confirmed" card note. Types/seasonsMax default to the movie
+ * contract so existing callers keep their behavior.
  */
 export async function ensureMinAge<T extends DbItem>(
   picks: T[], audience: string, matureAllowed: boolean,
+  types: string[] = ['movie'], seasonsMax: number | null = null,
 ): Promise<{ movies: (T & { ratingNote?: string })[]; notices: string[] }> {
   const key = process.env.OMDB_API_KEY?.trim();
   const movies: (T & { ratingNote?: string })[] = [];
@@ -296,6 +333,7 @@ export async function ensureMinAge<T extends DbItem>(
   const gate: GateConstraints = {
     maxMinutes: Infinity, maxRuntimeLabel: '', langCodes: [],
     highlyRated: false, recent: false, classics: false, audience, matureAllowed,
+    types, seasonsMax,
   };
   for (const pick of picks) {
     if (typeof pick.minAge === 'number' || !pick.imdbId || !key) {

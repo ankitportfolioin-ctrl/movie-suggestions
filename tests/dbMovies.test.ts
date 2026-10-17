@@ -5,9 +5,9 @@ import type { DbFilters, EmptyPoolCounts } from '../server/dbMovies.js';
 
 function base(): DbFilters {
   return {
-    genres: [], excludeGenres: [], languages: [],
+    types: [], genres: [], excludeGenres: [], languages: [],
     runtimeMin: null, runtimeMax: null, yearMin: null, yearMax: null,
-    ratingFloor: null, audience: 'Just me', matureAllowed: false,
+    ratingFloor: null, seasonsMax: null, audience: 'Just me', matureAllowed: false,
     excludeIds: [], limit: 500,
   };
 }
@@ -59,6 +59,17 @@ describe('SQL WHERE builder', () => {
       ['Sci-Fi', 'Science Fiction'],
     ]);
   });
+
+  test('type filter rides SQL: movie default, series+miniseries, any', () => {
+    const m = buildWhereClause({ ...base(), types: ['movie'] });
+    assert.ok(m.text.includes('type = ANY($1)'));
+    assert.deepEqual(m.params, [['movie']]);
+    const s = buildWhereClause({ ...base(), types: ['series'], seasonsMax: 1 });
+    assert.ok(s.text.includes('type = ANY($1)'));
+    assert.ok(s.text.includes('seasons <= $2'));
+    assert.deepEqual(s.params, [['series'], 1]);
+    assert.equal(buildWhereClause(base()).text.includes('type ='), false);
+  });
 });
 
 describe('matchesFilters (fallback mirror)', () => {
@@ -97,6 +108,18 @@ describe('matchesFilters (fallback mirror)', () => {
       { ...base(), genres: ['Sci-Fi'] }), true);
     assert.equal(matchesFilters(item({ genres: ['Science Fiction'] }),
       { ...base(), excludeGenres: ['Sci-Fi'] }), false);
+  });
+
+  test('type: default movie matches untyped rows; series/short are excluded', () => {
+    assert.equal(matchesFilters(item(), { ...base(), types: ['movie'] }), true);
+    assert.equal(matchesFilters(item({ type: 'series' }), { ...base(), types: ['movie'] }), false);
+    assert.equal(matchesFilters(item({ type: 'short' }), { ...base(), types: ['movie'] }), false);
+    assert.equal(matchesFilters(item({ type: 'series', seasons: 3 }),
+      { ...base(), types: ['series'] }), true);
+    assert.equal(matchesFilters(item({ type: 'series', seasons: 3 }),
+      { ...base(), types: ['series'], seasonsMax: 1 }), false);
+    assert.equal(matchesFilters(item({ type: 'series', seasons: 1 }),
+      { ...base(), types: ['series'], seasonsMax: 1 }), true);
   });
 });
 

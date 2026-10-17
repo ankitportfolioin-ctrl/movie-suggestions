@@ -21,7 +21,11 @@ export const VALID_AUDIENCES = new Set([
 
 export const VALID_RUNTIMES = new Set([
   'Under 90 min', 'Under 2 hours', 'Under 2.5 hours', 'Any length',
+  // Series-only choice: episode-length cap stays open, seasons capped at 1.
+  'Miniseries (1 season)',
 ]);
+
+export const VALID_TYPES = ['movie', 'short', 'series'] as const;
 
 export const VALID_LANGUAGES = new Set([
   'Any', 'English', 'Hindi', 'Tamil', 'Telugu',
@@ -39,7 +43,7 @@ export const VALID_INTENSITY = new Set(['No violence', 'Mild', 'Moderate', 'Any'
 export const VALID_HUMOR = new Set(['Slapstick', 'Witty', 'Dark comedy', 'Satirical']);
 
 export function validateRecommendBody(body: any): ValidationResult {
-  const { mood, genres, audience, maxRuntime, languages, preferences, note, excludeIds, taste, referenceIds } =
+  const { mood, genres, audience, maxRuntime, languages, preferences, note, excludeIds, taste, referenceIds, types } =
     body || {};
 
   if (!mood || typeof mood !== 'string' || !VALID_MOODS.has(mood)) {
@@ -66,6 +70,12 @@ export function validateRecommendBody(body: any): ValidationResult {
       .slice(0, 3);
   }
 
+  // Media kinds: unknown values are dropped; default is movies-only.
+  const sanitizedTypes = Array.isArray(types)
+    ? [...new Set(types.filter((t: any) => typeof t === 'string' && (VALID_TYPES as readonly string[]).includes(t)))].slice(0, 3)
+    : [];
+  const requestTypes = sanitizedTypes.length > 0 ? sanitizedTypes : ['movie'];
+
   // Validate fine-tune options (known values only, otherwise ignored)
   const tones = Array.isArray(preferences?.tones)
     ? preferences.tones.filter((t: any) => typeof t === 'string' && VALID_TONES.has(t)).slice(0, 2)
@@ -90,6 +100,7 @@ export function validateRecommendBody(body: any): ValidationResult {
       audience,
       maxRuntime,
       languages,
+      types: requestTypes,
       preferences: {
         highlyRated: Boolean(preferences?.highlyRated),
         hiddenGems: Boolean(preferences?.hiddenGems),

@@ -25,6 +25,10 @@ export interface GateConstraints {
   classics: boolean;
   audience: string;
   matureAllowed: boolean;
+  /** Requested media kinds (default ['movie']). [] = any. */
+  types?: string[];
+  /** Series only: max season count (1 = miniseries). null/absent = no limit. */
+  seasonsMax?: number | null;
 }
 
 export interface GateMovie {
@@ -43,6 +47,10 @@ export interface GateMovie {
   isMature?: boolean;
   /** OMDb `Type` field when known. */
   mediaType?: string;
+  /** Stored media kind: 'movie' | 'short' | 'series'. */
+  type?: string;
+  /** Stored season count (series). */
+  seasons?: number;
 }
 
 export interface GateResult<T extends GateMovie> {
@@ -69,6 +77,17 @@ function isFamily(audience: string): boolean {
 }
 
 /**
+ * Media kind for gating: stored `type` wins; otherwise OMDb `mediaType`
+ * (anything non-movie counts as series); undefined = unknown.
+ */
+function gateType(m: GateMovie): string | undefined {
+  if (m.type === 'movie' || m.type === 'short' || m.type === 'series') return m.type;
+  if (m.mediaType === 'movie') return 'movie';
+  if (m.mediaType) return 'series';
+  return undefined;
+}
+
+/**
  * Family/Animation rule for titles whose minAge is unknown: only genuine
  * kids' genres pass, and never Horror/Crime/Thriller.
  */
@@ -84,6 +103,8 @@ export function enforceHardConstraints<T extends GateMovie>(
 ): GateResult<T> {
   const relaxed: string[] = [];
   const family = isFamily(constraints.audience);
+  const wantedTypes = constraints.types ?? ['movie'];
+  const seasonsMax = constraints.seasonsMax ?? null;
 
   let removedRuntime = 0;
   let removedLanguage = 0;
@@ -92,11 +113,20 @@ export function enforceHardConstraints<T extends GateMovie>(
   let removedClassics = 0;
   let removedMaturity = 0;
   let removedType = 0;
+  let removedSeasons = 0;
 
   const kept = movies.filter((m) => {
-    // Type: movies only (when the source tells us).
-    if (m.mediaType && m.mediaType !== 'movie') {
-      removedType += 1;
+    // Type: only the requested kinds pass. Unknown kinds fail closed unless
+    // movies are still allowed (pre-type catalog rows read as movies).
+    if (wantedTypes.length > 0) {
+      const t = gateType(m);
+      if (t === undefined ? !wantedTypes.includes('movie') : !wantedTypes.includes(t)) {
+        removedType += 1;
+        return false;
+      }
+    }
+    if (seasonsMax !== null && !(typeof m.seasons === 'number' && m.seasons <= seasonsMax)) {
+      removedSeasons += 1;
       return false;
     }
     // Runtime: unknown runtime fails a finite cap (absence of data is
@@ -201,7 +231,18 @@ export function enforceHardConstraints<T extends GateMovie>(
         : `Removed ${removedMaturity} title${removedMaturity === 1 ? '' : 's'} with adult ratings.`
     );
   }
-  if (removedType > 0) relaxed.push(`Removed ${removedType} non-movie result${removedType === 1 ? '' : 's'}.`);
+  if (removedType > 0) {
+    relaxed.push(
+      wantedTypes.length === 1 && wantedTypes[0] !== 'movie'
+        ? `Removed ${removedType} title${removedType === 1 ? '' : 's'} of the wrong kind — you asked for ${wantedTypes[0] === 'series' ? 'series' : 'short films'}.`
+        : wantedTypes.length > 1
+          ? `Removed ${removedType} title${removedType === 1 ? '' : 's'} outside your chosen types.`
+          : `Removed ${removedType} non-movie result${removedType === 1 ? '' : 's'}.`
+    );
+  }
+  if (removedSeasons > 0) {
+    relaxed.push(`Removed ${removedSeasons} series longer than a miniseries.`);
+  }
   if (final.length === 0 && movies.length > 0) {
     relaxed.push('Nothing left after enforcing your filters — try widening the runtime or genres.');
   }

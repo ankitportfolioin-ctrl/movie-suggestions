@@ -38,6 +38,17 @@ export interface MoviePick {
   actors: string[];
   /** OMDb director as served. Used for person-name exclusions. */
   director?: string;
+  /** Media kind: 'movie' | 'short' | 'series'. Absent = movie (pre-type rows). */
+  type?: string;
+  /** Series facts, passed through from the DB for the cards. */
+  seasons?: number;
+  episodes?: number;
+  episodeRuntime?: number;
+  network?: string;
+  firstAirYear?: number;
+  lastAirYear?: number;
+  status?: string;
+  webSeries?: boolean;
 }
 
 export interface RecommendParams {
@@ -46,6 +57,8 @@ export interface RecommendParams {
   audience: string;
   maxRuntime: string;
   languages: string[];
+  /** Media kinds to include ([] = any). Validated at boundary; default ['movie']. */
+  types?: string[];
   preferences: {
     highlyRated?: boolean;
     hiddenGems?: boolean;
@@ -928,6 +941,15 @@ export async function getRecommendationsWithOMDb(
         ratingSource: finalRatingSource,
         actors: finalActors,
         director: finalDirector,
+        type: movie.type,
+        seasons: movie.seasons,
+        episodes: movie.episodes,
+        episodeRuntime: movie.episodeRuntime,
+        network: movie.network,
+        firstAirYear: movie.firstAirYear,
+        lastAirYear: movie.lastAirYear,
+        status: movie.status,
+        webSeries: movie.webSeries,
       };
     })
   );

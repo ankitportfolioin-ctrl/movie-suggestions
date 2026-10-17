@@ -131,6 +131,32 @@ test('non-movie types dropped; duplicates removed by id and title+year', () => {
   assert.ok(r.relaxed.some((n) => n.includes('non-movie')));
 });
 
+test('type gate: series request keeps only series; movie request drops series/shorts', () => {
+  const films = [
+    movie({ id: 1, type: 'movie' }),
+    movie({ id: 2, type: 'series', seasons: 4 }),
+    movie({ id: 3, type: 'short' }),
+    movie({ id: 4, title: 'Untyped Row', year: 2021 }), // untyped catalog row reads as movie
+  ];
+  const moviesOnly = enforceHardConstraints(films, base());
+  assert.deepEqual(moviesOnly.movies.map((m) => m.id), [1, 4]);
+
+  const seriesOnly = enforceHardConstraints(films, { ...base(), types: ['series'] });
+  assert.deepEqual(seriesOnly.movies.map((m) => m.id), [2]);
+  assert.ok(seriesOnly.relaxed.some((n) => n.includes('you asked for series')));
+});
+
+test('miniseries cap: seasonsMax 1 keeps 1-season series, drops longer ones', () => {
+  const films = [
+    movie({ id: 1, type: 'series', seasons: 1 }),
+    movie({ id: 2, type: 'series', seasons: 3 }),
+    movie({ id: 3, type: 'series' }), // unknown season count fails closed
+  ];
+  const r = enforceHardConstraints(films, { ...base(), types: ['series'], seasonsMax: 1 });
+  assert.deepEqual(r.movies.map((m) => m.id), [1]);
+  assert.ok(r.relaxed.some((n) => n.includes('longer than a miniseries')));
+});
+
 test('emptied list adds guidance notice', () => {
   const r = enforceHardConstraints([movie({ runtime: 200 })], { ...base(), maxMinutes: 90, maxRuntimeLabel: 'Under 90 min' });
   assert.equal(r.movies.length, 0);

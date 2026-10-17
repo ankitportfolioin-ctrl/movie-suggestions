@@ -17,6 +17,18 @@ export interface MovieItem {
   providers: { name: string; logoUrl: string; type?: string }[];
   /** OMDb `Rated` certificate as served (may be missing). */
   certificate?: string;
+  /** Media kind when known: 'movie' | 'short' | 'series'. Absent = movie. */
+  type?: string;
+  /** Series facts (absent for movies/shorts). runtime mirrors episodeRuntime. */
+  seasons?: number;
+  episodes?: number;
+  episodeRuntime?: number;
+  network?: string;
+  firstAirYear?: number;
+  lastAirYear?: number;
+  status?: string;
+  /** True when `network` is a web-first platform (YouTube and friends). */
+  webSeries?: boolean;
 }
 
 export const FALLBACK_CATALOG: MovieItem[] = [
