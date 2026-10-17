@@ -3,7 +3,11 @@
  * covering every genre, language and era the recommender must serve).
  *
  * Usage: npm run ingest:tmdb [-- --limit N] [--mode ingest|backfill-cert] [--force]
+ *        [--dry-run] [--years 2000-2026] [--types movie,short,series]
  *   --limit N caps NEW detail fetches this run (default 0 = no limit).
+ *   --dry-run counts new ids per type/year/language with discover calls only
+ *     (quality rule applied) and estimates detail calls + runtime. Writes nothing.
+ *   --years / --types pick the slice window for dry-run and ingest.
  *   --mode backfill-cert (or --backfill-cert) only re-fetches release_dates
  *     for rows where minAge IS NULL and updates certificate + minAge.
  * Reads TMDB_API_KEY + DATABASE_URL from env (or .env file).
@@ -469,6 +473,229 @@ export function coverageUnmet(c) {
   return unmet;
 }
 
+// ---- Dry-run counting (discover calls only; never writes a row) ----
+//
+// Slices per type: year, original language (BIG_LANGS + implicit catch-all —
+// TMDB has no "language not in" filter, so the year/genre families cover the
+// rest) and genre, each in two sort orders. Depth <= 25 pages per slice,
+// stopping as soon as a page adds no id that is not already counted.
+
+/** Languages the user named as "big": vote floor 100. Everything else: 20. */
+export const BIG_LANGS = ["en", "hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "ko",
+  "ja", "zh", "es", "fr", "de", "it", "pt", "ru", "tr", "ar", "th", "id", "fa", "pl", "nl", "sv"];
+
+// TMDB TV genre ids (four differ from the movie ids).
+export const TV_GENRE_IDS = {
+  "Action & Adventure": 10759, Animation: 16, Comedy: 35, Crime: 80,
+  Documentary: 99, Drama: 18, Family: 10751, Kids: 10762, Mystery: 9648,
+  News: 10763, Reality: 10764, "Sci-Fi & Fantasy": 10765, Soap: 10766,
+  Talk: 10767, "War & Politics": 10768, Western: 37,
+};
+
+export const DRY_SORTS = ["popularity.desc", "vote_average.desc"];
+export const DRY_MAX_PAGES = 25;
+
+/** Vote floor: 100 big languages, 20 others, 5 for shorts and web series. */
+export function voteFloor(type, lang, web = false) {
+  if (type === "short" || (type === "series" && web)) return 5;
+  return BIG_LANGS.includes(lang) ? 100 : 20;
+}
+
+/**
+ * Discover-level quality rule (fields available before any detail call):
+ * has overview, has poster, has a rating, not adult, votes >= floor.
+ * Web-series status needs /tv detail, so series use the non-web floor here.
+ */
+export function dryRunQuality(row, type, lang) {
+  if (!row || row.adult === true) return false;
+  if (!row.overview || !row.poster_path) return false;
+  if (!(typeof row.vote_average === "number" && row.vote_average > 0)) return false;
+  return (typeof row.vote_count === "number" ? row.vote_count : 0) >= voteFloor(type, lang);
+}
+
+/** "--years 2000-2026" (or a single year) -> { from, to }. */
+export function parseYears(value) {
+  const m = String(value ?? "").match(/^(\d{4})(?:-(\d{4}))?$/);
+  if (!m) throw new Error("usage: --years 2000-2026");
+  const from = Number(m[1]);
+  const to = Number(m[2] ?? m[1]);
+  if (to < from) throw new Error("usage: --years FROM-TO with TO >= FROM");
+  return { from, to };
+}
+
+/** "--types movie,short,series" -> deduped list of known kinds. */
+export function parseTypesArg(value) {
+  const list = [...new Set(String(value ?? "").split(",").map((s) => s.trim()).filter(Boolean))];
+  if (list.length === 0 || list.some((t) => !["movie", "short", "series"].includes(t))) {
+    throw new Error("usage: --types movie,short,series");
+  }
+  return list;
+}
+
+function argValue(argv, name) {
+  for (let i = 0; i < argv.length; i++) {
+    const m = argv[i].match(new RegExp(`^${name}(?:=(.+))?$`));
+    if (m) return m[1] !== undefined ? m[1] : argv[i + 1];
+  }
+  return undefined;
+}
+
+/** Slice list for one dry-run scan (pure; tested). */
+export function buildDryRunSlices(types, fromYear, toYear) {
+  const slices = [];
+  const forType = (type, path, genres) => {
+    const yearKey = type === "series" ? "first_air_date_year" : "primary_release_year";
+    const rangeGte = type === "series" ? "first_air_date.gte" : "primary_release_date.gte";
+    const rangeLte = type === "series" ? "first_air_date.lte" : "primary_release_date.lte";
+    // Discover-level stand-in for the stored `type` column: shorts 1-40 min,
+    // features 41+ (both live on /discover/movie). Series need no runtime filter.
+    const runtime = type === "short" ? { "with_runtime.gte": "1", "with_runtime.lte": "40" }
+      : type === "movie" ? { "with_runtime.gte": "41" } : {};
+    for (let y = fromYear; y <= toYear; y++) {
+      for (const sort of DRY_SORTS) {
+        slices.push({ key: `${type}:year:${y}:${sort}`, type, path,
+          params: { [yearKey]: String(y), sort_by: sort, ...runtime } });
+      }
+    }
+    for (const lang of BIG_LANGS) {
+      for (const sort of DRY_SORTS) {
+        slices.push({ key: `${type}:lang:${lang}:${sort}`, type, path,
+          params: { with_original_language: lang, [rangeGte]: `${fromYear}-01-01`,
+            [rangeLte]: `${toYear}-12-31`, sort_by: sort, ...runtime } });
+      }
+    }
+    for (const [name, id] of Object.entries(genres)) {
+      for (const sort of DRY_SORTS) {
+        slices.push({ key: `${type}:genre:${name}:${sort}`, type, path,
+          params: { with_genres: String(id), [rangeGte]: `${fromYear}-01-01`,
+            [rangeLte]: `${toYear}-12-31`, sort_by: sort, ...runtime } });
+      }
+    }
+  };
+  if (types.includes("movie")) forType("movie", "/discover/movie", GENRE_IDS);
+  if (types.includes("short")) forType("short", "/discover/movie", GENRE_IDS);
+  if (types.includes("series")) forType("series", "/discover/tv", TV_GENRE_IDS);
+  return slices;
+}
+
+/**
+ * Walk every slice and count NEW ids (not in `seen`) that pass the quality
+ * rule; `getPage(pathname, params)` is injected so tests run offline.
+ * One DB id counts once even when many slices show it.
+ * @param {(pathname: string, params: Record<string, string>) => Promise<any>} getPage
+ * @param {{types: string[], fromYear: number, toYear: number, seen: Set<number>,
+ *   pastDeadline?: () => boolean, log?: (line: string) => void,
+ *   slices?: Array<{key: string, type: string, path: string, params: Record<string, string>}> | null}} opts
+ */
+export async function dryRunScan(getPage, { types, fromYear, toYear, seen, pastDeadline = () => false, log = () => {}, slices = null }) {
+  const allSlices = slices || buildDryRunSlices(types, fromYear, toYear);
+  const found = new Map(); // id -> { type, lang, year }
+  const dbIds = new Map(); // id -> type (counted once)
+  let discoverCalls = 0;
+  let stoppedEarly = false;
+  outer:
+  for (const s of allSlices) {
+    for (let page = 1; page <= DRY_MAX_PAGES; page++) {
+      if (pastDeadline()) { stoppedEarly = true; break outer; }
+      discoverCalls++;
+      let data;
+      try {
+        data = await getPage(s.path, {
+          include_adult: "false", "vote_count.gte": "5", ...s.params, page: String(page),
+        });
+      } catch (e) {
+        log(`slice ${s.key} page ${page} failed (${e.message}), continuing`);
+        break;
+      }
+      const rows = data.results || [];
+      let added = 0;
+      for (const r of rows) {
+        if (!dryRunQuality(r, s.type, r.original_language || "")) continue;
+        if (seen.has(r.id)) {
+          if (!dbIds.has(r.id)) dbIds.set(r.id, s.type);
+          continue;
+        }
+        if (found.has(r.id)) continue;
+        const date = r.release_date || r.first_air_date || "";
+        found.set(r.id, {
+          type: s.type,
+          lang: r.original_language || "other",
+          year: /^\d{4}/.test(date) ? Number(date.slice(0, 4)) : null,
+        });
+        added++;
+      }
+      if (added === 0) break; // this page (and the deeper ones) add nothing new
+      if (page >= (data.total_pages || 1)) break;
+    }
+    if (allSlices.indexOf(s) % 25 === 24) {
+      log(`progress: slices=${allSlices.indexOf(s) + 1}/${allSlices.length} calls=${discoverCalls} new=${found.size}`);
+    }
+  }
+  return { found, dbIds, discoverCalls, sliceCount: allSlices.length, stoppedEarly };
+}
+
+/** Bucket the found ids per type, per year and per language. */
+export function dryRunSummary(found) {
+  const zero = () => ({ movie: 0, short: 0, series: 0 });
+  const byType = zero();
+  const byYear = new Map();
+  const byLang = new Map();
+  for (const v of found) {
+    const { type, year, lang } = v[1];
+    byType[type] = (byType[type] || 0) + 1;
+    const y = byYear.get(year) || zero();
+    y[type]++;
+    byYear.set(year, y);
+    const l = byLang.get(lang) || zero();
+    l[type]++;
+    byLang.set(lang, l);
+  }
+  return { byType, byYear, byLang };
+}
+
+/** Detail calls + runtime estimate at the shared 12 req/s pacing. */
+export function dryRunEstimate(newIds, discoverCalls, rps = 12) {
+  const totalCalls = newIds + discoverCalls;
+  return { detailCalls: newIds, discoverCalls, totalCalls, seconds: totalCalls / rps };
+}
+
+function printDryRunResult(scan, seenSize, elapsedMs) {
+  const { byType, byYear, byLang } = dryRunSummary(scan.found);
+  const dbByType = { movie: 0, short: 0, series: 0 };
+  for (const t of scan.dbIds.values()) dbByType[t]++;
+  const years = [...byYear.keys()].sort((a, b) => a - b);
+  const langs = [...byLang.entries()].sort((a, b) =>
+    (b[1].movie + b[1].short + b[1].series) - (a[1].movie + a[1].short + a[1].series));
+  const triple = (o) => `${o.movie}/${o.short}/${o.series}`;
+  const est = dryRunEstimate(scan.found.size, scan.discoverCalls);
+  const h = Math.floor(est.seconds / 3600);
+  const m = Math.round((est.seconds % 3600) / 60);
+  console.log("---- dry-run result (discover calls only, nothing written) ----");
+  console.log(`slices=${scan.sliceCount} discoverCalls=${scan.discoverCalls} elapsed=${Math.round(elapsedMs / 1000)}s`);
+  console.log(`new ids: movie=${byType.movie} short=${byType.short} series=${byType.series} total=${scan.found.size}`);
+  console.log(`already in database: movie=${dbByType.movie} short=${dbByType.short} series=${dbByType.series} ` +
+    `(rows in table=${seenSize}; a row seen in many slices counts once)`);
+  console.log("by year (movie/short/series):");
+  for (const y of years) console.log(`  ${y}: ${triple(byYear.get(y))}`);
+  console.log("by language (movie/short/series), biggest first:");
+  for (const [l, o] of langs) console.log(`  ${l}: ${triple(o)}`);
+  console.log(`estimate: detail calls=${est.detailCalls} + discover calls=${est.discoverCalls} = ${est.totalCalls} calls`);
+  console.log(`  at 12 req/s -> ${h}h ${m}m (ignoring 429 back-off and DB time)`);
+  if (scan.stoppedEarly) console.log("stopped early: approaching job timeout");
+}
+
+async function runDryRun(KEY, pool, opts, pastDeadline) {
+  const rows = (await pool.query("SELECT tmdbId FROM movies")).rows;
+  const seen = new Set(pgIds(rows));
+  console.log(`dry-run: years=${opts.fromYear}-${opts.toYear} types=${opts.types.join(",")} ` +
+    `pages<=${DRY_MAX_PAGES} sorts=${DRY_SORTS.join(",")}`);
+  console.log(`read-only: ${seen.size} tmdbIds already in the database are counted, never written`);
+  const t0 = Date.now();
+  const scan = await dryRunScan((pathname, params) => tmdb(pathname, params, KEY),
+    { ...opts, seen, pastDeadline, log: (line) => console.log(line) });
+  printDryRunResult(scan, seen.size, Date.now() - t0);
+}
+
 async function report(pool) {
   const q = (text, params) => pool.query(text, params).then((r) => r.rows);
   // One query for every scalar (aliases stay lowercase: pg folds unquoted names).
@@ -510,9 +737,13 @@ async function report(pool) {
 }
 
 async function main() {
-  const limit = parseLimit(process.argv.slice(2));
-  const mode = parseMode(process.argv.slice(2));
-  const force = process.argv.slice(2).includes("--force");
+  const argv = process.argv.slice(2);
+  const limit = parseLimit(argv);
+  const mode = parseMode(argv);
+  const dryRun = argv.includes("--dry-run");
+  const years = parseYears(argValue(argv, "--years") ?? "2000-2026");
+  const types = parseTypesArg(argValue(argv, "--types") ?? (dryRun ? "movie,short,series" : "movie"));
+  const force = argv.includes("--force");
   const env = loadEnv();
   const KEY = env.TMDB_API_KEY;
   if (!KEY) {
@@ -521,6 +752,12 @@ async function main() {
   }
   if (!env.DATABASE_URL) {
     console.log("DATABASE_URL is not set (checked env + .env). Nothing ingested.");
+    process.exit(3);
+  }
+  if (!dryRun && types.join(",") !== "movie") {
+    // Step 3 wires --types short,series into the ingest path.
+    console.log(`ingest --types ${types.join(",")}: only movies are wired up so far.`);
+    console.log("Use --dry-run to count shorts/series without writing.");
     process.exit(3);
   }
 
@@ -539,6 +776,10 @@ async function main() {
 
   const pool = new Pool({ connectionString: env.DATABASE_URL });
   try {
+    if (dryRun) {
+      await runDryRun(KEY, pool, { types, fromYear: years.from, toYear: years.to }, pastDeadline);
+      return;
+    }
     if (mode === "backfill-cert") {
       await runBackfill(pool, KEY, limit, pastDeadline, force);
       await report(pool);

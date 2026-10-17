@@ -1,22 +1,33 @@
-# TMDB global ingest: upserts movies straight into Postgres (no data file).
+# TMDB global ingest: upserts titles straight into Postgres (no data file).
 #
 # Triggers: manual (Actions tab) + weekly schedule. Needs repo secrets
 # TMDB_API_KEY and DATABASE_URL (Settings > Secrets and variables > Actions).
 # Nothing is ever committed; progress lives in the database (tmdbIds already
 # present are skipped), so re-runs and limit-capped test runs are safe.
+# Manual dialog: mode=ingest|dry-run|backfill-cert, types=movie,short,series,
+# years=2000-2026, limit=N (first test: limit 50).
 name: ingest-tmdb
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "ingest = add new movies; backfill-cert = fill certificate/minAge where minAge is NULL"
+        description: "ingest = add new titles; dry-run = count only (writes nothing); backfill-cert = fill certificate/minAge where minAge is NULL"
         required: false
         default: "ingest"
         type: choice
         options:
           - ingest
+          - dry-run
           - backfill-cert
+      types:
+        description: "Media kinds for ingest/dry-run (movie,short,series)"
+        required: false
+        default: "movie"
+      years:
+        description: "Release-year window for ingest/dry-run (e.g. 2000-2026)"
+        required: false
+        default: "2000-2026"
       limit:
         description: "Max detail fetches this run (0 = no limit)"
         required: false
@@ -52,7 +63,12 @@ jobs:
           set +e
           EXTRA=""
           if [ "${{ inputs.force }}" = "true" ]; then EXTRA="--force"; fi
-          npm run ingest:tmdb -- --mode "${{ inputs.mode || 'ingest' }}" --limit "${{ inputs.limit || '0' }}" $EXTRA 2>&1 | tee ingest.log
+          MODE="${{ inputs.mode || 'ingest' }}"
+          if [ "$MODE" = "dry-run" ]; then
+            npm run ingest:tmdb -- --dry-run --types "${{ inputs.types || 'movie,short,series' }}" --years "${{ inputs.years || '2000-2026' }}" 2>&1 | tee ingest.log
+          else
+            npm run ingest:tmdb -- --mode "$MODE" --types "${{ inputs.types || 'movie' }}" --years "${{ inputs.years || '2000-2026' }}" --limit "${{ inputs.limit || '0' }}" $EXTRA 2>&1 | tee ingest.log
+          fi
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
