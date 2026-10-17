@@ -8,6 +8,8 @@
  *   --dry-run counts new ids per type/year/language with discover calls only
  *     (quality rule applied) and estimates detail calls + runtime. Writes nothing.
  *   --years / --types pick the slice window for dry-run and ingest.
+ *     Series use /discover/tv + /tv/{id}?append_to_response=content_ratings,keywords;
+ *     movies/shorts use /discover/movie + /movie/{id} (release_dates,keywords).
  *   --mode backfill-cert (or --backfill-cert) only re-fetches release_dates
  *     for rows where minAge IS NULL and updates certificate + minAge.
  * Reads TMDB_API_KEY + DATABASE_URL from env (or .env file).
@@ -173,28 +175,25 @@ function snapUp(v) {
 }
 
 /**
- * Read release_dates for ALL countries. Per country keeps the highest mapped
- * age ("A" maps per country: MX 0 vs IN 18). Returns the raw cert of the
- * strictest entry (legacy `certificate`), the median age across countries
- * (floored at 16 when US/GB/DE says 16+), the strictest age, the count of
- * countries at 18, and the per-country raw certs.
+ * Shared core for movie release_dates and TV content_ratings: given
+ * {country, cert} pairs, keep the highest mapped age per country ("A" maps
+ * per country: MX 0 vs IN 18). Returns the raw cert of the strictest entry
+ * (legacy `certificate`), the median age across countries (floored at 16
+ * when US/GB/DE says 16+), the strictest age, the count of countries at 18,
+ * and the per-country raw certs.
  */
-export function releaseAges(details) {
-  const results = (details.release_dates && details.release_dates.results) || [];
+export function agesFromCountryCerts(pairs) {
   const byCountry = new Map();
   let strictCert = "";
   let strictAge = null;
-  for (const entry of results) {
-    const iso = entry.iso_3166_1;
-    for (const r of entry.release_dates || []) {
-      const raw = (r.certification || "").trim();
-      if (!raw) continue;
-      const age = certToMinAge(iso, raw);
-      if (age === null) continue;
-      const cur = byCountry.get(iso);
-      if (!cur || age > cur.age) byCountry.set(iso, { age, cert: raw });
-      if (strictAge === null || age > strictAge) { strictAge = age; strictCert = raw; }
-    }
+  for (const { iso, cert } of pairs) {
+    const raw = String(cert || "").trim();
+    if (!raw) continue;
+    const age = certToMinAge(iso, raw);
+    if (age === null) continue;
+    const cur = byCountry.get(iso);
+    if (!cur || age > cur.age) byCountry.set(iso, { age, cert: raw });
+    if (strictAge === null || age > strictAge) { strictAge = age; strictCert = raw; }
   }
   const certByCountry = {};
   const ages = [];
@@ -219,12 +218,41 @@ export function releaseAges(details) {
   };
 }
 
-function keepMovie(d) {
+/** Movie path: per-country rows from /movie/{id}?append_to_response=release_dates. */
+export function releaseAges(details) {
+  const results = (details.release_dates && details.release_dates.results) || [];
+  const pairs = [];
+  for (const entry of results) {
+    for (const r of entry.release_dates || []) {
+      pairs.push({ iso: entry.iso_3166_1, cert: r.certification });
+    }
+  }
+  return agesFromCountryCerts(pairs);
+}
+
+/**
+ * TV path: per-country rows from /tv/{id}?append_to_response=content_ratings.
+ * TMDB TV ratings are country-specific ("TV-MA"/"TV-14" in the US, "A" in
+ * India, "16" in Germany...), mapped by the same certToMinAge tables.
+ */
+export function tvRatings(details) {
+  const results = (details.content_ratings && details.content_ratings.results) || [];
+  return agesFromCountryCerts(results.map((r) => ({ iso: r.iso_3166_1, cert: r.rating })));
+}
+
+/**
+ * Movie path. `kind` is 'movie' (41+ min) or 'short' (1-40 min). Also applies
+ * the vote floor: 100 big languages / 20 others / 5 for shorts.
+ */
+export function keepMovie(d, kind = "movie") {
   if (!d || d.adult === true) return null;
   const year = typeof d.release_date === "string" ? parseInt(d.release_date.slice(0, 4), 10) : NaN;
   const runtime = typeof d.runtime === "number" ? d.runtime : 0;
   const rating = typeof d.vote_average === "number" ? Math.round(d.vote_average * 10) / 10 : 0;
-  if (!Number.isFinite(year) || runtime <= 40 || !d.overview || !rating) return null;
+  if (!Number.isFinite(year) || runtime <= 0 || !d.overview || !rating) return null;
+  if (kind === "short" ? runtime > 40 : runtime <= 40) return null;
+  const lang = d.original_language || "en";
+  if ((typeof d.vote_count === "number" ? d.vote_count : 0) < voteFloor(kind, lang)) return null;
   const genres = Array.isArray(d.genres) ? d.genres.map((g) => g.name).filter(Boolean) : [];
   if (genres.length === 0) return null;
   const keywords = (((d.keywords || {}).keywords) || []).map((k) => k.name).filter(Boolean).slice(0, 10);
@@ -237,7 +265,7 @@ function keepMovie(d) {
     year,
     runtime,
     genres,
-    originalLanguage: d.original_language || "en",
+    originalLanguage: lang,
     spokenLanguages: Array.isArray(d.spoken_languages) ? d.spoken_languages.map((l) => l.iso_639_1).filter(Boolean) : [],
     overview: d.overview,
     rating,
@@ -251,53 +279,92 @@ function keepMovie(d) {
     certByCountry: Object.keys(info.certByCountry).length > 0 ? JSON.stringify(info.certByCountry) : null,
     keywords,
     productionCountries: Array.isArray(d.production_countries) ? d.production_countries.map((c) => c.iso_3166_1).filter(Boolean) : [],
+    type: kind,
+  };
+}
+
+// Networks that ship primarily on the web (YouTube and other streaming-first
+// platforms); such series get the lower vote floor of 5.
+export const WEB_NETWORKS = new Set([
+  "youtube", "youtube premium", "youtube red", "vimeo", "twitch", "netflix",
+  "amazon", "amazon prime video", "prime video", "disney+", "hulu", "max",
+  "hbo max", "apple tv", "apple tv+", "peacock", "paramount+", "crunchyroll",
+  "roku", "tubi", "pluto tv", "facebook watch", "quibi",
+]);
+
+export function isWebNetwork(name) {
+  return WEB_NETWORKS.has(String(name || "").trim().toLowerCase());
+}
+
+// TV genres whose TMDB names bundle two app genres; split them on ingest.
+const TV_GENRE_SPLIT = {
+  "Action & Adventure": ["Action", "Adventure"],
+  "Sci-Fi & Fantasy": ["Sci-Fi", "Fantasy"],
+  "War & Politics": ["War"],
+};
+
+/**
+ * Series path (/tv/{id}?append_to_response=content_ratings,keywords).
+ * runtime mirrors the episode length so the quiz runtime cap applies to one
+ * episode. Web-first networks pass at 5 votes, others need 100/20 by language.
+ */
+export function keepSeries(d) {
+  if (!d || d.adult === true) return null;
+  const firstYear = typeof d.first_air_date === "string" ? parseInt(d.first_air_date.slice(0, 4), 10) : NaN;
+  const rating = typeof d.vote_average === "number" ? Math.round(d.vote_average * 10) / 10 : 0;
+  if (!Number.isFinite(firstYear) || !d.overview || !d.name || !rating) return null;
+  const network = ((d.networks || [])[0] || {}).name || null;
+  const lang = d.original_language || "en";
+  if ((typeof d.vote_count === "number" ? d.vote_count : 0) < voteFloor("series", lang, isWebNetwork(network))) return null;
+  const genres = [];
+  for (const g of d.genres || []) {
+    for (const name of TV_GENRE_SPLIT[g.name] || [g.name]) {
+      if (name && !genres.includes(name)) genres.push(name);
+    }
+  }
+  if (genres.length === 0) return null;
+  const lastYear = typeof d.last_air_date === "string" ? parseInt(d.last_air_date.slice(0, 4), 10) : NaN;
+  const episodeRuntime = (Array.isArray(d.episode_run_time) && d.episode_run_time[0]) ||
+    (d.last_episode_to_air && d.last_episode_to_air.runtime) ||
+    (d.next_episode_to_air && d.next_episode_to_air.runtime) || 0;
+  const keywords = (((d.keywords || {}).keywords) || []).map((k) => k.name).filter(Boolean).slice(0, 10);
+  const info = tvRatings(d);
+  return {
+    tmdbId: d.id,
+    imdbId: null, // /tv payloads carry no imdb_id; OMDb enrichment resolves later
+    title: d.name,
+    originalTitle: d.original_name || null,
+    year: firstYear,
+    runtime: episodeRuntime,
+    genres,
+    originalLanguage: lang,
+    spokenLanguages: Array.isArray(d.spoken_languages) ? d.spoken_languages.map((l) => l.iso_639_1).filter(Boolean) : [],
+    overview: d.overview,
+    rating,
+    votes: typeof d.vote_count === "number" ? d.vote_count : 0,
+    popularity: typeof d.popularity === "number" ? d.popularity : null,
+    posterPath: d.poster_path || null,
+    certificate: info.certificate || null,
+    minAge: info.minAge,
+    minAgeStrict: info.minAgeStrict,
+    adultVotes: info.adultVotes,
+    certByCountry: Object.keys(info.certByCountry).length > 0 ? JSON.stringify(info.certByCountry) : null,
+    keywords,
+    productionCountries: Array.isArray(d.production_countries) ? d.production_countries.map((c) => c.iso_3166_1).filter(Boolean) : [],
+    type: "series",
+    seasons: typeof d.number_of_seasons === "number" ? d.number_of_seasons : null,
+    episodes: typeof d.number_of_episodes === "number" ? d.number_of_episodes : null,
+    episodeRuntime: episodeRuntime || null,
+    status: d.status || null,
+    network,
+    firstAirYear: firstYear,
+    lastAirYear: Number.isFinite(lastYear) ? lastYear : null,
+    webSeries: isWebNetwork(network),
   };
 }
 
 function canonGenre(g) {
   return g === "Science Fiction" ? "Sci-Fi" : g;
-}
-
-// Discover slices shaped to hit every coverage target (unchanged).
-function buildSlices() {
-  const slices = [];
-  const ERAS = [
-    { name: "pre1990", gte: null, lte: "1989-12-31", votes: 5 },
-    { name: "mid", gte: "1990-01-01", lte: "2022-12-31", votes: 50 },
-    { name: "recent", gte: "2023-01-01", lte: null, votes: 10 },
-  ];
-  const SORTS = ["popularity.desc", "vote_average.desc"];
-  for (const lang of ["en", "hi", "ta", "te", "ko", "ja", "es", "fr"]) {
-    for (const era of ERAS) {
-      for (const sort of SORTS) {
-        slices.push({ key: `lang:${lang}:${era.name}:${sort}`, lang, era, sort, pages: 6, votes: era.votes });
-      }
-    }
-  }
-  for (const g of TARGET_GENRES) {
-    const id = GENRE_IDS[g === "Sci-Fi" ? "Science Fiction" : g];
-    for (const sort of SORTS) {
-      slices.push({ key: `genre:${g}:${sort}`, genreId: id, sort, pages: 5, votes: 10 });
-    }
-  }
-  for (const lang of ["en", "hi"]) {
-    for (const sort of SORTS) {
-      slices.push({ key: `short:${lang}:${sort}`, lang, sort, pages: 5, votes: 5, runtimeLte: 90, runtimeGte: 41 });
-    }
-  }
-  return slices;
-}
-
-function sliceParams(s) {
-  const p = { include_adult: "false", page: "1", "vote_count.gte": String(s.votes ?? 50) };
-  if (s.lang) p.with_original_language = s.lang;
-  if (s.genreId) p.with_genres = String(s.genreId);
-  if (s.era?.gte) p["primary_release_date.gte"] = s.era.gte;
-  if (s.era?.lte) p["primary_release_date.lte"] = s.era.lte;
-  if (s.runtimeLte) p["with_runtime.lte"] = String(s.runtimeLte);
-  if (s.runtimeGte) p["with_runtime.gte"] = String(s.runtimeGte);
-  if (s.sort) p.sort_by = s.sort;
-  return p;
 }
 
 // Pace + retry state shared by all workers.
@@ -339,7 +406,8 @@ async function tmdb(pathname, params, key) {
 const UPSERT_COLS = ["tmdbId", "imdbId", "title", "originalTitle", "year", "runtime",
   "genres", "originalLanguage", "spokenLanguages", "overview", "rating", "votes",
   "popularity", "posterPath", "certificate", "minAge", "minAgeStrict", "adultVotes",
-  "certByCountry", "keywords", "productionCountries"];
+  "certByCountry", "keywords", "productionCountries", "type", "seasons", "episodes",
+  "episodeRuntime", "status", "network", "firstAirYear", "lastAirYear", "webSeries"];
 
 async function upsertBatch(pool, rows) {
   if (rows.length === 0) return;
@@ -348,7 +416,10 @@ async function upsertBatch(pool, rows) {
     const vals = [m.tmdbId, m.imdbId, m.title, m.originalTitle, m.year, m.runtime,
       m.genres, m.originalLanguage, m.spokenLanguages, m.overview, m.rating, m.votes,
       m.popularity, m.posterPath, m.certificate, m.minAge, m.minAgeStrict ?? null,
-      m.adultVotes ?? null, m.certByCountry ?? null, m.keywords, m.productionCountries];
+      m.adultVotes ?? null, m.certByCountry ?? null, m.keywords, m.productionCountries,
+      m.type ?? "movie", m.seasons ?? null, m.episodes ?? null, m.episodeRuntime ?? null,
+      m.status ?? null, m.network ?? null, m.firstAirYear ?? null, m.lastAirYear ?? null,
+      m.webSeries === true];
     const base = params.length;
     vals.forEach((v) => params.push(v));
     return `(${vals.map((_, k) => `$${base + k + 1}`).join(",")})`;
@@ -540,8 +611,8 @@ function argValue(argv, name) {
   return undefined;
 }
 
-/** Slice list for one dry-run scan (pure; tested). */
-export function buildDryRunSlices(types, fromYear, toYear) {
+/** Slice list for one scan (pure; tested; shared by dry-run and ingest). */
+export function buildSlices(types, fromYear, toYear) {
   const slices = [];
   const forType = (type, path, genres) => {
     const yearKey = type === "series" ? "first_air_date_year" : "primary_release_year";
@@ -588,7 +659,7 @@ export function buildDryRunSlices(types, fromYear, toYear) {
  *   slices?: Array<{key: string, type: string, path: string, params: Record<string, string>}> | null}} opts
  */
 export async function dryRunScan(getPage, { types, fromYear, toYear, seen, pastDeadline = () => false, log = () => {}, slices = null }) {
-  const allSlices = slices || buildDryRunSlices(types, fromYear, toYear);
+  const allSlices = slices || buildSlices(types, fromYear, toYear);
   const found = new Map(); // id -> { type, lang, year }
   const dbIds = new Map(); // id -> type (counted once)
   let discoverCalls = 0;
@@ -706,7 +777,10 @@ async function report(pool) {
       count(*) FILTER (WHERE year < 1990)::int AS pre1990,
       count(*) FILTER (WHERE year >= 2023)::int AS recent,
       count(*) FILTER (WHERE originalLanguage='en' AND runtime < 90)::int AS shorten,
-      count(*) FILTER (WHERE originalLanguage='hi' AND runtime < 90)::int AS shorthi
+      count(*) FILTER (WHERE originalLanguage='hi' AND runtime < 90)::int AS shorthi,
+      count(*) FILTER (WHERE type='movie')::int AS moviecount,
+      count(*) FILTER (WHERE type='short')::int AS shortcount,
+      count(*) FILTER (WHERE type='series')::int AS seriescount
      FROM movies`);
   const langRows = await q(
     "SELECT originalLanguage AS lang, count(*)::int AS n FROM movies GROUP BY 1 ORDER BY 2 DESC");
@@ -721,7 +795,7 @@ async function report(pool) {
   const show = (v) => (typeof v !== "number" || !Number.isFinite(v) ? "MISSING" : String(v));
 
   console.log("---- coverage (from database) ----");
-  console.log(`total=${show(counts.total)}`);
+  console.log(`total=${show(counts.total)} movie=${show(s.moviecount)} short=${show(s.shortcount)} series=${show(s.seriescount)}`);
   console.log("lang:  " + ["en", ...Object.keys(TARGET_LANGS)].map((l) => {
     const n = counts.byLang[l];
     const need = l === "en" ? TARGET_EN : TARGET_LANGS[l];
@@ -754,10 +828,8 @@ async function main() {
     console.log("DATABASE_URL is not set (checked env + .env). Nothing ingested.");
     process.exit(3);
   }
-  if (!dryRun && types.join(",") !== "movie") {
-    // Step 3 wires --types short,series into the ingest path.
-    console.log(`ingest --types ${types.join(",")}: only movies are wired up so far.`);
-    console.log("Use --dry-run to count shorts/series without writing.");
+  if (!dryRun && mode === "backfill-cert" && types.join(",") !== "movie") {
+    console.log("backfill-cert is movie-only (it re-fetches /movie release_dates).");
     process.exit(3);
   }
 
@@ -792,21 +864,27 @@ async function main() {
     let detailCalls = 0;
     let upserted = 0;
     let stoppedEarly = false;
-    const slices = buildSlices();
+    const slices = buildSlices(types, years.from, years.to);
+    console.log(`ingest: years=${years.from}-${years.to} types=${types.join(",")} slices=${slices.length} pages<=${DRY_MAX_PAGES}`);
 
-    const fetchDetail = async (id) => {
+    const fetchDetail = async (type, id) => {
+      if (type === "series") {
+        const d = await tmdb(`/tv/${id}`, { append_to_response: "content_ratings,keywords" }, KEY);
+        return keepSeries(d);
+      }
       const d = await tmdb(`/movie/${id}`, { append_to_response: "release_dates,keywords" }, KEY);
-      return keepMovie(d);
+      return keepMovie(d, type);
     };
 
     outer:
     for (const s of slices) {
-      const params = sliceParams(s);
-      for (let page = 1; page <= s.pages; page++) {
+      for (let page = 1; page <= DRY_MAX_PAGES; page++) {
         if (pastDeadline()) { stoppedEarly = true; break outer; }
         let data;
         try {
-          data = await tmdb("/discover/movie", { ...params, page: String(page) }, KEY);
+          data = await tmdb(s.path, {
+            include_adult: "false", "vote_count.gte": "5", ...s.params, page: String(page),
+          }, KEY);
         } catch (e) {
           console.log(`slice ${s.key} page ${page} failed (${e.message}), continuing`);
           continue;
@@ -826,7 +904,7 @@ async function main() {
             const results = await Promise.all(chunk.map(async (id) => {
               detailCalls++;
               try {
-                return await fetchDetail(id);
+                return await fetchDetail(s.type, id);
               } catch (e) {
                 if (!String(e.message).startsWith("HTTP:")) throw e;
                 return null;

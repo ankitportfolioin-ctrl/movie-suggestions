@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BIG_LANGS, DRY_MAX_PAGES, TV_GENRE_IDS, buildDryRunSlices, dryRunEstimate,
+  BIG_LANGS, DRY_MAX_PAGES, TV_GENRE_IDS, buildSlices, dryRunEstimate,
   dryRunQuality, dryRunScan, dryRunSummary, parseTypesArg, parseYears, voteFloor,
 } from '../scripts/ingest-tmdb.mjs';
 
@@ -50,15 +50,15 @@ describe('dry-run quality rule', () => {
 
 describe('dry-run slices', () => {
   test('movie/short/series families use two sorts and the right discover path', () => {
-    const movie = buildDryRunSlices(['movie'], 2000, 2001);
+    const movie = buildSlices(['movie'], 2000, 2001);
     // 2 years + BIG_LANGS + 18 movie genres, x2 sorts.
     assert.equal(movie.length, (2 + BIG_LANGS.length + 18) * 2);
     assert.equal(movie[0].path, '/discover/movie');
     assert.equal(movie[0].params.primary_release_year, '2000');
     assert.equal(movie[0].params['with_runtime.gte'], '41');
-    const short = buildDryRunSlices(['short'], 2000, 2000);
+    const short = buildSlices(['short'], 2000, 2000);
     assert.equal(short[0].params['with_runtime.lte'], '40');
-    const series = buildDryRunSlices(['series'], 2000, 2000);
+    const series = buildSlices(['series'], 2000, 2000);
     assert.equal(series.length, (1 + BIG_LANGS.length + Object.keys(TV_GENRE_IDS).length) * 2);
     assert.equal(series[0].path, '/discover/tv');
     assert.equal(series[0].params.first_air_date_year, '2000');
@@ -77,7 +77,7 @@ describe('dry-run scan', () => {
     release_date: '2010-05-01', ...over,
   });
   // One slice only: the year family of a single year, first sort order.
-  const SLICE = buildDryRunSlices(['movie'], 2000, 2000)[0];
+  const SLICE = buildSlices(['movie'], 2000, 2000)[0];
   const oneSlice = (rowsByPage: Record<string, unknown>[][]) => {
     const calls: { pathname: string; page: string }[] = [];
     const getPage = async (pathname: string, params: Record<string, string>) => {
