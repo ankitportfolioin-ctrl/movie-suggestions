@@ -2,6 +2,8 @@ export interface Provider {
   name: string;
   logoUrl: string;
   type?: string;
+  /** Title-specific provider page (Watchmode web_url), when the source offers one. */
+  url?: string;
 }
 
 export interface Movie {
@@ -22,6 +24,13 @@ export interface Movie {
   language?: string;
   /** OMDb `Rated` certificate as served. */
   certificate?: string;
+  /** Provider-reported content type: "movie" or "series". */
+  mediaType?: string;
+  /**
+   * Which provider the displayed rating came from. Omitted when the rating is
+   * a local-catalog value that no provider verified.
+   */
+  ratingSource?: 'imdb' | 'tmdb';
 }
 
 export interface Preferences {

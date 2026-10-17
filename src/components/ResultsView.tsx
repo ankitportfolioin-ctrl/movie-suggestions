@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Movie } from '../types';
 import { MovieCard } from './MovieCard';
-import { RotateCcw, RefreshCw, Repeat, Sparkles, AlertCircle, BadgeCheck, Info, RotateCw } from 'lucide-react';
+import { RotateCcw, RefreshCw, Repeat, Sparkles, AlertCircle, BadgeCheck, Info, RotateCw, SlidersHorizontal } from 'lucide-react';
 
 interface ResultsViewProps {
   movies: Movie[];
@@ -21,6 +21,8 @@ interface ResultsViewProps {
   onSeenIt: (movie: Movie) => void;
   onWatchOptions: (movie: Movie) => void;
   onResetTaste: () => void;
+  /** Result line of the last "Reset my taste" attempt ('' before any). */
+  resetStatus: string;
 }
 
 const LOADER_MESSAGES = [
@@ -48,6 +50,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   onSeenIt,
   onWatchOptions,
   onResetTaste,
+  resetStatus,
 }) => {
   const [tickerIndex, setTickerIndex] = useState(0);
 
@@ -66,17 +69,21 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[65vh] px-4 text-center my-auto">
-        <div className="relative flex items-center justify-center">
+        <div className="relative flex items-center justify-center" aria-hidden="true">
           {/* Pulsing glow circles */}
           <div className="absolute w-28 h-28 rounded-full bg-gradient-to-r from-[#E63946] to-[#FF7A2F] opacity-30 blur-xl animate-pulse" />
           <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-[#E63946] to-[#FF7A2F] flex items-center justify-center shadow-[0_0_30px_rgba(255,122,47,0.5)]">
             <Sparkles className="w-8 h-8 text-white animate-spin" style={{ animationDuration: '4s' }} />
           </div>
         </div>
-        <h2 className="font-heading text-2xl font-bold text-[#F5F5F5] mt-8 tracking-wide">
+        {/* D-05: assistive tech hears one stable status, not the 700ms ticker */}
+        <p role="status" aria-live="polite" className="sr-only">
+          Finding your picks. This can take a few seconds.
+        </p>
+        <h2 className="font-heading text-2xl font-bold text-[#F5F5F5] mt-8 tracking-wide" aria-hidden="true">
           Analyzing Taste Profiles...
         </h2>
-        <p className="text-sm text-[#8C8C8C] mt-2 h-5 transition-all">
+        <p className="text-sm text-[#8C8C8C] mt-2 h-5 transition-all" aria-hidden="true">
           {LOADER_MESSAGES[tickerIndex]}
         </p>
       </div>
@@ -86,7 +93,10 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   // Friendly empty state (also covers API errors distinctly)
   if (!movies || movies.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center max-w-md mx-auto my-auto space-y-6">
+      <div
+        role={loadError ? 'alert' : 'status'}
+        className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center max-w-md mx-auto my-auto space-y-6"
+      >
         <div className="w-14 h-14 rounded-full bg-[#141414] border border-[#232323] flex items-center justify-center text-[#FF7A2F]">
           <AlertCircle className="w-7 h-7" />
         </div>
@@ -150,7 +160,12 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           <BadgeCheck size={14} />
           <span>Tonight's Curated Triage</span>
         </div>
-        <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
+        <h2
+          className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]"
+          role="status"
+          aria-live="polite"
+          data-testid="results-heading"
+        >
           Your {movies.length} Tailored Match{movies.length === 1 ? '' : 'es'}
         </h2>
         <p className="text-sm text-[#8C8C8C]">
@@ -160,7 +175,11 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
 
       {/* Partial-result notices: relaxed filters / note signals, stated plainly */}
       {notices.length > 0 && (
-        <div className="w-full max-w-2xl px-4 py-3 rounded-[12px] bg-[#1c1b1b] border border-[#FF7A2F]/40 flex flex-col gap-1.5 -my-4">
+        <div
+          role="status"
+          aria-live="polite"
+          className="w-full max-w-2xl px-4 py-3 rounded-[12px] bg-[#1c1b1b] border border-[#FF7A2F]/40 flex flex-col gap-1.5 -my-4"
+        >
           {notices.map((n, i) => (
             <p key={i} className="text-xs text-[#d0d0d0] flex items-start gap-2 leading-relaxed">
               <Info size={13} className="text-[#FF7A2F] shrink-0 mt-0.5" />
@@ -214,6 +233,14 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           </button>
 
           <button
+            onClick={onBackToFilters}
+            className="w-full sm:flex-1 py-3.5 px-6 rounded-[16px] bg-[#141414] border border-[#232323] hover:border-[#FF7A2F] text-[#F5F5F5] font-medium text-sm flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer"
+          >
+            <SlidersHorizontal className="w-4 h-4 text-[#8C8C8C]" />
+            <span>Adjust filters</span>
+          </button>
+
+          <button
             onClick={onReset}
             className="w-full sm:flex-1 py-3.5 px-6 rounded-[16px] bg-transparent border border-[#232323] hover:border-[#383838] text-[#8C8C8C] hover:text-[#F5F5F5] font-medium text-sm flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer"
           >
@@ -221,16 +248,30 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             <span>Start over</span>
           </button>
         </div>
-        <p className="text-[11px] text-[#8C8C8C] text-center leading-relaxed max-w-xl">
-          We store anonymous preferences on your device and aggregate counts on
-          our server. No account, no free text.{' '}
-          <button
-            onClick={onResetTaste}
-            className="underline hover:text-[#F5F5F5] transition-colors cursor-pointer"
-          >
-            Reset my taste
-          </button>
-        </p>
+        {/* D-07: describe both halves of "Reset my taste" exactly */}
+        <div className="text-[11px] text-[#8C8C8C] text-center leading-relaxed max-w-xl space-y-1.5">
+          <p>
+            Your saved picks and taste profile live in this browser. Quiz answers —
+            including the optional note — are sent to our server to rank picks, and
+            anonymous pick/feedback counts are stored server-side under a random id.
+            No accounts, no trackers, no note text in analytics.
+          </p>
+          <p>
+            <button
+              onClick={onResetTaste}
+              className="underline hover:text-[#F5F5F5] transition-colors cursor-pointer"
+            >
+              Reset my taste
+            </button>{' '}
+            — clears the taste profile and quiz state in this browser and deletes this
+            device's anonymous counts from our server.
+          </p>
+          {resetStatus && (
+            <p role="status" aria-live="polite" data-testid="reset-status">
+              {resetStatus}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

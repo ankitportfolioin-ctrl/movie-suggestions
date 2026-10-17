@@ -25,6 +25,7 @@
  */
 import { MovieItem } from './catalog.js';
 import { LANGUAGE_CODES } from './omdb.js';
+import { canonicalGenres } from './genres.js';
 
 /** Back-compat alias: LANGUAGE_CODES is now the single source. */
 export const DISCOVERY_LANGUAGE_CODES = LANGUAGE_CODES;
@@ -287,7 +288,7 @@ export async function enrichRuntimes(
       const entry = {
         runtime: typeof data.runtime === 'number' && data.runtime > 0 ? data.runtime : 0,
         genres: Array.isArray(data.genres)
-          ? data.genres.map((g: any) => g?.name).filter((n: any) => typeof n === 'string')
+          ? canonicalGenres(data.genres.map((g: any) => g?.name).filter((n: any) => typeof n === 'string'))
           : [],
       };
       detailsCache.set(m.id, { data: entry, expiresAt: now + DETAILS_TTL });

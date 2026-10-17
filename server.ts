@@ -9,8 +9,8 @@ import {
   LANGUAGE_CODES,
 } from './server/omdb.js';
 import { MovieItem } from './server/catalog.js';
-import { loadDbCandidates, rankGateMovies, ensureMinAge, diagnoseEmptyPool } from './server/dbMovies.js';
-import type { DbFilters } from './server/dbMovies.js';
+import { loadDbCandidates, loadReferenceAnchors, rankGateMovies, ensureMinAge, diagnoseEmptyPool } from './server/dbMovies.js';
+import type { DbFilters, DbItem } from './server/dbMovies.js';
 import { discoverCandidates, enrichRuntimes } from './server/discovery.js';
 import { validateRecommendBody } from './server/validate.js';
 import { enforceHardConstraints } from './server/gate.js';
@@ -37,6 +37,7 @@ import {
   anonOverDailyCap,
   buildContextKey,
   burstExceeded,
+  deleteAnonData,
   findImpression,
   hashIp,
   normalizeAnonId,
@@ -136,6 +137,37 @@ app.get('/api/search-title', rateLimiter, async (req: Request, res: Response) =>
   }
 });
 
+// Reference-movie suggestions for the quiz ("Movies you liked").
+// OMDb search: every chip carries a real IMDb id the reference pipeline can
+// resolve; provider outage is a retryable 502, never a masked empty result.
+const suggestionCache = new Map<string, { data: unknown[]; expiresAt: number }>();
+const SUGGESTION_TTL = 60 * 60 * 1000; // 1 hour
+
+app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { searchSuggestions } = await import('./server/titleSearch.js');
+    const safeQuery = String(req.query.q || '').replace(/<[^>]*>/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const cached = suggestionCache.get(safeQuery);
+    if (cached && cached.expiresAt > Date.now()) {
+      res.json({ results: cached.data });
+      return;
+    }
+    const { status, body } = await searchSuggestions(safeQuery, {
+      omdbKey: process.env.OMDB_API_KEY?.trim(),
+    });
+    if (status !== 200) {
+      res.status(status).json(body);
+      return;
+    }
+    const results = body.results as unknown[];
+    suggestionCache.set(safeQuery, { data: results, expiresAt: Date.now() + SUGGESTION_TTL });
+    res.json({ results });
+  } catch (err) {
+    console.error('Reference title search error:', err);
+    res.status(502).json({ error: 'Title search is temporarily unavailable. Please try again.', retryable: true });
+  }
+});
+
 // Natural Language Search Endpoint
 app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
   try {
@@ -176,7 +208,7 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     }
 
     // One shared pipeline: Postgres candidates -> ranking.ts -> gate last.
-    const { runtimeCap, LANGUAGE_CODES, MOOD_GENRES } = await import('./server/omdb.js');
+    const { runtimeCap, LANGUAGE_CODES, MOOD_GENRES, normalizeTitle } = await import('./server/omdb.js');
     const maxMinutes = note.runtimeMaxMinutes ?? runtimeCap(maxRuntime);
     const langCodes = languages.includes('Any')
       ? []
@@ -198,10 +230,24 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
       limit: 500,
     };
     const { items } = await loadDbCandidates(filters);
-    const { movies: ranked, relaxed } = rankGateMovies(items, {
-      quizGenres, noteGenres: [], moodGenres: moodGenreList, mood, themeRefs: [],
+    // Reference titles from the note ("like Arrival"): anchored on their own
+    // verified overviews, excluded from the picks. Unloadable refs are
+    // disclosed, never silently ignored.
+    const referencedFilms = new Map<number, DbItem>();
+    for (const m of items) {
+      if (note.referenceTitles.includes(normalizeTitle(m.title))) referencedFilms.set(m.id, m);
+    }
+    if (note.referenceTitles.length > 0) {
+      for (const m of await loadReferenceAnchors(note.referenceTitleNames)) {
+        referencedFilms.set(m.id, m);
+      }
+    }
+    const themeRefs = [...referencedFilms.values()].map((m) => m.overview).filter((o) => o.length > 0);
+    const candidates = items.filter((m) => !referencedFilms.has(m.id));
+    const { movies: ranked, relaxed } = rankGateMovies(candidates, {
+      quizGenres, noteGenres: [], moodGenres: moodGenreList, mood, themeRefs,
       maxMinutes, languageSpecific: langCodes.length > 0,
-      preferHiddenGems: false, mentionedTitles: [],
+      preferHiddenGems: false, mentionedTitles: note.lovedTitles,
     }, {
       maxMinutes, maxRuntimeLabel: maxRuntime, langCodes,
       highlyRated: preferences.highlyRated, recent: preferences.recent,
@@ -209,6 +255,13 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
     }, 3);
     const { movies: picks, notices: ageNotices } = await ensureMinAge(ranked, audience, false);
     const notices = [...(excludeGenres.length > 0 ? [`Excluding ${excludeGenres.join(', ')}`] : []), ...relaxed, ...ageNotices];
+    if (note.referenceTitleNames.length > 0) {
+      notices.push(
+        themeRefs.length > 0
+          ? `Using ${note.referenceTitleNames.join(', ')} as your similarity reference.`
+          : `Couldn't load ${note.referenceTitleNames.join(', ')} for similarity matching — these picks use your other filters instead.`
+      );
+    }
     if (picks.length === 0) {
       const cause = await diagnoseEmptyPool(filters).catch(() => null);
       notices.push(cause ?? 'Nothing matches all of those filters together — try removing one constraint.');
@@ -504,6 +557,17 @@ app.post('/api/event', rateLimiter, async (req: Request, res: Response) => {
       ts: now,
     });
     res.json({ ok: true, duplicate: outcome === 'duplicate' });
+  } catch {
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// "Reset my taste": delete every stored row tied to this anonymous id.
+app.post('/api/taste/reset', rateLimiter, async (req: Request, res: Response) => {
+  try {
+    const anonId = normalizeAnonId((req.body as { anonId?: unknown } | null)?.anonId);
+    const deleted = learningDb ? deleteAnonData(learningDb, anonId) : { impressions: 0, events: 0 };
+    res.json({ ok: true, deleted });
   } catch {
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }

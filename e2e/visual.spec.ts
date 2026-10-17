@@ -69,7 +69,7 @@ test('visual matrix: every state x every viewport', async ({ page }) => {
       page.getByRole('button', { name: 'Find my movies' }).click(),
     ]);
     expect(resp.ok()).toBeTruthy();
-    await expect(page.getByText(/Tailored Matches|perfect match|went wrong/i).first()).toBeVisible({
+    await expect(page.getByText(/Tailored Match|perfect match|went wrong/i).first()).toBeVisible({
       timeout: 15000,
     });
     await check('results');
@@ -148,7 +148,7 @@ test('visual options deep pass (1366x768)', async ({ page }) => {
   await page.waitForTimeout(700);
   await page.screenshot({ path: shotName('1366x768', 'visual', 'loading') });
   await findP;
-  await expect(page.getByText(/Tailored Matches|perfect match|went wrong/i).first()).toBeVisible({
+  await expect(page.getByText(/Tailored Match|perfect match|went wrong/i).first()).toBeVisible({
     timeout: 15000,
   });
   await page.screenshot({ path: shotName('1366x768', 'visual', 'results') });

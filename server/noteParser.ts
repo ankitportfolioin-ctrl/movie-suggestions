@@ -20,6 +20,8 @@ export interface NoteSignals {
   hatedTitles: string[];
   /** Reference titles for similarity matching ("like Interstellar"). */
   referenceTitles: string[];
+  /** Reference titles exactly as typed (for user-facing disclosures). */
+  referenceTitleNames: string[];
   /** @deprecated use lovedTitles; kept for compatibility. */
   mentionedTitles: string[];
   /** People to exclude (exact-ish name match against cast/director). */
@@ -232,6 +234,7 @@ export function parseNote(rawNote: string): NoteSignals {
     lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [],
     excludedPeople: [], likedPeople: [],
     referenceTitles: [],
+    referenceTitleNames: [],
     themeKeywords: [],
     comparativePreferences: [],
   };
@@ -247,7 +250,10 @@ export function parseNote(rawNote: string): NoteSignals {
       const title = match[1].trim();
       if (title.length >= 3 && !['the', 'and', 'with', 'like', 'similar', 'vein', 'reminiscent', 'akin', 'resembles'].includes(title.toLowerCase())) {
         const norm = title.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (norm.length >= 3) signals.referenceTitles.push(norm);
+        if (norm.length >= 3) {
+          signals.referenceTitles.push(norm);
+          signals.referenceTitleNames.push(title);
+        }
       }
     }
   }
@@ -451,6 +457,7 @@ export function parseNote(rawNote: string): NoteSignals {
   signals.hatedTitles = unique(signals.hatedTitles);
   signals.mentionedTitles = unique(signals.lovedTitles);
   signals.referenceTitles = unique(signals.referenceTitles);
+  signals.referenceTitleNames = unique(signals.referenceTitleNames);
   signals.themeKeywords = unique(signals.themeKeywords);
   signals.comparativePreferences = signals.comparativePreferences.filter((c, i, arr) => 
     arr.findIndex(x => x.attribute === c.attribute && x.direction === c.direction && x.reference === c.reference) === i

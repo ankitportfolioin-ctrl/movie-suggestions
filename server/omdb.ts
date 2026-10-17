@@ -10,6 +10,7 @@ import {
 import type { FitFeature } from './ranking.js';
 import { sanitizeTaste, sanitizeEventCount, tasteBonus } from './taste.js';
 import { labelMovie } from './labels.js';
+import { canonicalGenres } from './genres.js';
 
 export interface MoviePick {
   id: number;
@@ -31,6 +32,8 @@ export interface MoviePick {
   certificate?: string;
   /** OMDb `Type` field when known. Used by the final gate. */
   mediaType?: string;
+  /** Which provider the displayed rating came from ("imdb" only after a verified OMDb merge). */
+  ratingSource: 'imdb' | 'tmdb';
   /** OMDb cast list as served. Used for person-name exclusions. */
   actors: string[];
   /** OMDb director as served. Used for person-name exclusions. */
@@ -433,6 +436,35 @@ export async function selectCandidateMovies(
     notices.push(`Skipping ${namedInPool.join(', ')} — you already mentioned ${namedInPool.length === 1 ? 'it' : 'them'}.`);
   }
 
+  // Reference titles the user pointed at: quiz picks (referenceIds) or the
+  // note ("like Arrival"). Their verified overviews anchor theme similarity.
+  // When none can be loaded the limitation is disclosed, never silently ignored.
+  const notedReferenceFilms = pool.filter((m) => note.referenceTitles.includes(normalizeTitle(m.title)));
+  const referenceOverviewPool = [
+    ...referenceOverviews,
+    ...notedReferenceFilms.map((m) => m.overview).filter((o) => o.length > 0),
+  ];
+  const referenceNames = [
+    ...new Set([...referenceTitles, ...notedReferenceFilms.map((m) => m.title)]),
+  ];
+  const requestedReferenceNames =
+    referenceNames.length > 0
+      ? referenceNames
+      : note.referenceTitleNames.length > 0
+      ? note.referenceTitleNames
+      : ['your reference titles'];
+  const referencesRequested =
+    (params.referenceIds?.length ?? 0) > 0 || note.referenceTitleNames.length > 0;
+  if (referencesRequested) {
+    if (referenceOverviewPool.length > 0) {
+      notices.push(`Using ${requestedReferenceNames.join(', ')} as your similarity reference.`);
+    } else {
+      notices.push(
+        `Couldn't load ${requestedReferenceNames.join(', ')} for similarity matching — these picks use your other filters instead.`
+      );
+    }
+  }
+
   const base: FilterConstraints = {
     dropExcludes: false,
     highlyRated,
@@ -521,7 +553,7 @@ export async function selectCandidateMovies(
     // Fix 3b: theme anchors are the named films' own verified overviews.
     // (The films themselves are excluded from results; their plots guide.)
     themeRefs: [
-      ...referenceOverviews,
+      ...referenceOverviewPool,
       ...pool
         .filter((m) => titleIsNamed(m.title, note.lovedTitles))
         .map((m) => m.overview),
@@ -805,6 +837,7 @@ export async function getRecommendationsWithOMDb(
       let finalMediaType: string | undefined;
       let finalActors: string[] = [];
       let finalDirector: string | undefined;
+      let finalRatingSource: 'imdb' | 'tmdb' = 'tmdb';
 
       if (omdbApiKey) {
         const omdbData = await fetchFromOMDb(movie, omdbApiKey);
@@ -833,7 +866,10 @@ export async function getRecommendationsWithOMDb(
           }
           if (omdbData.imdbRating && omdbData.imdbRating !== 'N/A') {
             const parsedRating = parseFloat(omdbData.imdbRating);
-            if (!isNaN(parsedRating)) finalRating = parsedRating;
+            if (!isNaN(parsedRating)) {
+              finalRating = parsedRating;
+              finalRatingSource = 'imdb';
+            }
           }
           if (omdbData.Runtime && omdbData.Runtime !== 'N/A') {
             const parsedRuntime = parseInt(omdbData.Runtime, 10);
@@ -854,7 +890,7 @@ export async function getRecommendationsWithOMDb(
                 merged.push(g);
               }
             }
-            if (merged.length > 0) finalGenres = merged.slice(0, 4);
+            if (merged.length > 0) finalGenres = canonicalGenres(merged).slice(0, 4);
           }
           if (typeof omdbData.Type === 'string' && omdbData.Type) {
             finalMediaType = omdbData.Type;
@@ -889,6 +925,7 @@ export async function getRecommendationsWithOMDb(
         language: movie.language,
         certificate: finalCertificate,
         mediaType: finalMediaType,
+        ratingSource: finalRatingSource,
         actors: finalActors,
         director: finalDirector,
       };

@@ -58,7 +58,7 @@ export function getAnonId(): string {
   }
 }
 
-/** Forget local taste state (server-side row deletion lands in Step 3). */
+/** Forget local taste state; the server-side rows are deleted by requestTasteReset. */
 export function resetTaste(): void {
   try {
     localStorage.removeItem(ANON_KEY);
@@ -93,6 +93,26 @@ export async function sendFeedbackEvent(
         movieId: impression.movieId,
         token: impression.token,
       }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data && data.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ask the server to delete this anonId's stored rows ("Reset my taste").
+ * Best effort, never throws: local state is cleared regardless.
+ */
+export async function requestTasteReset(anonId: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/taste/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ anonId }),
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return false;

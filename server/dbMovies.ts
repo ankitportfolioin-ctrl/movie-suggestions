@@ -13,7 +13,8 @@ import { enforceHardConstraints } from './gate.js';
 import type { GateConstraints, GateMovie } from './gate.js';
 import { FALLBACK_CATALOG } from './catalog.js';
 import type { MovieItem } from './catalog.js';
-import { fetchFromOMDb, LANGUAGE_CODES } from './omdb.js';
+import { fetchFromOMDb, LANGUAGE_CODES, normalizeTitle } from './omdb.js';
+import { canonicalGenres, expandGenres } from './genres.js';
 
 /** Reverse lookup: ISO code -> quiz label ("ko" -> "Korean"). */
 function languageLabel(code: string): string | undefined {
@@ -61,8 +62,8 @@ export function buildWhereClause(f: DbFilters): { text: string; params: unknown[
   const clauses: string[] = [];
   const params: unknown[] = [];
   const next = (v: unknown) => { params.push(v); return `$${params.length}`; };
-  if (f.genres.length > 0) clauses.push(`genres && ${next(f.genres)}`);
-  if (f.excludeGenres.length > 0) clauses.push(`NOT (genres && ${next(f.excludeGenres)})`);
+  if (f.genres.length > 0) clauses.push(`genres && ${next(expandGenres(f.genres))}`);
+  if (f.excludeGenres.length > 0) clauses.push(`NOT (genres && ${next(expandGenres(f.excludeGenres))})`);
   if (f.languages.length > 0) clauses.push(`originalLanguage = ANY(${next(f.languages)})`);
   if (f.runtimeMin !== null) clauses.push(`runtime >= ${next(f.runtimeMin)}`);
   if (f.runtimeMax !== null) clauses.push(`runtime <= ${next(f.runtimeMax)}`);
@@ -88,7 +89,7 @@ function toDbItem(r: Record<string, unknown>): DbItem {
     imdbId: (r.imdbid as string) || '',
     title: r.title as string,
     year: r.year as number,
-    genres: (r.genres as string[]) || [],
+    genres: canonicalGenres((r.genres as string[]) || []),
     runtime: r.runtime as number,
     rating: (r.rating as number) ?? 0,
     voteCount: (r.votes as number) ?? 0,
@@ -113,6 +114,32 @@ export async function queryDbCandidates(f: DbFilters): Promise<DbItem[]> {
   return rows.map(toDbItem);
 }
 
+/**
+ * Reference anchors ("like Arrival") are the user's own examples, not
+ * candidates: fetch their rows by title, bypassing candidate filters so a
+ * 16+ reference still anchors similarity. [] when the DB cannot answer —
+ * callers disclose the miss instead of guessing.
+ */
+export async function loadReferenceAnchors(titles: string[]): Promise<DbItem[]> {
+  if (titles.length === 0 || !process.env.DATABASE_URL) return [];
+  // Punctuation/case-insensitive match in SQL; accented titles also match their
+  // exact lowercase spelling (SQL cannot fold diacritics without an extension).
+  const normalized = titles.map(normalizeTitle).filter(Boolean);
+  const lowered = titles.map((t) => t.trim().toLowerCase()).filter(Boolean);
+  try {
+    const { rows } = await getDbPool().query(
+      `SELECT ${DB_COLS} FROM movies
+       WHERE regexp_replace(lower(title), '[^a-z0-9]', '', 'g') = ANY($1)
+          OR lower(title) = ANY($2)
+       LIMIT 20`,
+      [normalized, lowered],
+    );
+    return rows.map(toDbItem);
+  } catch {
+    return [];
+  }
+}
+
 interface Filterable {
   genres: string[];
   language: string;
@@ -124,8 +151,10 @@ interface Filterable {
 
 /** JS mirror of the SQL predicates for the file/catalog fallbacks (tested). */
 export function matchesFilters(m: Filterable, f: DbFilters): boolean {
-  if (f.genres.length > 0 && !m.genres.some((g) => f.genres.includes(g))) return false;
-  if (m.genres.some((g) => f.excludeGenres.includes(g))) return false;
+  const wanted = expandGenres(f.genres);
+  const banned = expandGenres(f.excludeGenres);
+  if (f.genres.length > 0 && !m.genres.some((g) => wanted.includes(g))) return false;
+  if (m.genres.some((g) => banned.includes(g))) return false;
   if (f.languages.length > 0 && !f.languages.includes(m.language)) return false;
   if (f.runtimeMin !== null && !(m.runtime >= f.runtimeMin)) return false;
   if (f.runtimeMax !== null && !(m.runtime > 0 && m.runtime <= f.runtimeMax)) return false;
@@ -148,7 +177,7 @@ function jsonToItem(r: Record<string, unknown>): DbItem {
   return {
     id: r.tmdbId as number, tmdbId: r.tmdbId as number,
     imdbId: (r.imdbId as string) || '', title: r.title as string, year: r.year as number,
-    genres: (r.genres as string[]) || [], runtime: r.runtime as number,
+    genres: canonicalGenres((r.genres as string[]) || []), runtime: r.runtime as number,
     rating: (r.rating as number) ?? 0, voteCount: (r.votes as number) ?? 0, popularity: 0,
     overview: (r.overview as string) || '',
     posterUrl: poster ? `https://image.tmdb.org/t/p/w342${poster}` : '',

@@ -15,6 +15,7 @@ import { ResultsView } from './components/ResultsView';
 import { SavedPicksView } from './components/SavedPicksView';
 import {
   getAnonId,
+  requestTasteReset,
   resetTaste,
   sendFeedbackEvent,
   type ImpressionToken,
@@ -143,6 +144,8 @@ export default function App() {
   });
   const [showSaved, setShowSaved] = useState(false);
   const [saved, setSaved] = useState<Movie[]>(loadSaved);
+  // Result line of the last "Reset my taste" attempt ('' before any).
+  const [resetStatus, setResetStatus] = useState('');
   // Steps the user has actively answered (drives the Session Snapshot).
   const [touched, setTouched] = useState<number[]>(() => loadQuiz()?.touched ?? []);
 
@@ -211,6 +214,19 @@ export default function App() {
     }
   };
 
+  // D-04: the brand always leads home; the quit confirmation only appears
+  // when quiz progress or the current results would actually be lost.
+  const handleBrandClick = () => {
+    const hasProgress =
+      wizardState.step > 0 || movies.length > 0 || touched.length > 0 || dismissedIds.length > 0;
+    if (hasProgress) {
+      handleCancel();
+      return;
+    }
+    setShowSaved(false);
+    setWizardState((prev) => ({ ...prev, step: 0 }));
+  };
+
   const handleBackToFilters = () => {
     setWizardState((prev) => ({ ...prev, step: 6 }));
   };
@@ -272,27 +288,39 @@ export default function App() {
     if (tok) void sendFeedbackEvent(tok, 'provider_click');
   };
 
-  const handleResetTaste = () => {
-    // Clears the anonymous taste profile on this device (Step 3).
-    resetTaste();
+  const handleResetTaste = async () => {
+    // D-07: reset means reset — clear this browser's profile AND ask the
+    // server to delete this anonId's rows; say plainly which parts succeeded.
     const anon = getAnonId();
-    if (anon && anon !== 'none') {
-      setTasteVector(anon, {});
+    const serverOk = anon && anon !== 'none' ? await requestTasteReset(anon) : true;
+    resetTaste();
+    const fresh = getAnonId();
+    if (fresh && fresh !== 'none') setTasteVector(fresh, {});
+    try {
       localStorage.removeItem('cinematch:taste:eventCount');
+    } catch {
+      // Storage unavailable: nothing was stored to remove.
     }
     setTasteEventCount(0);
     setDismissedIds([]);
+    setResetStatus(
+      serverOk
+        ? 'Taste reset: this browser\u2019s taste profile is cleared and its anonymous server counts are deleted.'
+        : 'Taste reset in this browser. The server could not be reached to delete its anonymous counts — try again later.'
+    );
   };
 
-  // Fetch recommendations from /api/recommend
+  // Fetch recommendations from /api/recommend. Returns the number of picks
+  // shown, or -1 on error, so callers can state accurate counts.
   const fetchRecommendations = async (
     customExclude?: number[],
     resetHistory = false,
     genreOverride?: string[]
-  ) => {
+  ): Promise<number> => {
     setIsLoading(true);
     setLoadError(false);
     setShowSaved(false);
+    setResetStatus('');
     setWizardState((prev) => ({ ...prev, step: 8 })); // Results view
 
     const currentExcludes = customExclude ?? seenMovieIds;
@@ -348,19 +376,30 @@ export default function App() {
       setSeenMovieIds((prev) =>
         resetHistory ? newIds : Array.from(new Set([...prev, ...newIds]))
       );
+      return newMovies.length;
     } catch {
       // In case of error, set empty movies so error state is shown cleanly
       setMovies([]);
       setNotices([]);
       setImpressionTokens([]);
       setLoadError(true);
+      return -1;
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleMore = () => {
-    fetchRecommendations();
+  const handleMore = async () => {
+    const count = await fetchRecommendations();
+    // Accurate counts: never imply three came back when fewer did.
+    if (count >= 0 && count < 3) {
+      setNotices((prev) => [
+        ...prev,
+        count === 0
+          ? 'No further picks match these filters right now — adjust filters to widen the pool.'
+          : `Only ${count} more pick${count === 1 ? '' : 's'} available with these filters — adjust filters for more options.`,
+      ]);
+    }
   };
 
   const MORE_LIKE_GENRES = new Set([
@@ -435,7 +474,8 @@ export default function App() {
         <header className="sticky top-0 z-40 bg-[#0A0A0A]/85 backdrop-blur-md border-b border-[#141414]">
           <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-4">
             <button
-              onClick={handleCancel}
+              onClick={handleBrandClick}
+              aria-label="CineMatch home"
               className="flex items-center gap-2 font-heading font-bold text-lg tracking-tight text-[#F5F5F5] hover:text-white transition-colors cursor-pointer"
             >
               <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E63946] to-[#FF7A2F] flex items-center justify-center">
@@ -553,6 +593,7 @@ export default function App() {
             onSeenIt={handleSeenIt}
             onWatchOptions={handleWatchOptions}
             onResetTaste={handleResetTaste}
+            resetStatus={resetStatus}
           />
         )}
       </main>
@@ -675,6 +716,19 @@ function Hero({ onStart }: { onStart: () => void }) {
       setShowResults(false);
       return;
     }
+    // D-08: a too-short query explains the requirement instead of doing nothing.
+    const minLength = searchMode === 'title' ? 2 : 3;
+    if (q.length < minLength) {
+      setSearchError(
+        searchMode === 'title'
+          ? 'Type at least 2 characters to search titles.'
+          : 'Describe it in at least 3 characters.'
+      );
+      setSearchResults([]);
+      setSearchNotices([]);
+      setShowResults(false);
+      return;
+    }
     if (searchMode === 'title') {
       handleTitleSearch(q);
     } else {
@@ -729,11 +783,14 @@ function Hero({ onStart }: { onStart: () => void }) {
           </div>
           <form onSubmit={handleSearchSubmit} className="relative">
             <div className="flex items-center gap-2">
-              <Search className="absolute left-3 text-[#8C8C8C] w-5 h-5 pointer-events-none" />
+              <Search className="absolute left-3 text-[#8C8C8C] w-5 h-5 pointer-events-none" aria-hidden="true" />
               <input
                 type="text"
+                id="hero-search-input"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                aria-label={searchMode === 'title' ? 'Search movies by exact title' : 'Describe what you want to watch'}
+                aria-describedby="hero-search-status"
                 placeholder={searchMode === 'title' 
                   ? 'e.g. Interstellar, The Dark Knight, Parasite' 
                   : 'e.g. "a space movie like Interstellar but shorter", "feel-good comedy for family"'}
@@ -742,33 +799,44 @@ function Hero({ onStart }: { onStart: () => void }) {
                 disabled={searchLoading}
               />
               {searchLoading && (
-                <span className="absolute right-10 text-[#FF7A2F]">
+                <span className="absolute right-10 text-[#FF7A2F]" aria-hidden="true">
                   <Sparkles className="w-5 h-5 animate-spin" />
                 </span>
               )}
             </div>
-            {searchError && (
-              <p className="mt-2 text-xs text-[#E63946] text-center">{searchError}</p>
-            )}
-            {showResults && searchResults.length === 0 && !searchLoading && (
-              <p className="mt-2 text-xs text-[#8C8C8C] text-center">No results found. Try a different query.</p>
-            )}
-            {showResults && searchNotices.length > 0 && !searchLoading && (
-              <div className="mt-2 text-xs text-[#8C8C8C] text-center">
-                {searchNotices.map((n, i) => (
-                  <p key={i}>{n}</p>
-                ))}
-              </div>
-            )}
+            {/* D-05: one live status line for searching / errors / result counts */}
+            <div id="hero-search-status" role="status" aria-live="polite">
+              {searchLoading && (
+                <p className="mt-2 text-xs text-[#8C8C8C] text-center">Searching…</p>
+              )}
+              {!searchLoading && searchError && (
+                <p role="alert" className="mt-2 text-xs text-[#E63946] text-center">{searchError}</p>
+              )}
+              {!searchLoading && !searchError && showResults && (
+                <p className="mt-2 text-xs text-[#8C8C8C] text-center">
+                  {searchResults.length === 0
+                    ? 'No results found. Try a different query.'
+                    : `${searchResults.length} result${searchResults.length === 1 ? '' : 's'} found.`}
+                </p>
+              )}
+              {!searchLoading && searchNotices.length > 0 && (
+                <div className="mt-2 text-xs text-[#8C8C8C] text-center">
+                  {searchNotices.map((n, i) => (
+                    <p key={i}>{n}</p>
+                  ))}
+                </div>
+              )}
+            </div>
           </form>
           {showResults && searchResults.length > 0 && (
             <div className="mt-6 w-full max-h-96 overflow-y-auto">
               <h3 className="text-sm font-medium text-[#8C8C8C] mb-3 text-left">Search Results</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {searchResults.map((movie) => (
-                  <div
+                  <button
+                    type="button"
                     key={movie.id}
-                    className="p-3 rounded-[12px] bg-[#141414] border border-[#232323] hover:border-[#383838] transition-colors cursor-pointer group"
+                    className="p-3 rounded-[12px] bg-[#141414] border border-[#232323] hover:border-[#383838] focus-visible:ring-2 focus-visible:ring-[#FF7A2F] transition-colors cursor-pointer group text-left"
                     onClick={() => {
                       // Navigate to results with this movie as context
                       setSearchQuery(movie.title);
@@ -778,14 +846,15 @@ function Hero({ onStart }: { onStart: () => void }) {
                     <div className="relative aspect-[2/3] rounded-[8px] overflow-hidden bg-[#232323] mb-2">
                       <img
                         src={movie.posterUrl}
-                        alt={movie.title}
+                        alt=""
+                        aria-hidden="true"
                         className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                         onError={(e) => { e.currentTarget.style.display = 'none'; }}
                       />
                     </div>
                     <h4 className="font-medium text-white text-sm truncate group-hover:text-[#FF7A2F] transition-colors">{movie.title}</h4>
                     <p className="text-xs text-[#8C8C8C] mt-1">{movie.year} • {movie.genres.slice(0, 2).join(', ')} • {movie.runtime}m • {movie.rating}/10</p>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

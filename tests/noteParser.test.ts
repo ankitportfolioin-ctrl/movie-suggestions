@@ -105,8 +105,14 @@ test('detects language hints', () => {
 });
 
 test('empty and garbage notes yield empty signals', () => {
-  assert.deepEqual(parseNote(''), { genres: [], excludeGenres: [], unverifiable: [], moods: [], lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [], excludedPeople: [], likedPeople: [], referenceTitles: [], themeKeywords: [], comparativePreferences: [] });
+  assert.deepEqual(parseNote(''), { genres: [], excludeGenres: [], unverifiable: [], moods: [], lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [], excludedPeople: [], likedPeople: [], referenceTitles: [], referenceTitleNames: [], themeKeywords: [], comparativePreferences: [] });
   assert.deepEqual(parseNote('... !!!').genres, []);
+});
+
+test('reference titles keep their as-typed spelling for disclosure', () => {
+  const s = parseNote('like Arrival, but lighter');
+  assert.deepEqual(s.referenceTitles, ['arrival']);
+  assert.deepEqual(s.referenceTitleNames, ['Arrival']);
 });
 
 test('positive genre mention is not treated as exclusion', () => {

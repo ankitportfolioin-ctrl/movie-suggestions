@@ -301,6 +301,13 @@ export function anonOverDailyCap(db: Database.Database, anonId: string, nowMs = 
   return countAnonEventsSince(db, anonId, nowMs - 24 * 3600 * 1000) >= MAX_EVENTS_PER_ANON_PER_DAY;
 }
 
+/** "Reset my taste": delete every stored row for one anonymous id. */
+export function deleteAnonData(db: Database.Database, anonId: string): { impressions: number; events: number } {
+  const impressions = db.prepare('DELETE FROM impressions WHERE anonId = ?').run(anonId).changes;
+  const events = db.prepare('DELETE FROM events WHERE anonId = ?').run(anonId).changes;
+  return { impressions, events };
+}
+
 /** SHA-256 hash for rate-limit keys. Raw IPs are never stored. */
 export function hashIp(ip: string): string {
   return crypto.createHash('sha256').update(ip).digest('hex');

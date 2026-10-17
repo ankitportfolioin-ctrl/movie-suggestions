@@ -60,7 +60,12 @@ export async function searchTitles(
   } catch {
     return UPSTREAM_DOWN;
   }
-  if (!searchRes.ok) return UPSTREAM_DOWN;
+  if (!searchRes.ok) {
+    if (searchRes.status === 429) {
+      return { status: 429, body: { error: 'Too many searches, try again in a few minutes.', retryable: true } };
+    }
+    return UPSTREAM_DOWN;
+  }
 
   let data: { results?: unknown[] };
   try {
@@ -93,4 +98,79 @@ function toSuggestion(m: MovieItem): TitleSuggestion {
     runtime: m.runtime, rating: m.rating, overview: m.overview,
     posterUrl: toLocalImg(m.posterUrl) || m.posterUrl, language: m.language,
   };
+}
+
+export interface SuggestionChip {
+  imdbId: string;
+  title: string;
+  year: number;
+  posterUrl: string;
+}
+
+export interface SuggestionDeps {
+  omdbKey?: string;
+  fetchFn?: typeof fetch;
+}
+
+/**
+ * Reference-movie suggestions ("Movies you liked") come from OMDb search so
+ * every chip carries a REAL IMDb id the reference pipeline can resolve to a
+ * plot (TMDB search only exposes TMDB ids, which OMDb cannot look up).
+ * Same honesty rules as searchTitles: outage -> retryable error, never a
+ * masked empty.
+ */
+export async function searchSuggestions(
+  rawQuery: unknown, deps: SuggestionDeps = {}
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const query = typeof rawQuery === 'string' ? rawQuery.trim().replace(/\s+/g, ' ') : '';
+  if (!query || query.length > 120) return { status: 400, body: { error: 'Invalid query' } };
+  if (query.length < 2) return { status: 400, body: { error: 'Type at least 2 characters' } };
+
+  const key = deps.omdbKey?.trim();
+  if (!key) return UPSTREAM_DOWN;
+
+  const fetchFn = deps.fetchFn ?? fetch;
+  let res: Response;
+  try {
+    res = await fetchFn(
+      `https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&s=${encodeURIComponent(query)}&type=movie`,
+      { headers: { 'User-Agent': 'MovieNightPicker/1.0' }, signal: AbortSignal.timeout(3000) },
+    ) as Response;
+  } catch {
+    return UPSTREAM_DOWN;
+  }
+  if (!res.ok) {
+    if (res.status === 429) {
+      return { status: 429, body: { error: 'Too many searches, try again in a few minutes.', retryable: true } };
+    }
+    return UPSTREAM_DOWN;
+  }
+
+  let data: { Response?: string; Error?: string; Search?: unknown[] };
+  try {
+    data = (await res.json()) as typeof data;
+  } catch {
+    return UPSTREAM_DOWN;
+  }
+  // OMDb answers 200 "Response":"False" for both "not found" and provider
+  // problems; only an explicit not-found is a genuine empty result.
+  if (data.Response === 'False') {
+    if (/not found/i.test(data.Error || '')) return { status: 200, body: { results: [], source: 'omdb' } };
+    return UPSTREAM_DOWN;
+  }
+
+  const results = (Array.isArray(data.Search) ? data.Search : [])
+    .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
+    .filter((s) => typeof s.imdbID === 'string' && /^tt\d+$/.test(s.imdbID) && typeof s.Title === 'string')
+    .slice(0, 5)
+    .map((s) => {
+      const poster = typeof s.Poster === 'string' && s.Poster.startsWith('http') ? s.Poster : '';
+      return {
+        imdbId: s.imdbID as string,
+        title: s.Title as string,
+        year: parseInt(String(s.Year), 10) || 0,
+        posterUrl: toLocalImg(poster) || poster,
+      } satisfies SuggestionChip;
+    });
+  return { status: 200, body: { results, source: 'omdb' } };
 }

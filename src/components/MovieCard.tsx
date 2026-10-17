@@ -33,22 +33,31 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
 
   const fitScore = fitScoreOf(movie);
 
+  // D-03: only title-specific provider pages are offered — never a search
+  // fallback. No verified link means the control is plainly unavailable.
+  const providerLink = movie.providers?.find((p) => p.url)?.url;
+  const mediaLabel = movie.mediaType === 'series' ? 'TV series' : movie.mediaType === 'movie' ? 'Movie' : '';
+  const ratingSourceLabel =
+    movie.ratingSource === 'imdb' ? 'IMDb' : movie.ratingSource === 'tmdb' ? 'TMDB' : '';
+  const watchOptionsClass =
+    'text-[#FF7A2F] hover:text-white text-[13px] font-semibold flex items-center gap-1 transition-colors cursor-pointer min-h-[44px]';
+
   const handleWatchOptions = () => {
+    // Only counted when a verified link actually opens.
     onWatchOptions?.(movie);
-    window.open(
-      `https://www.google.com/search?q=watch+${encodeURIComponent(movie.title)}+movie`,
-      '_blank',
-      'noopener,noreferrer'
-    );
   };
 
   return (
     <article className="group relative flex flex-col bg-[#141414] border border-[#232323] hover:border-[#FF7A2F]/50 rounded-2xl overflow-hidden transition-all duration-200 hover:shadow-[0_0_24px_-6px_rgba(255,122,47,0.35)] w-full">
-      {/* Hidden Gem Badge */}
+      {/* Hidden Gem Badge — the label is explained, not assumed */}
       {movie.isHiddenGem && (
-        <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#141414]/90 backdrop-blur-md border border-[#FF7A2F] text-[#FF7A2F] shadow-[0_0_16px_rgba(255,122,47,0.35)]">
+        <div
+          className="absolute top-3 left-3 z-10 flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#141414]/90 backdrop-blur-md border border-[#FF7A2F] text-[#FF7A2F] shadow-[0_0_16px_rgba(255,122,47,0.35)]"
+          title="Low popularity with solid ratings — an under-the-radar pick"
+        >
           <Star size={13} className="fill-[#FF7A2F] text-[#FF7A2F]" />
           <span className="font-semibold text-[11px] tracking-wider uppercase">Hidden gem</span>
+          <span className="sr-only">(low popularity with solid ratings, an under-the-radar pick)</span>
         </div>
       )}
 
@@ -95,7 +104,15 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
             <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#FF7A2F] text-xs font-semibold">
               <Star size={11} className="fill-[#FF7A2F] text-[#FF7A2F]" />
               <span>{movie.rating ? movie.rating.toFixed(1) : '7.5'}</span>
+              {ratingSourceLabel && (
+                <span className="opacity-70 text-[10px] font-medium">{ratingSourceLabel}</span>
+              )}
             </span>
+            {mediaLabel && (
+              <span className="px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#8C8C8C] text-xs">
+                {mediaLabel}
+              </span>
+            )}
             {movie.certificate && (
               <span className="px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#FF7A2F] text-xs font-medium">
                 {movie.certificate}
@@ -147,7 +164,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
                   title={`${p.name}${p.type ? ` (${p.type})` : ''}`}
                   className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-lg bg-[#1f1f1f] border border-[#2a2a2a] hover:border-[#FF7A2F] text-xs text-[#d0d0d0] transition-colors duration-200"
                 >
-                  <span className="flex items-center justify-center w-6 h-6 rounded-md bg-[#202020] overflow-hidden shrink-0">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-md bg-[#202020] overflow-hidden shrink-0" aria-hidden="true">
                     {p.logoUrl && !brokenLogos.has(p.logoUrl) ? (
                       <img
                         src={p.logoUrl}
@@ -198,13 +215,29 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
           <span>More like this</span>
         </button>
 
-        <button
-          onClick={handleWatchOptions}
-          className="text-[#FF7A2F] hover:text-white text-[13px] font-semibold flex items-center gap-1 transition-colors cursor-pointer min-h-[44px]"
-        >
-          <span>Watch options</span>
-          <ExternalLink size={14} />
-        </button>
+        {providerLink ? (
+          <a
+            href={providerLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={handleWatchOptions}
+            className={watchOptionsClass}
+          >
+            <span>Watch options</span>
+            <ExternalLink size={14} />
+          </a>
+        ) : (
+          <button
+            type="button"
+            disabled
+            title="No verified watch link for this title right now"
+            aria-label={`Watch options unavailable for ${movie.title} — no verified provider link`}
+            className="text-[#8C8C8C] text-[13px] font-semibold flex items-center gap-1 min-h-[44px] opacity-70 cursor-not-allowed"
+          >
+            <span>No watch link</span>
+            <ExternalLink size={14} />
+          </button>
+        )}
       </div>
 
       {/* Feedback row: Seen it / Not for me (both exclude from future picks) */}

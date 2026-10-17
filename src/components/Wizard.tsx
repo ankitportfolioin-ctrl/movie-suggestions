@@ -174,7 +174,7 @@ export const Wizard: React.FC<WizardProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const searchReferenceMovies = async (query: string) => {
-    if (query.length < 2) {
+    if (query.trim().length < 2) {
       setReferenceSuggestions([]);
       return;
     }
@@ -198,6 +198,12 @@ export const Wizard: React.FC<WizardProps> = ({
   const handleReferenceSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setReferenceSearchQuery(value);
+    // D-08: a one-letter query explains itself instead of silently doing nothing.
+    if (value.trim().length === 1) {
+      setReferenceSearchError('Keep typing — at least 2 letters to search titles.');
+    } else if (referenceSearchError) {
+      setReferenceSearchError('');
+    }
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => searchReferenceMovies(value), 300);
   };
@@ -329,6 +335,7 @@ export const Wizard: React.FC<WizardProps> = ({
                   <button
                     key={item.label}
                     onClick={() => onChange({ mood: item.label })}
+                    aria-pressed={isSelected}
                     className={`p-3.5 rounded-[12px] border text-left transition-all duration-200 cursor-pointer ${
                       isSelected
                         ? 'bg-[#1c1b1b] border-[#FF7A2F] shadow-[0_0_15px_rgba(255,122,47,0.2)] text-white'
@@ -375,6 +382,7 @@ export const Wizard: React.FC<WizardProps> = ({
                   <button
                     key={g}
                     onClick={() => handleGenreToggle(g)}
+                    aria-pressed={isSelected}
                     className={`px-4 py-2.5 rounded-[12px] border text-sm font-medium transition-all duration-200 cursor-pointer flex items-center gap-2 ${
                       isSelected
                         ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_12px_rgba(255,122,47,0.18)]'
@@ -410,6 +418,7 @@ export const Wizard: React.FC<WizardProps> = ({
                   <button
                     key={item.label}
                     onClick={() => onChange({ audience: item.label })}
+                    aria-pressed={isSelected}
                     className={`p-4 rounded-[12px] border text-left transition-all duration-200 cursor-pointer flex items-start gap-3.5 ${
                       isSelected
                         ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_15px_rgba(255,122,47,0.2)]'
@@ -457,6 +466,7 @@ export const Wizard: React.FC<WizardProps> = ({
                   <button
                     key={item.label}
                     onClick={() => onChange({ maxRuntime: item.label })}
+                    aria-pressed={isSelected}
                     className={`p-4 rounded-[12px] border text-left transition-all duration-200 cursor-pointer ${
                       isSelected
                         ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_15px_rgba(255,122,47,0.2)]'
@@ -497,6 +507,7 @@ export const Wizard: React.FC<WizardProps> = ({
                   <button
                     key={lang}
                     onClick={() => onChange({ languages: [lang] })}
+                    aria-pressed={isSelected}
                     className={`p-3 rounded-[12px] border text-center transition-all duration-200 cursor-pointer ${
                       isSelected
                         ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_12px_rgba(255,122,47,0.18)] font-semibold'
@@ -611,6 +622,7 @@ export const Wizard: React.FC<WizardProps> = ({
                               : current;
                           onChange({ preferences: { ...preferences, tones: next } });
                           }}
+                          aria-pressed={!!checked}
                           className={`px-3 py-2 rounded-[10px] border text-sm font-medium transition-all duration-200 cursor-pointer ${
                             checked
                               ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_10px_rgba(255,122,47,0.15)]'
@@ -636,6 +648,7 @@ export const Wizard: React.FC<WizardProps> = ({
                           key={p}
                           type="button"
                           onClick={() => onChange({ preferences: { ...preferences, pace: checked ? undefined : p } })}
+                          aria-pressed={checked}
                           className={`px-3 py-2 rounded-[10px] border text-sm font-medium transition-all duration-200 cursor-pointer ${
                             checked
                               ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_10px_rgba(255,122,47,0.15)]'
@@ -660,6 +673,7 @@ export const Wizard: React.FC<WizardProps> = ({
                           key={i}
                           type="button"
                           onClick={() => onChange({ preferences: { ...preferences, intensity: checked ? undefined : i } })}
+                          aria-pressed={checked}
                           className={`px-3 py-2 rounded-[10px] border text-sm font-medium transition-all duration-200 cursor-pointer ${
                             checked
                               ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_10px_rgba(255,122,47,0.15)]'
@@ -685,6 +699,7 @@ export const Wizard: React.FC<WizardProps> = ({
                             key={h}
                             type="button"
                             onClick={() => onChange({ preferences: { ...preferences, humorStyle: checked ? undefined : h } })}
+                          aria-pressed={checked}
                             className={`px-3 py-2 rounded-[10px] border text-sm font-medium transition-all duration-200 cursor-pointer ${
                               checked
                                 ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_10px_rgba(255,122,47,0.15)]'
@@ -717,12 +732,15 @@ export const Wizard: React.FC<WizardProps> = ({
 
             {/* Reference Movies Field */}
             <div className="space-y-3">
-              <label className="block text-sm font-medium text-[#F5F5F5] mb-2">
+              <label
+                htmlFor="reference-movie-search"
+                className="block text-sm font-medium text-[#F5F5F5] mb-2"
+              >
                 Movies you liked (optional, up to 3)
               </label>
               <div className="relative">
                 <div className="flex items-center">
-                  <Search className="absolute left-3 text-[#8C8C8C] w-5 h-5 pointer-events-none" />
+                  <Search className="absolute left-3 text-[#8C8C8C] w-5 h-5 pointer-events-none" aria-hidden="true" />
                   <input
                     ref={inputRef}
                     type="text"
@@ -732,38 +750,54 @@ export const Wizard: React.FC<WizardProps> = ({
                     placeholder="e.g. Wolf of Wall Street, The Social Network"
                     className="w-full pl-10 pr-4 py-3 rounded-[12px] bg-[#0A0A0A] border border-[#232323] focus:border-[#FF7A2F] text-[#F5F5F5] placeholder-[#8C8C8C] outline-none transition-all duration-200"
                     maxLength={80}
+                    aria-describedby="reference-search-status"
                   />
                 </div>
                 {referenceSearchLoading && (
-                  <div className="absolute right-10 top-1/2 -translate-y-1/2">
+                  <div className="absolute right-10 top-1/2 -translate-y-1/2" aria-hidden="true">
                     <Loader2 className="w-5 h-5 text-[#FF7A2F] animate-spin" />
                   </div>
                 )}
               </div>
-              {referenceSearchError && (
-                <p className="text-xs text-[#E63946] mt-1">{referenceSearchError}</p>
-              )}
+              {/* D-05: one status line announces searching / errors / result counts */}
+              <p
+                id="reference-search-status"
+                role="status"
+                aria-live="polite"
+                className={`text-xs mt-1 ${referenceSearchError ? 'text-[#E63946]' : 'text-[#8C8C8C]'}`}
+              >
+                {referenceSearchLoading
+                  ? 'Searching titles…'
+                  : referenceSearchError
+                  ? referenceSearchError
+                  : referenceSuggestions.length > 0
+                  ? `${referenceSuggestions.length} title${referenceSuggestions.length === 1 ? '' : 's'} found. Use arrow keys or tab to review them.`
+                  : ''}
+              </p>
               {referenceSuggestions.length > 0 && (
                 <ul
                   ref={suggestionsContainerRef}
                   className="absolute z-10 w-full mt-1 bg-[#141414] border border-[#232323] rounded-[12px] max-h-60 overflow-auto"
                 >
                   {referenceSuggestions.map((s) => (
-                    <li
-                      key={`${s.imdbId}-${s.year}`}
-                      onClick={() => addReferenceMovie(s)}
-                      className="px-4 py-3 hover:bg-[#1c1b1b] cursor-pointer flex items-center gap-3 border-b border-[#232323] last:border-0"
-                    >
-                      <img
-                        src={s.posterUrl}
-                        alt=""
-                        className="w-12 h-18 object-cover rounded-[6px] bg-[#232323]"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-[#F5F5F5] truncate">{s.title}</p>
-                        <p className="text-xs text-[#8C8C8C]">{s.year}</p>
-                      </div>
+                    <li key={`${s.imdbId}-${s.year}`} className="border-b border-[#232323] last:border-0">
+                      <button
+                        type="button"
+                        onClick={() => addReferenceMovie(s)}
+                        className="w-full px-4 py-3 hover:bg-[#1c1b1b] focus:bg-[#1c1b1b] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A2F] cursor-pointer flex items-center gap-3 text-left"
+                      >
+                        <img
+                          src={s.posterUrl}
+                          alt=""
+                          aria-hidden="true"
+                          className="w-12 h-18 object-cover rounded-[6px] bg-[#232323]"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#F5F5F5] truncate">{s.title}</p>
+                          <p className="text-xs text-[#8C8C8C]">{s.year}</p>
+                        </div>
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -793,6 +827,12 @@ export const Wizard: React.FC<WizardProps> = ({
             </div>
 
             <div className="space-y-2 pt-2">
+              <label
+                htmlFor="quiz-user-notes"
+                className="block text-sm font-medium text-[#F5F5F5]"
+              >
+                Add a note (optional)
+              </label>
               <div className="relative">
                 <textarea
                   id="quiz-user-notes"

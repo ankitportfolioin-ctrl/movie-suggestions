@@ -7,6 +7,7 @@ import {
   buildContextKey,
   burstExceeded,
   countAnonEventsSince,
+  deleteAnonData,
   findImpression,
   openLearningDb,
   recordEvent,
@@ -85,6 +86,27 @@ test('unknown impression is detectable', () => {
   recordImpressions(db, [IMP]);
   const found = findImpression(db, IMP.impressionId);
   assert.ok(found && found.movieId === IMP.movieId && found.anonId === IMP.anonId);
+});
+
+test('D-07: deleteAnonData removes only this anonId\'s rows', () => {
+  const db = memDb();
+  recordImpressions(db, [IMP, { ...IMP, impressionId: 'imp-2', anonId: 'someone-else' }]);
+  recordEvent(db, {
+    eventId: 'evt-1', impressionId: IMP.impressionId, anonId: IMP.anonId,
+    action: 'save', movieId: IMP.movieId, ts: Date.now(),
+  });
+  recordEvent(db, {
+    eventId: 'evt-2', impressionId: 'imp-2', anonId: 'someone-else',
+    action: 'save', movieId: IMP.movieId, ts: Date.now(),
+  });
+
+  const deleted = deleteAnonData(db, IMP.anonId);
+  assert.deepEqual(deleted, { impressions: 1, events: 1 });
+  assert.equal(findImpression(db, IMP.impressionId), null);
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM events WHERE anonId = ?').get(IMP.anonId) as { n: number }).n, 0);
+  // The other anonymous visitor's rows are untouched.
+  assert.ok(findImpression(db, 'imp-2'));
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM events WHERE anonId = ?').get('someone-else') as { n: number }).n, 1);
 });
 
 test('event body validation rejects junk', () => {

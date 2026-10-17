@@ -90,19 +90,28 @@ test('feedback: every card action sends exactly one valid event', async ({ page 
     page.locator('article').nth(2).getByRole('button', { name: 'Save pick' }).click().then(() => {}),
     ['save'],
   );
-  // Card 3: Watch options (opens a popup; event fires regardless).
+  // Card 3: Watch options — D-03: only a verified title-specific link is offered
+  // (opens a popup; event fires only when a real link opens). Otherwise the
+  // control is a plainly disabled button and no event may fire.
   {
-    const before = captured.length;
-    const [popup] = await Promise.all([
-      page.waitForEvent('popup').catch(() => null),
-      page.locator('article').nth(2).getByRole('button', { name: 'Watch options' }).click(),
-    ]);
-    await page.waitForTimeout(800);
-    if (popup) await popup.close().catch(() => {});
-    const fresh = captured.slice(before);
-    expect(fresh.map((e) => e.action)).toEqual(['provider_click']);
-    expect(fresh[0].status).toBe(200);
-    expect(fresh[0].ok).toBe(true);
+    const watchLink = page.locator('article').nth(2).getByRole('link', { name: 'Watch options' });
+    if ((await watchLink.count()) > 0) {
+      const before = captured.length;
+      const [popup] = await Promise.all([
+        page.waitForEvent('popup').catch(() => null),
+        watchLink.click(),
+      ]);
+      await page.waitForTimeout(800);
+      if (popup) await popup.close().catch(() => {});
+      const fresh = captured.slice(before);
+      expect(fresh.map((e) => e.action)).toEqual(['provider_click']);
+      expect(fresh[0].status).toBe(200);
+      expect(fresh[0].ok).toBe(true);
+    } else {
+      await expect(
+        page.locator('article').nth(2).getByRole('button', { name: /Watch options unavailable/i }),
+      ).toBeDisabled();
+    }
   }
   // Card 3: More like this (refetches with seeded genres).
   {
@@ -144,8 +153,8 @@ test('feedback: every card action sends exactly one valid event', async ({ page 
     }
   }
 
-  // Privacy note + reset control are visible.
-  await expect(page.getByText(/anonymous preferences on your device/i)).toBeVisible();
+  // Privacy note + reset control are visible (D-07 copy).
+  await expect(page.getByText(/no accounts, no trackers, no note text in analytics/i)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reset my taste' })).toBeVisible();
 
   // Screenshots at both sizes.

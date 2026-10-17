@@ -13,6 +13,8 @@ interface Provider {
   name: string;
   logoUrl: string;
   type?: string;
+  /** Title-specific provider page from Watchmode (when the source offers one). */
+  url?: string;
 }
 
 interface MoviePickLike {
@@ -190,10 +192,13 @@ export async function attachLiveProviders<T extends MoviePickLike>(
           if (typeof s.source_id !== 'number' || seen.has(s.source_id)) continue;
           seen.add(s.source_id);
           const info = directory.get(s.source_id);
+          const webUrl =
+            typeof s.web_url === 'string' && /^https?:\/\//i.test(s.web_url) ? s.web_url : undefined;
           providers.push({
             name: info?.name || s.name || 'Unknown',
             logoUrl: info?.logo || '',
             type: TYPE_LABELS[s.type] || s.type,
+            url: webUrl,
           });
           if (providers.length >= 4) break;
         }

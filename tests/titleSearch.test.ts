@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { searchTitles } from '../server/titleSearch.js';
+import { searchSuggestions, searchTitles } from '../server/titleSearch.js';
 
 const INTERSTELLAR = {
   id: 157336, title: 'Interstellar', original_title: 'Interstellar',
@@ -89,6 +89,24 @@ describe('exact-title search', () => {
     assert.equal((short.body as { error: string }).error, 'Type at least 2 characters');
   });
 
+  test('upstream 429 stays a retryable 429', async () => {
+    const limited = (async () => ({ ok: false, status: 429 }) as unknown as Response) as typeof fetch;
+    const r = await searchTitles('Interstellar', { tmdbKey: 'K', fetchFn: limited });
+    assert.equal(r.status, 429);
+    assert.equal((r.body as { retryable: boolean }).retryable, true);
+  });
+
+  test('Dune with year passes through to the provider query', async () => {
+    let seen = '';
+    const spy = (async (url: string) => {
+      seen = url;
+      return { ok: true, json: async () => ({ results: [] }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    const r = await searchTitles('Dune 2021', { tmdbKey: 'K', fetchFn: spy });
+    assert.ok(seen.includes('query=Dune%202021'), seen);
+    assert.equal(r.status, 200);
+  });
+
   test('whitespace is collapsed before search', async () => {
     let seen = '';
     const spy = (async (url: string) => {
@@ -97,5 +115,91 @@ describe('exact-title search', () => {
     }) as unknown as typeof fetch;
     await searchTitles('  Interstellar   2014  ', { tmdbKey: 'K', fetchFn: spy });
     assert.ok(seen.includes('query=Interstellar%202014'), seen);
+  });
+
+  test('punctuated title passes through encoded', async () => {
+    let seen = '';
+    const spy = (async (url: string) => {
+      seen = url;
+      return { ok: true, json: async () => ({ results: [] }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    const r = await searchTitles('Spider-Man: Into the Spider-Verse', { tmdbKey: 'K', fetchFn: spy });
+    assert.ok(seen.includes('query=Spider-Man%3A%20Into%20the%20Spider-Verse'), seen);
+    assert.equal(r.status, 200);
+  });
+});
+
+describe('reference-title suggestions (OMDb)', () => {
+  const omdbOk = (body: unknown) =>
+    (async () => ({ ok: true, json: async () => body }) as unknown as Response) as typeof fetch;
+
+  test('chips carry real IMDb ids the reference pipeline can resolve', async () => {
+    const r = await searchSuggestions('arrival', {
+      omdbKey: 'K',
+      fetchFn: omdbOk({
+        Response: 'True',
+        Search: [
+          { imdbID: 'tt2543164', Title: 'Arrival', Year: '2016', Poster: 'https://m.media-amazon.com/images/M/x.jpg' },
+          { imdbID: 'tt1234567', Title: 'Arrival II', Year: '2017', Poster: 'N/A' },
+        ],
+      }),
+    });
+    assert.equal(r.status, 200);
+    const results = r.body.results as { imdbId: string; title: string; year: number; posterUrl: string }[];
+    assert.equal(results.length, 2);
+    assert.equal(results[0].imdbId, 'tt2543164');
+    assert.equal(results[0].year, 2016);
+    assert.ok(results[0].posterUrl.startsWith('/img/'), results[0].posterUrl);
+    assert.equal(results[1].posterUrl, '');
+    assert.ok(results.every((x) => /^tt\d+$/.test(x.imdbId)));
+  });
+
+  test('OMDb "not found" is a genuine empty result', async () => {
+    const r = await searchSuggestions('zzzz', {
+      omdbKey: 'K',
+      fetchFn: omdbOk({ Response: 'False', Error: 'Movie not found!' }),
+    });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.results, []);
+  });
+
+  test('any other OMDb failure is a retryable 502, never an empty success', async () => {
+    const r = await searchSuggestions('arrival', {
+      omdbKey: 'K',
+      fetchFn: omdbOk({ Response: 'False', Error: 'Invalid API key!' }),
+    });
+    assert.equal(r.status, 502);
+    assert.equal((r.body as { retryable: boolean }).retryable, true);
+    assert.ok(!('results' in r.body));
+  });
+
+  test('records without a real tt id are dropped', async () => {
+    const r = await searchSuggestions('arrival', {
+      omdbKey: 'K',
+      fetchFn: omdbOk({
+        Response: 'True',
+        Search: [{ imdbID: 'nm000003', Title: 'Arrival' }, { imdbID: 'tt2543164', Title: 'Arrival' }],
+      }),
+    });
+    assert.equal((r.body.results as unknown[]).length, 1);
+  });
+
+  test('no key and upstream 429 stay honest errors', async () => {
+    assert.equal((await searchSuggestions('arrival', {})).status, 502);
+    const limited = (async () => ({ ok: false, status: 429 }) as unknown as Response) as typeof fetch;
+    const r = await searchSuggestions('arrival', { omdbKey: 'K', fetchFn: limited });
+    assert.equal(r.status, 429);
+    assert.equal((r.body as { retryable: boolean }).retryable, true);
+  });
+
+  test('short query is a 400, query is trimmed in the provider call', async () => {
+    assert.equal((await searchSuggestions('a', { omdbKey: 'K' })).status, 400);
+    let seen = '';
+    const spy = (async (url: string) => {
+      seen = url;
+      return { ok: true, json: async () => ({ Response: 'True', Search: [] }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await searchSuggestions('  arrival  ', { omdbKey: 'K', fetchFn: spy });
+    assert.ok(seen.includes('s=arrival'), seen);
   });
 });

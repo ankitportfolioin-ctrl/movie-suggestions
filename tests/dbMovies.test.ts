@@ -51,6 +51,14 @@ describe('SQL WHERE builder', () => {
     const { text } = buildWhereClause({ ...base(), matureAllowed: true });
     assert.ok(!text.includes('minAge'));
   });
+
+  test('D-02: Sci-Fi filter matches rows stored as "Science Fiction"', () => {
+    const { params } = buildWhereClause({ ...base(), genres: ['Sci-Fi'], excludeGenres: ['Sci-Fi'] });
+    assert.deepEqual(params.slice(0, 2), [
+      ['Sci-Fi', 'Science Fiction'],
+      ['Sci-Fi', 'Science Fiction'],
+    ]);
+  });
 });
 
 describe('matchesFilters (fallback mirror)', () => {
@@ -80,6 +88,15 @@ describe('matchesFilters (fallback mirror)', () => {
     assert.equal(matchesFilters(item({ genres: ['Animation'] }), fam), true);
     assert.equal(matchesFilters(item({ genres: ['Comedy'] }), fam), false);
     assert.equal(matchesFilters(item({ genres: ['Family', 'War'] }), fam), false);
+  });
+
+  test('D-02: pool rows stored as "Science Fiction" satisfy a Sci-Fi filter', () => {
+    assert.equal(matchesFilters(item({ genres: ['Science Fiction'] }),
+      { ...base(), genres: ['Sci-Fi'] }), true);
+    assert.equal(matchesFilters(item({ genres: ['Sci-Fi'] }),
+      { ...base(), genres: ['Sci-Fi'] }), true);
+    assert.equal(matchesFilters(item({ genres: ['Science Fiction'] }),
+      { ...base(), excludeGenres: ['Sci-Fi'] }), false);
   });
 });
 

@@ -32,7 +32,7 @@ test('keyboard-only completion', async ({ page }) => {
     page.getByRole('button', { name: 'Find my movies' }).focus().then(() => page.keyboard.press('Enter')),
   ]);
   expect(resp.ok()).toBeTruthy();
-  await expect(page.getByText(/Tailored Matches|perfect match|went wrong/i).first()).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/Tailored Match|perfect match|went wrong/i).first()).toBeVisible({ timeout: 15000 });
   expect(art.consoleErrors).toEqual([]);
   expect(art.pageErrors).toEqual([]);
 });
@@ -104,7 +104,7 @@ test('free-text injection: no crash, no script exec, no raw HTML', async ({ page
       page.getByRole('button', { name: 'Find my movies' }).click(),
     ]);
     expect(resp.ok()).toBeTruthy();
-    await expect(page.getByText(/Tailored Matches|perfect match|went wrong/i).first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/Tailored Match|perfect match|went wrong/i).first()).toBeVisible({ timeout: 15000 });
     const rawHtml = await page.content();
     expect(rawHtml.includes('<script>alert(1)</script>')).toBeFalsy();
     expect(alerted).toBeFalsy();
@@ -134,7 +134,7 @@ for (const mode of ['abort', 'timeout-30s', 'malformed', 'http-429', 'http-500']
       test.setTimeout(90_000);
       await page.getByRole('button', { name: 'Find my movies' }).click();
       await expect(page.getByText(/Analyzing|Taste Profiles/i).first()).toBeVisible({ timeout: 10000 });
-      await expect(page.getByText(/Tailored Matches|perfect match|went wrong/i).first()).toBeVisible({ timeout: 60000 });
+      await expect(page.getByText(/Tailored Match|perfect match|went wrong/i).first()).toBeVisible({ timeout: 60000 });
       const len = (await page.textContent('body') || '').trim().length;
       expect(len).toBeGreaterThan(100);
       console.log(`FAILMODE ${mode}: no client timeout — loading 33s then end state, body=${len} chars (D-TIMEOUT-01)`);
@@ -184,7 +184,7 @@ test('slow 3G loading state', async ({ page, context }) => {
   await page.getByRole('button', { name: 'Find my movies' }).click();
   await expect(page.getByText(/Analyzing|Taste Profiles/i).first()).toBeVisible({ timeout: 20000 });
   await page.screenshot({ path: 'release-report/screens/1366x768-edge-slow3g-loading.png' });
-  await expect(page.getByText(/Tailored Matches|perfect match|went wrong/i).first()).toBeVisible({ timeout: 60000 });
+  await expect(page.getByText(/Tailored Match|perfect match|went wrong/i).first()).toBeVisible({ timeout: 60000 });
   console.log('SLOW3G: loading indicator shown, reached end state');
 });
 
