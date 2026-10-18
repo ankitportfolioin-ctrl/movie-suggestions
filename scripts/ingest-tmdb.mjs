@@ -45,8 +45,8 @@ export async function downloadExport(filePrefix, baseUrl = process.env.TMDB_EXPO
     for (const protocol of ["https", "http"]) {
       const url = `${protocol}://${baseUrl.replace(/^https?:\/\//, "")}/p/exports/${filePrefix}_${dateStr}.json.gz`;
       try {
-        // Export files are ~100MB+ gzipped; allow 5 min for download + streaming
-        const res = await fetch(url, { signal: AbortSignal.timeout(300000) });
+        // Export files are ~100MB+ gzipped; allow 15 min for download + streaming on CI
+        const res = await fetch(url, { signal: AbortSignal.timeout(900000) });
         if (res.ok) {
           // Convert Web ReadableStream to Node Readable (Node 20+)
           return { stream: Readable.fromWeb(res.body), dateStr };
