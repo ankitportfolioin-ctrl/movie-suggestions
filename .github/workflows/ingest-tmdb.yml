@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "ingest = add new titles; dry-run = count only (writes nothing); backfill-cert = fill certificate/minAge where minAge is NULL"
+        description: "ingest = add new titles; dry-run = count only (writes nothing); backfill-cert = fill certificate/minAge where minAge is NULL; sample = test run without writes; ingest-export-movies/series = download TMDB daily exports; supplement-movies/series = language pass via discover"
         required: false
         default: "ingest"
         type: choice
@@ -20,6 +20,11 @@ on:
           - ingest
           - dry-run
           - backfill-cert
+          - sample
+          - ingest-export-movies
+          - ingest-export-series
+          - supplement-movies
+          - supplement-series
       types:
         description: "Media kinds for ingest/dry-run (movie,short,series)"
         required: false
@@ -32,8 +37,21 @@ on:
         description: "Max detail fetches this run (0 = no limit)"
         required: false
         default: "0"
+      target:
+        description: "Target total rows in movies table (default 60000)"
+        required: false
+        default: "60000"
+      sample_size:
+        description: "Sample size for sample mode (default 500)"
+        required: false
+        default: "500"
       force:
         description: "backfill-cert reprocesses rows that already have minAge (fills new columns)"
+        required: false
+        default: false
+        type: boolean
+      allow_series:
+        description: "Allow writing series rows (required for series modes)"
         required: false
         default: false
         type: boolean
@@ -63,12 +81,20 @@ jobs:
           set +e
           EXTRA=""
           if [ "${{ inputs.force }}" = "true" ]; then EXTRA="--force"; fi
+          if [ "${{ inputs.allow_series }}" = "true" ]; then EXTRA="$EXTRA --allow-series"; fi
           MODE="${{ inputs.mode || 'ingest' }}"
+          CMD="npm run ingest:tmdb --"
           if [ "$MODE" = "dry-run" ]; then
-            npm run ingest:tmdb -- --dry-run --types "${{ inputs.types || 'movie,short,series' }}" --years "${{ inputs.years || '2000-2026' }}" 2>&1 | tee ingest.log
+            CMD="$CMD --dry-run --types \"${{ inputs.types || 'movie,short,series' }}\" --years \"${{ inputs.years || '2000-2026' }}\""
+          elif [ "$MODE" = "sample" ]; then
+            CMD="$CMD --mode sample --sample-size \"${{ inputs.sample_size || '500' }}\" --types \"${{ inputs.types || 'movie,series' }}\" --years \"${{ inputs.years || '2000-2026' }}\""
+          elif [ "$MODE" = "ingest-export-movies" ] || [ "$MODE" = "ingest-export-series" ] || [ "$MODE" = "supplement-movies" ] || [ "$MODE" = "supplement-series" ]; then
+            CMD="$CMD --mode \"$MODE\" --years \"${{ inputs.years || '2000-2026' }}\" --limit \"${{ inputs.limit || '0' }}\" --target \"${{ inputs.target || '60000' }}\" $EXTRA"
           else
-            npm run ingest:tmdb -- --mode "$MODE" --types "${{ inputs.types || 'movie' }}" --years "${{ inputs.years || '2000-2026' }}" --limit "${{ inputs.limit || '0' }}" $EXTRA 2>&1 | tee ingest.log
+            CMD="$CMD --mode \"$MODE\" --types \"${{ inputs.types || 'movie' }}\" --years \"${{ inputs.years || '2000-2026' }}\" --limit \"${{ inputs.limit || '0' }}\" --target \"${{ inputs.target || '60000' }}\" $EXTRA"
           fi
+          echo "Running: $CMD"
+          eval "$CMD" 2>&1 | tee ingest.log
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}

@@ -94,6 +94,34 @@ function parseMode(argv) {
   return "ingest";
 }
 
+function parseTarget(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const m = argv[i].match(/^--target(?:=(\d+))?$/);
+    if (m) {
+      if (m[1] !== undefined) return Number(m[1]);
+      const next = Number(argv[i + 1]);
+      if (Number.isInteger(next) && next > 0) return next;
+      throw new Error("usage: --target N (N > 0)");
+    }
+  }
+  return 60000;
+}
+
+function parseSampleSize(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const m = argv[i].match(/^--sample-size(?:=(\d+))?$/);
+    if (m) {
+      if (m[1] !== undefined) return Number(m[1]);
+      const next = Number(argv[i + 1]);
+      if (Number.isInteger(next) && next > 0) return next;
+      throw new Error("usage: --sample-size N (N > 0)");
+    }
+  }
+  return 500;
+}
+
+export { parseTarget, parseSampleSize };
+
 // pg lowercases unquoted column names, so rows carry `tmdbid`, not `tmdbId`.
 export function pgIds(rows) {
   return rows.map((r) => r.tmdbid);
@@ -945,8 +973,17 @@ async function main() {
   const years = parseYears(argValue(argv, "--years") ?? "2000-2026");
   const types = parseTypesArg(argValue(argv, "--types") ?? (dryRun ? "movie,short,series" : "movie"));
   const force = argv.includes("--force");
+  const allowSeries = argv.includes("--allow-series");
+  const target = parseTarget(argv);
+  const sampleSize = parseSampleSize(argv);
   const env = loadEnv();
   const KEY = env.TMDB_API_KEY;
+
+  // Startup logging (no secrets)
+  console.log(`=== INGEST START ===`);
+  console.log(`mode=${mode} dryRun=${dryRun} force=${force} allowSeries=${allowSeries}`);
+  console.log(`types=${types.join(",")} years=${years.from}-${years.to} limit=${limit} target=${target} sampleSize=${sampleSize}`);
+
   if (!KEY) {
     console.log("TMDB_API_KEY is not set (checked env + .env). Nothing ingested.");
     process.exit(3);

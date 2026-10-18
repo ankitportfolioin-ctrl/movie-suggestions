@@ -2,7 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BIG_LANGS, DRY_MAX_PAGES, TV_GENRE_IDS, buildSlices, dryRunEstimate,
-  dryRunQuality, dryRunScan, dryRunSummary, parseTypesArg, parseYears, voteFloor,
+  dryRunQuality, dryRunScan, dryRunSummary, parseSampleSize, parseTarget, parseTypesArg, parseYears, voteFloor,
 } from '../scripts/ingest-tmdb.mjs';
 
 describe('dry-run argument parsing', () => {
@@ -18,6 +18,22 @@ describe('dry-run argument parsing', () => {
     assert.deepEqual(parseTypesArg('series,series'), ['series']);
     assert.throws(() => parseTypesArg('film'));
     assert.throws(() => parseTypesArg(''));
+  });
+
+  test('target defaults to 60000 and parses valid values', () => {
+    assert.equal(parseTarget([]), 60000);
+    assert.equal(parseTarget(['--target', '50000']), 50000);
+    assert.equal(parseTarget(['--target=75000']), 75000);
+    assert.throws(() => parseTarget(['--target', '0']));
+    assert.throws(() => parseTarget(['--target', '-1']));
+  });
+
+  test('sample-size defaults to 500 and parses valid values', () => {
+    assert.equal(parseSampleSize([]), 500);
+    assert.equal(parseSampleSize(['--sample-size', '1000']), 1000);
+    assert.equal(parseSampleSize(['--sample-size=200']), 200);
+    assert.throws(() => parseSampleSize(['--sample-size', '0']));
+    assert.throws(() => parseSampleSize(['--sample-size', '-5']));
   });
 });
 
