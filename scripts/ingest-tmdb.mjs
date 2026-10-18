@@ -1564,10 +1564,372 @@ async function runSample(KEY, pool, opts, pastDeadline) {
   const known = new Set([...existing, ...rejects]);
   console.log(`runSample: known in DB=${existing.size}, recent rejects=${rejects.size}, total known=${known.size}`);
   
-  // For sample mode, we need to download export files
-  // This is a simplified version - real implementation would download and process
-  console.log("NOT IMPLEMENTED YET: runSample with export file download");
-  process.exit(1);
+  // Try to download export files for top 150k by popularity
+  const exportType = isMovies ? "movie" : "tv_series";
+  const filePrefix = isMovies ? "movie_ids" : "tv_series_ids";
+  
+  const today = new Date();
+  const tryDates = [];
+  for (let i = 0; i < 4; i++) {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() - i);
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    const yyyy = d.getUTCFullYear();
+    tryDates.push(`${mm}_${dd}_${yyyy}`);
+  }
+  
+  let exportData = null;
+  let usedDate = null;
+  
+  for (const dateStr of tryDates) {
+    for (const protocol of ["https", "http"]) {
+      const url = `${protocol}://files.tmdb.org/p/exports/${filePrefix}_${dateStr}.json.gz`;
+      console.log(`runSample: trying ${url}`);
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+        if (res.ok) {
+          exportData = res.body;
+          usedDate = dateStr;
+          console.log(`runSample: successfully downloading ${url}`);
+          break;
+        } else if (res.status === 404 || res.status === 403) {
+          console.log(`runSample: ${url} returned ${res.status}, trying next`);
+        } else {
+          console.log(`runSample: ${url} returned ${res.status}`);
+        }
+      } catch (e) {
+        console.log(`runSample: ${url} failed: ${e.message}`);
+      }
+    }
+    if (exportData) break;
+  }
+  
+  const topCandidates = [];
+  
+  if (exportData) {
+    console.log(`runSample: using export date ${usedDate}`);
+    
+    const { createGunzip } = await import("node:zlib");
+    const { createInterface } = await import("node:readline");
+    
+    const gunzip = createGunzip();
+    const rl = createInterface({ input: exportData.pipe(gunzip), crlfDelay: Infinity });
+    
+    let totalLines = 0;
+    let adultVideoDropped = 0;
+    let alreadyKnown = 0;
+    let malformed = 0;
+    const K = 150000;
+    const candidates = []; // min-heap for top K by popularity
+    
+    for await (const line of rl) {
+      totalLines++;
+      let obj;
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        malformed++;
+        continue;
+      }
+      
+      if (obj.adult === true || obj.video === true) {
+        adultVideoDropped++;
+        continue;
+      }
+      
+      const id = obj.id;
+      if (known.has(id)) {
+        alreadyKnown++;
+        continue;
+      }
+      
+      const popularity = obj.popularity || 0;
+      if (candidates.length < K) {
+        candidates.push({ id, popularity, obj });
+        candidates.sort((a, b) => a.popularity - b.popularity);
+      } else if (popularity > candidates[0].popularity) {
+        candidates[0] = { id, popularity, obj };
+        candidates.sort((a, b) => a.popularity - b.popularity);
+      }
+    }
+    
+    candidates.sort((a, b) => b.popularity - a.popularity);
+    topCandidates.push(...candidates);
+    console.log(`runSample: export file - total lines=${totalLines}, dropped adult/video=${adultVideoDropped}, already known=${alreadyKnown}, malformed=${malformed}, top ${K} candidates=${candidates.length}`);
+  } else {
+    console.log(`runSample: export file download failed, will use discover only`);
+  }
+  
+  // Also get N from discover for each target language
+  const discoverTargetLangs = ["hi", "te", "ta", "ml", "kn"];
+  const discoverCandidates = [];
+  
+  for (const lang of discoverTargetLangs) {
+    // Get top N by popularity for this language
+    for (const sort of ["popularity.desc", "vote_average.desc"]) {
+      if (discoverCandidates.length >= discoverTargetLangs.length * sampleSize) break;
+      
+      const path = isMovies ? "/discover/movie" : "/discover/tv";
+      const dateKey = isMovies ? "primary_release_date" : "first_air_date";
+      const runtime = isMovies ? { "with_runtime.gte": "41" } : {};
+      
+      for (let page = 1; page <= 10; page++) {
+        if (discoverCandidates.length >= discoverTargetLangs.length * sampleSize) break;
+        
+        try {
+          const q = new URLSearchParams({
+            api_key: KEY,
+            with_original_language: lang,
+            [dateKey + ".gte"]: `${fromYear}-01-01`,
+            [dateKey + ".lte"]: `${toYear}-12-31`,
+            sort_by: sort,
+            "vote_count.gte": "3",
+            page: String(page),
+            include_adult: "false",
+            ...runtime
+          });
+          const url = `https://api.themoviedb.org/3${path}?${q.toString()}`;
+          const res = await fetch(url, { headers: { "User-Agent": "MovieNightPicker-ingest/1.0" }, signal: AbortSignal.timeout(20000) });
+          if (!res.ok) break;
+          const data = await res.json();
+          const results = data.results || [];
+          
+          for (const r of results) {
+            if (r.adult === true) continue;
+            if (known.has(r.id)) continue;
+            if (discoverCandidates.some(c => c.id === r.id)) continue;
+            if (!r.overview || !r.poster_path || !r.vote_average || r.vote_average <= 0) continue;
+            
+            discoverCandidates.push({ id: r.id, popularity: r.popularity || 0, lang: r.original_language, obj: r });
+            known.add(r.id);
+          }
+          
+          if (results.length === 0) break;
+          if (page >= (data.total_pages || 1)) break;
+        } catch (e) {
+          if (!String(e.message).startsWith("HTTP:")) throw e;
+          break;
+        }
+      }
+    }
+  }
+  
+  // Combine and shuffle with seeded random for reproducibility
+  const allCandidates = [...topCandidates, ...discoverCandidates];
+  const seed = 42;
+  let rngState = seed;
+  function seededRandom() {
+    rngState = (rngState * 1664525 + 1013904223) % 4294967296;
+    return rngState / 4294967296;
+  }
+  for (let i = allCandidates.length - 1; i > 0; i--) {
+    const j = Math.floor(seededRandom() * (i + 1));
+    [allCandidates[i], allCandidates[j]] = [allCandidates[j], allCandidates[i]];
+  }
+  
+  // Take sampleSize from each type (movies and series separately)
+  const movieCandidates = allCandidates.filter(c => isMovies);
+  const seriesCandidates = allCandidates.filter(c => isSeries);
+  
+  const sampleMovies = movieCandidates.slice(0, isMovies ? sampleSize : 0);
+  const sampleSeries = seriesCandidates.slice(0, isSeries ? sampleSize : 0);
+  const sampleAll = [...sampleMovies, ...sampleSeries];
+  
+  console.log(`runSample: sampling ${sampleMovies.length} movies, ${sampleSeries.length} series (total ${sampleAll.length})`);
+  
+  // Run detail stage WITHOUT writing - track what would be kept/rejected
+  const rejectCounts = new Map();
+  let kept = 0;
+  const langMix = new Map();
+  const yearMix = new Map();
+  
+  const VOTE_FLOOR_DEFAULTS = {
+    movie: { default: 25, otherLang: 10, indian: 3, recent: 3 },
+    series: { default: 10, otherLang: 5, indian: 3, recent: 3 }
+  };
+  
+  const indianLangs = new Set(["hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "ur"]);
+  const bigLangs = new Set(["en", "fr", "es", "de", "it", "pt", "ja", "ko", "zh", "ru"]);
+  
+  function getVoteFloor(type, lang, year) {
+    const cfg = VOTE_FLOOR_DEFAULTS[type];
+    if (indianLangs.has(lang)) return cfg.indian;
+    if (year >= 2025) return cfg.recent;
+    if (bigLangs.has(lang)) return cfg.default;
+    return cfg.otherLang;
+  }
+  
+  let lastStart = 0;
+  const MIN_START_GAP_MS = 80;
+  async function pace() {
+    const wait = lastStart + MIN_START_GAP_MS - Date.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    lastStart = Date.now();
+  }
+  
+  async function tmdbWithRetry(pathname, params) {
+    const q = new URLSearchParams({ api_key: KEY, ...params });
+    const url = `https://api.themoviedb.org/3${pathname}?${q.toString()}`;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await pace();
+      let res;
+      try {
+        res = await fetch(url, {
+          headers: { "User-Agent": "MovieNightPicker-ingest/1.0" },
+          signal: AbortSignal.timeout(20000),
+        });
+      } catch (e) {
+        throw new Error("NETWORK:" + ((e.cause && (e.cause.code || e.cause.message)) || e.message));
+      }
+      if (res.status === 429) {
+        const retryAfterSec = Number(res.headers.get("retry-after") || 0);
+        await new Promise(r => setTimeout(r, Math.min(60000, retryAfterSec * 1000 + 1000 * 2 ** attempt)));
+        continue;
+      }
+      if (res.status === 404) return { notFound: true };
+      if (!res.ok) throw new Error("HTTP:" + res.status);
+      return res.json();
+    }
+    throw new Error("HTTP:429-persistent");
+  }
+  
+  const CONCURRENCY = 5;
+  for (let i = 0; i < sampleAll.length; i += CONCURRENCY) {
+    if (pastDeadline()) break;
+    const chunk = sampleAll.slice(i, i + CONCURRENCY);
+    
+    const results = await Promise.all(chunk.map(async (c) => {
+      const { id, obj, lang: candLang } = c;
+      const isMovie = isMovies;
+      
+      try {
+        let data;
+        if (isMovie) {
+          data = await tmdbWithRetry(`/movie/${id}`, { append_to_response: "release_dates,keywords" });
+        } else {
+          data = await tmdbWithRetry(`/tv/${id}`, { append_to_response: "content_ratings,keywords" });
+        }
+        
+        if (data.notFound) {
+          rejectCounts.set("not_found", (rejectCounts.get("not_found") || 0) + 1);
+          return null;
+        }
+        
+        if (!data.overview) {
+          rejectCounts.set("no_overview", (rejectCounts.get("no_overview") || 0) + 1);
+          return null;
+        }
+        if (!data.poster_path) {
+          rejectCounts.set("no_poster", (rejectCounts.get("no_poster") || 0) + 1);
+          return null;
+        }
+        if (!(typeof data.vote_average === "number" && data.vote_average > 0)) {
+          rejectCounts.set("no_rating", (rejectCounts.get("no_rating") || 0) + 1);
+          return null;
+        }
+        if (data.adult === true) {
+          rejectCounts.set("adult", (rejectCounts.get("adult") || 0) + 1);
+          return null;
+        }
+        
+        const year = isMovie 
+          ? (data.release_date ? parseInt(data.release_date.slice(0,4)) : 0)
+          : (data.first_air_date ? parseInt(data.first_air_date.slice(0,4)) : 0);
+        const lang = data.original_language || candLang || "unknown";
+        
+        const voteFloor = getVoteFloor(isMovie ? "movie" : "series", lang, year);
+        if ((data.vote_count || 0) < voteFloor) {
+          rejectCounts.set("votes_below_floor", (rejectCounts.get("votes_below_floor") || 0) + 1);
+          return null;
+        }
+        
+        if (isMovie) {
+          if (!Number.isFinite(year) || year < fromYear || year > toYear) {
+            rejectCounts.set("year_out_of_range", (rejectCounts.get("year_out_of_range") || 0) + 1);
+            return null;
+          }
+          if (!data.runtime || data.runtime <= 40) {
+            rejectCounts.set("short_runtime", (rejectCounts.get("short_runtime") || 0) + 1);
+            return null;
+          }
+          if (data.status !== "Released") {
+            rejectCounts.set("not_released", (rejectCounts.get("not_released") || 0) + 1);
+            return null;
+          }
+        } else {
+          if (!Number.isFinite(year) || year < fromYear || year > toYear) {
+            rejectCounts.set("year_out_of_range", (rejectCounts.get("year_out_of_range") || 0) + 1);
+            return null;
+          }
+          if (!data.number_of_seasons || data.number_of_seasons < 1 || !data.number_of_episodes || data.number_of_episodes < 1) {
+            rejectCounts.set("no_seasons_episodes", (rejectCounts.get("no_seasons_episodes") || 0) + 1);
+            return null;
+          }
+          const tvGenres = data.genres?.map(g => g.name) || [];
+          if (tvGenres.includes("News") || tvGenres.includes("Talk Show")) {
+            rejectCounts.set("wrong_tv_type", (rejectCounts.get("wrong_tv_type") || 0) + 1);
+            return null;
+          }
+        }
+        
+        // Would be kept
+        kept++;
+        langMix.set(lang, (langMix.get(lang) || 0) + 1);
+        yearMix.set(year, (yearMix.get(year) || 0) + 1);
+        
+        return { id, lang, year };
+      } catch (e) {
+        if (!String(e.message).startsWith("HTTP:")) throw e;
+        rejectCounts.set("http_error", (rejectCounts.get("http_error") || 0) + 1);
+        return null;
+      }
+    }));
+  }
+  
+  // Print results
+  const totalSampled = sampleAll.length;
+  const keeperRate = totalSampled > 0 ? (kept / totalSampled * 100).toFixed(1) : 0;
+  
+  console.log(`\n==== SAMPLE RESULTS ====`);
+  console.log(`total sampled: ${totalSampled}`);
+  console.log(`kept: ${kept} (${keeperRate}%)`);
+  console.log(`rejected: ${totalSampled - kept}`);
+  
+  if (rejectCounts.size > 0) {
+    console.log(`reject reasons:`);
+    for (const [reason, count] of rejectCounts.entries()) {
+      console.log(`  ${reason}: ${count}`);
+    }
+  }
+  
+  console.log(`language mix:`);
+  for (const [lang, count] of [...langMix.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${lang}: ${count}`);
+  }
+  
+  console.log(`year mix:`);
+  for (const [year, count] of [...yearMix.entries()].sort((a, b) => a[0] - b[0])) {
+    console.log(`  ${year}: ${count}`);
+  }
+  
+  // Projection
+  const totalInDB = existing.size;
+  const remainingToTarget = Math.max(0, target - totalInDB);
+  const projectedCalls = remainingToTarget / (keeperRate / 100 || 1);
+  const projectedHours = projectedCalls / 12 / 3600;
+  
+  console.log(`\n==== PROJECTION (ESTIMATE) ====`);
+  console.log(`current in DB: ${totalInDB}`);
+  console.log(`target: ${target}`);
+  console.log(`remaining to target: ${remainingToTarget}`);
+  console.log(`keeper rate: ${keeperRate}%`);
+  console.log(`projected detail calls needed: ${Math.ceil(projectedCalls)} (ESTIMATE)`);
+  console.log(`at 12 req/s: ${projectedHours.toFixed(1)} hours (ESTIMATE)`);
+  console.log(`note: projections are estimates based on this sample only`);
+  
+  // Assert no writes - in sample mode we never call upsertBatch
+  console.log(`\nSAMPLE MODE: no writes performed (read-only)`);
 }
 
 async function reportCoverage(pool) {
