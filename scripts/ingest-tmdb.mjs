@@ -1120,11 +1120,11 @@ async function runIngestExport(mode, KEY, pool, opts, pastDeadline) {
   const remaining = candidates.slice(0, limit > 0 ? limit : candidates.length);
   console.log(`runIngestExport: processing ${remaining.length} candidates through detail stage`);
   
-  await runDetailStage(KEY, pool, remaining, isMovies, isSeries, { years, target, allowSeries }, pastDeadline);
+  await runDetailStage(KEY, pool, remaining, isMovies, isSeries, { years, target, allowSeries, limit }, pastDeadline);
 }
 
 async function runDetailStage(KEY, pool, candidates, isMovies, isSeries, opts, pastDeadline) {
-  const { years, target, allowSeries } = opts;
+  const { years, target, allowSeries, limit } = opts;
   const BATCH_SIZE = 50;
   const CONCURRENCY = 5;
   const MIN_START_GAP_MS = 80; // ~12 req/s
@@ -1550,7 +1550,7 @@ async function runSupplement(mode, KEY, pool, opts, pastDeadline) {
   const remaining = candidates.slice(0, limit > 0 ? limit : candidates.length);
   console.log(`runSupplement: processing ${remaining.length} candidates through detail stage`);
   
-  await runDetailStage(KEY, pool, remaining, isMovies, isSeries, { years, target, allowSeries }, pastDeadline);
+  await runDetailStage(KEY, pool, remaining, isMovies, isSeries, { years, target, allowSeries, limit }, pastDeadline);
 }
 
 async function runSample(KEY, pool, opts, pastDeadline) {
