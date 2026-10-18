@@ -19,10 +19,45 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Readable } from "node:stream";
 import pg from "pg";
 
 const { Pool } = pg;
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+/** Shared download helper: fetches a gzipped export file and returns a Node Readable stream.
+ *  Uses TMDB_EXPORT_BASE_URL env var (default: https://files.tmdb.org) for testing.
+ *  Tries up to 4 dates (today, yesterday, -2, -3 days) with HTTPS then HTTP.
+ *  Returns { stream: Readable, dateStr: string } or throws after all attempts fail. */
+export async function downloadExport(filePrefix, baseUrl = process.env.TMDB_EXPORT_BASE_URL || "https://files.tmdb.org") {
+  const today = new Date();
+  const tryDates = [];
+  for (let i = 0; i < 4; i++) {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() - i);
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    const yyyy = d.getUTCFullYear();
+    tryDates.push(`${mm}_${dd}_${yyyy}`);
+  }
+
+  for (const dateStr of tryDates) {
+    for (const protocol of ["https", "http"]) {
+      const url = `${protocol}://${baseUrl.replace(/^https?:\/\//, "")}/p/exports/${filePrefix}_${dateStr}.json.gz`;
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+        if (res.ok) {
+          // Convert Web ReadableStream to Node Readable (Node 20+)
+          return { stream: Readable.fromWeb(res.body), dateStr };
+        }
+        if (res.status === 404 || res.status === 403) continue;
+      } catch (e) {
+        // network error, try next
+      }
+    }
+  }
+  throw new Error(`downloadExport: failed to download ${filePrefix} for any date`);
+}
 
 // Standard TMDB movie genre ids.
 const GENRE_IDS = {
@@ -996,45 +1031,13 @@ async function runIngestExport(mode, KEY, pool, opts, pastDeadline) {
   const exportType = isMovies ? "movie" : "tv_series";
   const filePrefix = isMovies ? "movie_ids" : "tv_series_ids";
   
-  const today = new Date();
-  const tryDates = [];
-  for (let i = 0; i < 4; i++) {
-    const d = new Date(today);
-    d.setUTCDate(d.getUTCDate() - i);
-    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(d.getUTCDate()).padStart(2, "0");
-    const yyyy = d.getUTCFullYear();
-    tryDates.push(`${mm}_${dd}_${yyyy}`);
-  }
-  
-  let exportData = null;
-  let usedDate = null;
-  
-  // Try HTTPS first, then HTTP
-  for (const dateStr of tryDates) {
-    for (const protocol of ["https", "http"]) {
-      const url = `${protocol}://files.tmdb.org/p/exports/${filePrefix}_${dateStr}.json.gz`;
-      console.log(`runIngestExport: trying ${url}`);
-      try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
-        if (res.ok) {
-          exportData = res.body;
-          usedDate = dateStr;
-          console.log(`runIngestExport: successfully downloading ${url}`);
-          break;
-        } else if (res.status === 404 || res.status === 403) {
-          console.log(`runIngestExport: ${url} returned ${res.status}, trying next`);
-        } else {
-          console.log(`runIngestExport: ${url} returned ${res.status}`);
-        }
-      } catch (e) {
-        console.log(`runIngestExport: ${url} failed: ${e.message}`);
-      }
-    }
-    if (exportData) break;
-  }
-  
-  if (!exportData) {
+  let usedDate;
+  let exportStream;
+  try {
+    const result = await downloadExport(filePrefix);
+    exportStream = result.stream;
+    usedDate = result.dateStr;
+  } catch (e) {
     console.log("runIngestExport: failed to download export file for any date");
     process.exit(3);
   }
@@ -1046,7 +1049,7 @@ async function runIngestExport(mode, KEY, pool, opts, pastDeadline) {
   const { createInterface } = await import("node:readline");
   
   const gunzip = createGunzip();
-  const rl = createInterface({ input: exportData.pipe(gunzip), crlfDelay: Infinity });
+  const rl = createInterface({ input: exportStream.pipe(gunzip), crlfDelay: Infinity });
   
   let totalLines = 0;
   let adultVideoDropped = 0;
@@ -1568,53 +1571,28 @@ async function runSample(KEY, pool, opts, pastDeadline) {
   const exportType = isMovies ? "movie" : "tv_series";
   const filePrefix = isMovies ? "movie_ids" : "tv_series_ids";
   
-  const today = new Date();
-  const tryDates = [];
-  for (let i = 0; i < 4; i++) {
-    const d = new Date(today);
-    d.setUTCDate(d.getUTCDate() - i);
-    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(d.getUTCDate()).padStart(2, "0");
-    const yyyy = d.getUTCFullYear();
-    tryDates.push(`${mm}_${dd}_${yyyy}`);
-  }
-  
-  let exportData = null;
+  let exportStream = null;
   let usedDate = null;
   
-  for (const dateStr of tryDates) {
-    for (const protocol of ["https", "http"]) {
-      const url = `${protocol}://files.tmdb.org/p/exports/${filePrefix}_${dateStr}.json.gz`;
-      console.log(`runSample: trying ${url}`);
-      try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
-        if (res.ok) {
-          exportData = res.body;
-          usedDate = dateStr;
-          console.log(`runSample: successfully downloading ${url}`);
-          break;
-        } else if (res.status === 404 || res.status === 403) {
-          console.log(`runSample: ${url} returned ${res.status}, trying next`);
-        } else {
-          console.log(`runSample: ${url} returned ${res.status}`);
-        }
-      } catch (e) {
-        console.log(`runSample: ${url} failed: ${e.message}`);
-      }
-    }
-    if (exportData) break;
+  try {
+    const result = await downloadExport(filePrefix);
+    exportStream = result.stream;
+    usedDate = result.dateStr;
+    console.log(`runSample: successfully downloading export for ${usedDate}`);
+  } catch (e) {
+    console.log(`runSample: export file download failed, will use discover only`);
   }
   
   const topCandidates = [];
   
-  if (exportData) {
+  if (exportStream) {
     console.log(`runSample: using export date ${usedDate}`);
     
     const { createGunzip } = await import("node:zlib");
     const { createInterface } = await import("node:readline");
     
     const gunzip = createGunzip();
-    const rl = createInterface({ input: exportData.pipe(gunzip), crlfDelay: Infinity });
+    const rl = createInterface({ input: exportStream.pipe(gunzip), crlfDelay: Infinity });
     
     let totalLines = 0;
     let adultVideoDropped = 0;
