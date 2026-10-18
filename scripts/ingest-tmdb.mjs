@@ -20,6 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -30,6 +31,13 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  *  Tries up to 4 dates (today, yesterday, -2, -3 days) with HTTPS then HTTP.
  *  Returns { stream: Readable, dateStr: string } or throws after all attempts fail. */
 export async function downloadExport(filePrefix, baseUrl = process.env.TMDB_EXPORT_BASE_URL || "https://files.tmdb.org") {
+  const { tempFile, dateStr } = await downloadExportToFile(filePrefix, baseUrl);
+  return { stream: fs.createReadStream(tempFile), dateStr, tempFile };
+}
+
+/** Download export file to disk with retries for transient network errors.
+ *  Returns { tempFile: string, dateStr: string }. */
+export async function downloadExportToFile(filePrefix, baseUrl = process.env.TMDB_EXPORT_BASE_URL || "https://files.tmdb.org", attempts = 4) {
   const today = new Date();
   const tryDates = [];
   for (let i = 0; i < 4; i++) {
@@ -44,20 +52,25 @@ export async function downloadExport(filePrefix, baseUrl = process.env.TMDB_EXPO
   for (const dateStr of tryDates) {
     for (const protocol of ["https", "http"]) {
       const url = `${protocol}://${baseUrl.replace(/^https?:\/\//, "")}/p/exports/${filePrefix}_${dateStr}.json.gz`;
-      try {
-        // Export files are ~100MB+ gzipped; no timeout — streaming takes ~10-20 min on CI
-        const res = await fetch(url);
-        if (res.ok) {
-          // Convert Web ReadableStream to Node Readable (Node 20+)
-          return { stream: Readable.fromWeb(res.body), dateStr };
+      for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const tempFile = path.join(process.cwd(), `.tmp_${filePrefix}_${dateStr}.json.gz`);
+            await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(tempFile));
+            console.log(`downloadExportToFile: downloaded ${filePrefix}_${dateStr}.json.gz (${(await fs.promises.stat(tempFile)).size} bytes)`);
+            return { tempFile, dateStr };
+          }
+          if (res.status === 404 || res.status === 403) break; // don't retry on 404/403, try next date/protocol
+        } catch (e) {
+          console.error(`downloadExportToFile: attempt ${attempt}/${attempts} failed for ${url}: ${e.message}`);
+          if (attempt === attempts) break; // try next protocol/date
+          await new Promise(r => setTimeout(r, 5000 * attempt));
         }
-        if (res.status === 404 || res.status === 403) continue;
-      } catch (e) {
-        // network error, try next
       }
     }
   }
-  throw new Error(`downloadExport: failed to download ${filePrefix} for any date`);
+  throw new Error(`downloadExportToFile: failed to download ${filePrefix} for any date after ${attempts} attempts each`);
 }
 
 // Standard TMDB movie genre ids.
@@ -1034,10 +1047,12 @@ async function runIngestExport(mode, KEY, pool, opts, pastDeadline) {
   
   let usedDate;
   let exportStream;
+  let tempFile;
   try {
     const result = await downloadExport(filePrefix);
     exportStream = result.stream;
     usedDate = result.dateStr;
+    tempFile = result.tempFile;
   } catch (e) {
     console.log("runIngestExport: failed to download export file for any date");
     process.exit(3);
@@ -1050,71 +1065,80 @@ async function runIngestExport(mode, KEY, pool, opts, pastDeadline) {
   const { createInterface } = await import("node:readline");
   
   const gunzip = createGunzip();
-  gunzip.on('error', (err) => { console.error('gunzip error:', err.message); throw err; });
   const rl = createInterface({ input: exportStream.pipe(gunzip), crlfDelay: Infinity });
-  exportStream.on('error', (err) => { console.error('export stream error:', err.message); throw err; });
   
-  let totalLines = 0;
-  let adultVideoDropped = 0;
-  let alreadyKnown = 0;
-  let malformed = 0;
-  const candidates = []; // min-heap for top K by popularity
-  const K = 200000; // keep top 200k by popularity
-  
-  // First 3 lines for field inspection
-  let firstLines = [];
-  
-  for await (const line of rl) {
-    totalLines++;
-    if (totalLines <= 3) {
-      firstLines.push(line);
-    }
+  // Handle stream errors via promise rejection instead of throwing in event handlers
+  // Process lines inside the promise so errors are caught
+  const { totalLines, adultVideoDropped, alreadyKnown, malformed, candidates } = await new Promise((resolve, reject) => {
+    let totalLines = 0;
+    let adultVideoDropped = 0;
+    let alreadyKnown = 0;
+    let malformed = 0;
+    const candidates = [];
+    const K = 200000;
+    let firstLines = [];
     
-    if (totalLines === 3) {
-      console.log(`runIngestExport: first 3 raw lines:`);
-      firstLines.forEach((l, i) => console.log(`  line ${i + 1}: ${l.slice(0, 500)}`));
-      // Parse to show field names
-      try {
-        const parsed = JSON.parse(firstLines[0]);
-        console.log(`runIngestExport: ${exportType} fields: ${Object.keys(parsed).join(", ")}`);
-      } catch {}
-    }
+    gunzip.on('error', reject);
+    exportStream.on('error', reject);
+    rl.on('error', reject);
+    rl.on('close', () => resolve({ totalLines, adultVideoDropped, alreadyKnown, malformed, candidates }));
     
-    let obj;
-    try {
-      obj = JSON.parse(line);
-    } catch {
-      malformed++;
-      continue;
-    }
-    
-    // Drop adult and video entries
-    if (obj.adult === true || obj.video === true) {
-      adultVideoDropped++;
-      continue;
-    }
-    
-    const id = obj.id;
-    if (known.has(id)) {
-      alreadyKnown++;
-      continue;
-    }
-    
-    const popularity = obj.popularity || 0;
-    // Min-heap: keep top K by popularity
-    if (candidates.length < K) {
-      candidates.push({ id, popularity, obj });
-      candidates.sort((a, b) => a.popularity - b.popularity); // min at index 0
-    } else if (popularity > candidates[0].popularity) {
-      candidates[0] = { id, popularity, obj };
-      candidates.sort((a, b) => a.popularity - b.popularity);
-    }
-  }
+    (async () => {
+      for await (const line of rl) {
+        totalLines++;
+        if (totalLines <= 3) {
+          firstLines.push(line);
+        }
+        
+        if (totalLines === 3) {
+          console.log(`runIngestExport: first 3 raw lines:`);
+          firstLines.forEach((l, i) => console.log(`  line ${i + 1}: ${l.slice(0, 500)}`));
+          try {
+            const parsed = JSON.parse(firstLines[0]);
+            console.log(`runIngestExport: ${exportType} fields: ${Object.keys(parsed).join(", ")}`);
+          } catch {}
+        }
+        
+        let obj;
+        try {
+          obj = JSON.parse(line);
+        } catch {
+          malformed++;
+          continue;
+        }
+        
+        if (obj.adult === true || obj.video === true) {
+          adultVideoDropped++;
+          continue;
+        }
+        
+        const id = obj.id;
+        if (known.has(id)) {
+          alreadyKnown++;
+          continue;
+        }
+        
+        const popularity = obj.popularity || 0;
+        if (candidates.length < K) {
+          candidates.push({ id, popularity, obj });
+          candidates.sort((a, b) => a.popularity - b.popularity);
+        } else if (popularity > candidates[0].popularity) {
+          candidates[0] = { id, popularity, obj };
+          candidates.sort((a, b) => a.popularity - b.popularity);
+        }
+      }
+    })().catch(reject);
+  });
   
   // Sort final candidates by popularity descending
   candidates.sort((a, b) => b.popularity - a.popularity);
   
   console.log(`runIngestExport: total lines=${totalLines}, dropped adult/video=${adultVideoDropped}, already known=${alreadyKnown}, malformed=${malformed}, candidates=${candidates.length}`);
+  
+  // Clean up temp file
+  if (tempFile) {
+    fs.unlink(tempFile, () => {});
+  }
   
   // Now process candidates through detail stage
   const remaining = candidates.slice(0, limit > 0 ? limit : candidates.length);
@@ -1134,8 +1158,12 @@ async function runDetailStage(KEY, pool, candidates, isMovies, isSeries, opts, p
   let stoppedEarly = false;
   const rejectCounts = new Map();
   
-  // Get current total for target check
-  const currentTotal = (await pool.query("SELECT count(*)::int AS n FROM movies WHERE type=$1", [isMovies ? "movie" : "series"])).rows[0].n;
+  // Get current total for target check (re-queried each batch for accuracy)
+  async function getCurrentTotal() {
+    const res = await pool.query("SELECT count(*)::int AS n FROM movies WHERE type=$1", [isMovies ? "movie" : "series"]);
+    return res.rows[0].n;
+  }
+  let currentTotal = await getCurrentTotal();
   console.log(`runDetailStage: current ${isMovies ? "movies" : "series"} in DB=${currentTotal}, target=${target}`);
   
   // Vote floor config
@@ -1387,9 +1415,10 @@ async function runDetailStage(KEY, pool, candidates, isMovies, isSeries, opts, p
       
       console.log(`runDetailStage: processed=${i + batch.length}/${candidates.length} kept=${kept.length} upserted=${upserted} detailCalls=${detailCalls}`);
       
-      // Check target reached
-      if (currentTotal + upserted >= target) {
-        console.log(`runDetailStage: target ${target} reached`);
+      // Check target reached (re-query DB for accuracy)
+      currentTotal = await getCurrentTotal();
+      if (currentTotal >= target) {
+        console.log(`runDetailStage: target ${target} reached (DB has ${currentTotal})`);
         break;
       }
     }
@@ -1576,11 +1605,13 @@ async function runSample(KEY, pool, opts, pastDeadline) {
   
   let exportStream = null;
   let usedDate = null;
+  let tempFile = null;
   
   try {
     const result = await downloadExport(filePrefix);
     exportStream = result.stream;
     usedDate = result.dateStr;
+    tempFile = result.tempFile;
     console.log(`runSample: successfully downloading export for ${usedDate}`);
   } catch (e) {
     console.log(`runSample: export file download failed, will use discover only`);
@@ -1595,49 +1626,62 @@ async function runSample(KEY, pool, opts, pastDeadline) {
     const { createInterface } = await import("node:readline");
     
     const gunzip = createGunzip();
-    gunzip.on('error', (err) => { console.error('gunzip error:', err.message); throw err; });
     const rl = createInterface({ input: exportStream.pipe(gunzip), crlfDelay: Infinity });
-    exportStream.on('error', (err) => { console.error('export stream error:', err.message); throw err; });
     
-    let totalLines = 0;
-    let adultVideoDropped = 0;
-    let alreadyKnown = 0;
-    let malformed = 0;
-    const K = 150000;
-    const candidates = []; // min-heap for top K by popularity
-    
-    for await (const line of rl) {
-      totalLines++;
-      let obj;
-      try {
-        obj = JSON.parse(line);
-      } catch {
-        malformed++;
-        continue;
-      }
+    // Handle stream errors via promise rejection instead of throwing in event handlers
+    const { totalLines, adultVideoDropped, alreadyKnown, malformed, candidates } = await new Promise((resolve, reject) => {
+      let totalLines = 0;
+      let adultVideoDropped = 0;
+      let alreadyKnown = 0;
+      let malformed = 0;
+      const K = 150000;
+      const candidates = [];
       
-      if (obj.adult === true || obj.video === true) {
-        adultVideoDropped++;
-        continue;
-      }
+      gunzip.on('error', reject);
+      exportStream.on('error', reject);
+      rl.on('error', reject);
+      rl.on('close', () => resolve({ totalLines, adultVideoDropped, alreadyKnown, malformed, candidates }));
       
-      const id = obj.id;
-      if (known.has(id)) {
-        alreadyKnown++;
-        continue;
-      }
-      
-      const popularity = obj.popularity || 0;
-      if (candidates.length < K) {
-        candidates.push({ id, popularity, obj });
-        candidates.sort((a, b) => a.popularity - b.popularity);
-      } else if (popularity > candidates[0].popularity) {
-        candidates[0] = { id, popularity, obj };
-        candidates.sort((a, b) => a.popularity - b.popularity);
-      }
-    }
+      (async () => {
+        for await (const line of rl) {
+          totalLines++;
+          let obj;
+          try {
+            obj = JSON.parse(line);
+          } catch {
+            malformed++;
+            continue;
+          }
+          
+          if (obj.adult === true || obj.video === true) {
+            adultVideoDropped++;
+            continue;
+          }
+          
+          const id = obj.id;
+          if (known.has(id)) {
+            alreadyKnown++;
+            continue;
+          }
+          
+          const popularity = obj.popularity || 0;
+          if (candidates.length < K) {
+            candidates.push({ id, popularity, obj });
+            candidates.sort((a, b) => a.popularity - b.popularity);
+          } else if (popularity > candidates[0].popularity) {
+            candidates[0] = { id, popularity, obj };
+            candidates.sort((a, b) => a.popularity - b.popularity);
+          }
+        }
+      })().catch(reject);
+    });
     
     candidates.sort((a, b) => b.popularity - a.popularity);
+    
+    // Clean up temp file
+    if (tempFile) {
+      fs.unlink(tempFile, () => {});
+    }
     topCandidates.push(...candidates);
     console.log(`runSample: export file - total lines=${totalLines}, dropped adult/video=${adultVideoDropped}, already known=${alreadyKnown}, malformed=${malformed}, top ${K} candidates=${candidates.length}`);
   } else {
