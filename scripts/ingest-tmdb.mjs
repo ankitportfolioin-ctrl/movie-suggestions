@@ -149,6 +149,7 @@ function numToMinAge(n) {
   if (n <= 0) return 0;
   if (n <= 6) return 6;
   if (n <= 12) return 12;
+  if (n === 13) return 12; // +13, 13 → 12 (PG-13 equivalent)
   if (n <= 16) return 16;
   return 18;
 }
@@ -156,11 +157,14 @@ function numToMinAge(n) {
 /** Map one country's raw certificate to a minAge, or null when unknown. */
 export function certToMinAge(country, cert) {
   if (!cert) return null;
-  const key = String(cert).trim().toUpperCase();
+  // Normalise Greek Kappa (U+039A) to Latin K for K-16, K-18 etc.
+  let key = String(cert).trim().replace(/\u039A/g, 'K').toUpperCase();
   if (!key) return null;
   const table = CERT_MIN_AGE[country];
   if (table && key in table) return table[key];
   if (ALL_AGES.has(key)) return 0;
+  // Handle +NN prefix (e.g., +13, +16) by stripping the plus.
+  if (key.startsWith('+')) key = key.slice(1);
   const m = key.match(/\d+/);
   if (m) return numToMinAge(Number(m[0]));
   return null;

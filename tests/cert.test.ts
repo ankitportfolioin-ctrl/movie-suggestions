@@ -51,6 +51,45 @@ describe('certificate mapping', () => {
     assert.equal(certToMinAge('ZA', '10-12PG'), 12);
   });
 
+  test('problematic certificates: +13, 13, +16, 16+, K-18 with Greek Kappa', () => {
+    // +13 and bare 13 should map to 12 (PG-13 equivalent), not 16
+    assert.equal(certToMinAge('US', '+13'), 12);
+    assert.equal(certToMinAge('US', '13'), 12);
+    assert.equal(certToMinAge('GB', '+13'), 12);
+    assert.equal(certToMinAge('DE', '+13'), 12);
+    // +16 and 16+ should map to 16
+    assert.equal(certToMinAge('US', '+16'), 16);
+    assert.equal(certToMinAge('US', '16+'), 16);
+    // Greek Kappa (U+039A) in K-18 / K-16 should normalize to Latin K
+    assert.equal(certToMinAge('US', '\u039A-18'), 18); // Κ-18
+    assert.equal(certToMinAge('US', '\u039A-16'), 16); // Κ-16
+    assert.equal(certToMinAge('US', 'K-18'), 18); // Latin K-18
+    assert.equal(certToMinAge('US', 'K-16'), 16); // Latin K-16
+    // A is country-dependent: MX=0 (all ages), IN=18 (adult), US=null (unknown)
+    assert.equal(certToMinAge('MX', 'A'), 0);
+    assert.equal(certToMinAge('IN', 'A'), 18);
+    assert.equal(certToMinAge('US', 'A'), null);
+  });
+
+  test('unit test cases: numeric and common suffix forms', () => {
+    // Numeric forms
+    assert.equal(certToMinAge('US', '12'), 12);
+    assert.equal(certToMinAge('US', '12A'), 12);
+    assert.equal(certToMinAge('US', '13'), 12);
+    assert.equal(certToMinAge('US', '+13'), 12);
+    assert.equal(certToMinAge('US', '14'), 16);
+    assert.equal(certToMinAge('US', '16'), 16);
+    assert.equal(certToMinAge('US', '16+'), 16);
+    assert.equal(certToMinAge('US', '18'), 18);
+    assert.equal(certToMinAge('US', '19'), 18);
+    // Common suffix forms
+    assert.equal(certToMinAge('US', 'R'), 16);
+    assert.equal(certToMinAge('US', 'NC-17'), 18);
+    assert.equal(certToMinAge('US', 'PG-13'), 12);
+    assert.equal(certToMinAge('US', 'TV-MA'), 16);
+    assert.equal(certToMinAge('US', 'TV-14'), 12);
+  });
+
   test('empty and unknown certificates map to null', () => {
     assert.equal(certToMinAge('US', ''), null);
     assert.equal(certToMinAge('US', '   '), null);
