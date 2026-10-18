@@ -110,11 +110,22 @@ describe('keepSeries', () => {
     assert.equal(s.minAge, 16);
   });
 
-  test('web-first networks are tagged and pass the lower vote floor', () => {
-    const web = must(keepSeries(show({ vote_count: 6, networks: [{ name: 'YouTube' }] })));
+  test('web-first networks are tagged but follow same tiered vote floors (no special web floor)', () => {
+    // 2019 show, English: floor is 100 (older than 2 years, big language)
+    // So even web series needs 100 votes
+    const web = keepSeries(show({ vote_count: 100, networks: [{ name: 'YouTube' }] }));
+    assert.ok(web);
     assert.equal(web.webSeries, true);
     const broadcast = keepSeries(show({ vote_count: 6, networks: [{ name: 'HBO' }] }));
     assert.equal(broadcast, null); // 6 < 100 for a big-language broadcast show
+    // Recent year (2025) web series: floor is 5
+    const recentWeb = keepSeries(show({ 
+      vote_count: 5, 
+      networks: [{ name: 'YouTube' }],
+      first_air_date: '2025-01-01'
+    }));
+    assert.ok(recentWeb);
+    assert.equal(recentWeb.webSeries, true);
   });
 
   test('TMDB TV genres that bundle two app genres are split', () => {
@@ -136,10 +147,15 @@ describe('keepSeries', () => {
     assert.equal(s.episodeRuntime, null);
   });
 
-  test('vote floors stay consistent with the dry-run rule', () => {
-    assert.equal(voteFloor('series', 'en', true), 5);
+  test('vote floors stay consistent with the dry-run rule (year not passed = older than 2 years)', () => {
+    // Without year, defaults to older-than-2-years logic
+    assert.equal(voteFloor('series', 'en', true), 100); // web param ignored
     assert.equal(voteFloor('series', 'en', false), 100);
     assert.equal(voteFloor('series', 'xx', false), 20);
+    assert.equal(voteFloor('series', 'hi', false), 10); // Indian language
+    // With year 2025: floor is 5 for all
+    assert.equal(voteFloor('series', 'en', false, 2025), 5);
+    assert.equal(voteFloor('series', 'hi', false, 2025), 5);
   });
 });
 
@@ -160,10 +176,19 @@ describe('keepMovie typing', () => {
     assert.equal(keepMovie(film(), 'short'), null);
   });
 
-  test('vote floors apply at detail time', () => {
+  test('vote floors apply at detail time (year not passed = older than 2 years)', () => {
+    // Without year, defaults to older-than-2-years logic
+    // English movie needs 100 votes
     assert.equal(keepMovie(film({ vote_count: 99 }), 'movie'), null);
+    assert.equal(must(keepMovie(film({ vote_count: 100 }), 'movie')).type, 'movie');
+    // Other language needs 20 votes
     assert.equal(must(keepMovie(film({ vote_count: 99, original_language: 'xx' }), 'movie')).type, 'movie');
-    assert.equal(must(keepMovie(film({ runtime: 20, vote_count: 5 }), 'short')).type, 'short');
-    assert.equal(keepMovie(film({ runtime: 20, vote_count: 4 }), 'short'), null);
+    // Indian language needs 10 votes
+    assert.equal(must(keepMovie(film({ vote_count: 10, original_language: 'hi' }), 'movie')).type, 'movie');
+    assert.equal(keepMovie(film({ vote_count: 9, original_language: 'hi' }), 'movie'), null);
+    // Shorts follow same rules (year not passed = older than 2 years)
+    // English short needs 100 votes
+    assert.equal(must(keepMovie(film({ runtime: 20, vote_count: 100 }), 'short')).type, 'short');
+    assert.equal(keepMovie(film({ runtime: 20, vote_count: 99 }), 'short'), null);
   });
 });

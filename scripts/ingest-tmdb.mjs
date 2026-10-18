@@ -242,7 +242,7 @@ export function tvRatings(details) {
 
 /**
  * Movie path. `kind` is 'movie' (41+ min) or 'short' (1-40 min). Also applies
- * the vote floor: 100 big languages / 20 others / 5 for shorts.
+ * the vote floor: tiered by year and language.
  */
 export function keepMovie(d, kind = "movie") {
   if (!d || d.adult === true) return null;
@@ -252,7 +252,7 @@ export function keepMovie(d, kind = "movie") {
   if (!Number.isFinite(year) || runtime <= 0 || !d.overview || !rating) return null;
   if (kind === "short" ? runtime > 40 : runtime <= 40) return null;
   const lang = d.original_language || "en";
-  if ((typeof d.vote_count === "number" ? d.vote_count : 0) < voteFloor(kind, lang)) return null;
+  if ((typeof d.vote_count === "number" ? d.vote_count : 0) < voteFloor(kind, lang, false, year)) return null;
   const genres = Array.isArray(d.genres) ? d.genres.map((g) => g.name).filter(Boolean) : [];
   if (genres.length === 0) return null;
   const keywords = (((d.keywords || {}).keywords) || []).map((k) => k.name).filter(Boolean).slice(0, 10);
@@ -306,7 +306,7 @@ const TV_GENRE_SPLIT = {
 /**
  * Series path (/tv/{id}?append_to_response=content_ratings,keywords).
  * runtime mirrors the episode length so the quiz runtime cap applies to one
- * episode. Web-first networks pass at 5 votes, others need 100/20 by language.
+ * episode. Vote floors follow tiered rules by year and language.
  */
 export function keepSeries(d) {
   if (!d || d.adult === true) return null;
@@ -315,7 +315,7 @@ export function keepSeries(d) {
   if (!Number.isFinite(firstYear) || !d.overview || !d.name || !rating) return null;
   const network = ((d.networks || [])[0] || {}).name || null;
   const lang = d.original_language || "en";
-  if ((typeof d.vote_count === "number" ? d.vote_count : 0) < voteFloor("series", lang, isWebNetwork(network))) return null;
+  if ((typeof d.vote_count === "number" ? d.vote_count : 0) < voteFloor("series", lang, isWebNetwork(network), firstYear)) return null;
   const genres = [];
   for (const g of d.genres || []) {
     for (const name of TV_GENRE_SPLIT[g.name] || [g.name]) {
@@ -552,8 +552,8 @@ export function coverageUnmet(c) {
 // stopping as soon as a page adds no id that is not already counted.
 
 /** Languages the user named as "big": vote floor 100. Everything else: 20. */
-export const BIG_LANGS = ["en", "hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "ko",
-  "ja", "zh", "es", "fr", "de", "it", "pt", "ru", "tr", "ar", "th", "id", "fa", "pl", "nl", "sv"];
+export const BIG_LANGS = ["en", "hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "ur", "ko", "zh", "cn",
+  "es", "fr", "de", "it", "pt", "ru", "tr", "ar", "th", "id", "fa", "pl", "nl", "sv"];
 
 // TMDB TV genre ids (four differ from the movie ids).
 export const TV_GENRE_IDS = {
@@ -565,10 +565,17 @@ export const TV_GENRE_IDS = {
 
 export const DRY_SORTS = ["popularity.desc", "vote_average.desc"];
 export const DRY_MAX_PAGES = 25;
+/** Global cap on discover API calls per dry-run (prevents runaway budgets). */
+export const MAX_DISCOVER_CALLS = 8000;
 
-/** Vote floor: 100 big languages, 20 others, 5 for shorts and web series. */
-export function voteFloor(type, lang, web = false) {
-  if (type === "short" || (type === "series" && web)) return 5;
+/** Vote floor: tiered by year and language. */
+export function voteFloor(type, lang, web = false, year) {
+  // Last 2 years (2025-2026): 5 votes for everyone (minimum floor)
+  if (year !== null && year >= 2025 && year <= 2026) return 5;
+  // Indian languages: 10 votes at most (for older years)
+  const indianLangs = ["hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "ur"];
+  if (indianLangs.includes(lang)) return 10;
+  // Older than 2 years: 100 for big languages, 20 for others
   return BIG_LANGS.includes(lang) ? 100 : 20;
 }
 
@@ -577,11 +584,11 @@ export function voteFloor(type, lang, web = false) {
  * has overview, has poster, has a rating, not adult, votes >= floor.
  * Web-series status needs /tv detail, so series use the non-web floor here.
  */
-export function dryRunQuality(row, type, lang) {
+export function dryRunQuality(row, type, lang, year) {
   if (!row || row.adult === true) return false;
   if (!row.overview || !row.poster_path) return false;
   if (!(typeof row.vote_average === "number" && row.vote_average > 0)) return false;
-  return (typeof row.vote_count === "number" ? row.vote_count : 0) >= voteFloor(type, lang);
+  return (typeof row.vote_count === "number" ? row.vote_count : 0) >= voteFloor(type, lang, false, year);
 }
 
 /** "--years 2000-2026" (or a single year) -> { from, to }. */
@@ -622,19 +629,102 @@ export function buildSlices(types, fromYear, toYear) {
     // features 41+ (both live on /discover/movie). Series need no runtime filter.
     const runtime = type === "short" ? { "with_runtime.gte": "1", "with_runtime.lte": "40" }
       : type === "movie" ? { "with_runtime.gte": "41" } : {};
+
+    // Helper: push slices for a given year (or year range) and language
+    const pushYearLang = (y, lang, sort) => {
+      slices.push({
+        key: `${type}:year:${y}:lang:${lang}:${sort}`,
+        type,
+        path,
+        params: {
+          [yearKey]: String(y),
+          with_original_language: lang,
+          sort_by: sort,
+          ...runtime
+        }
+      });
+    };
+
+    // Helper: push slices for a given year (or year range) and genre
+    const pushYearGenre = (y, genreName, genreId, sort) => {
+      slices.push({
+        key: `${type}:year:${y}:genre:${genreName}:${sort}`,
+        type,
+        path,
+        params: {
+          [yearKey]: String(y),
+          with_genres: String(genreId),
+          sort_by: sort,
+          ...runtime
+        }
+      });
+    };
+
+    // Helper: push quarter slices for a year (big years only)
+    const pushYearQuarters = (y, sort) => {
+      const quarters = [
+        { gte: `${y}-01-01`, lte: `${y}-03-31` },
+        { gte: `${y}-04-01`, lte: `${y}-06-30` },
+        { gte: `${y}-07-01`, lte: `${y}-09-30` },
+        { gte: `${y}-10-01`, lte: `${y}-12-31` }
+      ];
+      for (let qi = 0; qi < quarters.length; qi++) {
+        const q = quarters[qi];
+        slices.push({
+          key: `${type}:year:${y}:q${qi + 1}:${sort}`,
+          type,
+          path,
+          params: {
+            [rangeGte]: q.gte,
+            [rangeLte]: q.lte,
+            sort_by: sort,
+            ...runtime
+          }
+        });
+      }
+    };
+
+    // Determine "big years" - years with lots of movies (recent years typically)
+    // We'll consider 2020+ as big years for quarter slicing
+    const bigYearThreshold = 2020;
+
     for (let y = fromYear; y <= toYear; y++) {
       for (const sort of DRY_SORTS) {
+        // Year-only slice (existing)
         slices.push({ key: `${type}:year:${y}:${sort}`, type, path,
           params: { [yearKey]: String(y), sort_by: sort, ...runtime } });
+
+        // Year x language slices for Chinese (zh, cn) and all Indian languages
+        const targetLangs = ["zh", "cn", "hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "ur"];
+        for (const lang of targetLangs) {
+          pushYearLang(y, lang, sort);
+        }
+
+        // Year x genre slices
+        for (const [name, id] of Object.entries(genres)) {
+          pushYearGenre(y, name, id, sort);
+        }
+
+        // Quarter slices for big years (2020+)
+        if (y >= bigYearThreshold) {
+          pushYearQuarters(y, sort);
+        }
       }
     }
-    for (const lang of BIG_LANGS) {
+
+    // Language slices spanning the full range (for non-target languages)
+    // Only for languages NOT in targetLangs (to avoid duplication)
+    const targetLangs = ["zh", "cn", "hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "ur"];
+    const otherLangs = BIG_LANGS.filter(l => !targetLangs.includes(l));
+    for (const lang of otherLangs) {
       for (const sort of DRY_SORTS) {
         slices.push({ key: `${type}:lang:${lang}:${sort}`, type, path,
           params: { with_original_language: lang, [rangeGte]: `${fromYear}-01-01`,
             [rangeLte]: `${toYear}-12-31`, sort_by: sort, ...runtime } });
       }
     }
+
+    // Genre slices spanning the full range
     for (const [name, id] of Object.entries(genres)) {
       for (const sort of DRY_SORTS) {
         slices.push({ key: `${type}:genre:${name}:${sort}`, type, path,
@@ -669,6 +759,11 @@ export async function dryRunScan(getPage, { types, fromYear, toYear, seen, pastD
     for (let page = 1; page <= DRY_MAX_PAGES; page++) {
       if (pastDeadline()) { stoppedEarly = true; break outer; }
       discoverCalls++;
+      if (discoverCalls >= MAX_DISCOVER_CALLS) {
+        log(`discover-call budget exceeded (${MAX_DISCOVER_CALLS}); stopping scan`);
+        stoppedEarly = true;
+        break outer;
+      }
       let data;
       try {
         data = await getPage(s.path, {
@@ -681,22 +776,26 @@ export async function dryRunScan(getPage, { types, fromYear, toYear, seen, pastD
       const rows = data.results || [];
       let added = 0;
       for (const r of rows) {
-        if (!dryRunQuality(r, s.type, r.original_language || "")) continue;
+        const date = r.release_date || r.first_air_date || "";
+        const rowYear = /^\d{4}/.test(date) ? Number(date.slice(0, 4)) : null;
+        if (!dryRunQuality(r, s.type, r.original_language || "", rowYear)) continue;
         if (seen.has(r.id)) {
           if (!dbIds.has(r.id)) dbIds.set(r.id, s.type);
           continue;
         }
         if (found.has(r.id)) continue;
-        const date = r.release_date || r.first_air_date || "";
         found.set(r.id, {
           type: s.type,
           lang: r.original_language || "other",
-          year: /^\d{4}/.test(date) ? Number(date.slice(0, 4)) : null,
+          year: rowYear,
         });
         added++;
       }
-      if (added === 0) break; // this page (and the deeper ones) add nothing new
+      // Stop only when TMDB really has no more results on this page.
+      // Do NOT stop because rows were filtered out by quality or already in the DB.
+      if (data.results.length === 0) break;
       if (page >= (data.total_pages || 1)) break;
+      if (page >= 500) break; // TMDB maximum page
     }
     if (allSlices.indexOf(s) % 25 === 24) {
       log(`progress: slices=${allSlices.indexOf(s) + 1}/${allSlices.length} calls=${discoverCalls} new=${found.size}`);
@@ -746,10 +845,34 @@ function printDryRunResult(scan, seenSize, elapsedMs) {
   console.log(`new ids: movie=${byType.movie} short=${byType.short} series=${byType.series} total=${scan.found.size}`);
   console.log(`already in database: movie=${dbByType.movie} short=${dbByType.short} series=${dbByType.series} ` +
     `(rows in table=${seenSize}; a row seen in many slices counts once)`);
-  console.log("by year (movie/short/series):");
-  for (const y of years) console.log(`  ${y}: ${triple(byYear.get(y))}`);
-  console.log("by language (movie/short/series), biggest first:");
-  for (const [l, o] of langs) console.log(`  ${l}: ${triple(o)}`);
+  
+  // Per-year counts for 2020-2026
+  console.log("by year 2020-2026 (movie/short/series):");
+  for (let y = 2020; y <= 2026; y++) {
+    const o = byYear.get(y) || { movie: 0, short: 0, series: 0 };
+    console.log(`  ${y}: ${triple(o)}`);
+  }
+  
+  // Per-language new counts for specified languages
+  const targetLangs = ["en", "hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "ur", "ko", "ja", "zh", "cn", "es", "fr", "de", "it", "pt", "ru", "tr", "ar", "th", "id", "fa"];
+  console.log("by language (movie/short/series) for target languages:");
+  for (const l of targetLangs) {
+    const o = byLang.get(l) || { movie: 0, short: 0, series: 0 };
+    const total = o.movie + o.short + o.series;
+    if (total > 0) console.log(`  ${l}: ${triple(o)}`);
+  }
+  
+  // Languages under 150
+  const under150 = targetLangs.filter(l => {
+    const o = byLang.get(l) || { movie: 0, short: 0, series: 0 };
+    return (o.movie + o.short + o.series) > 0 && (o.movie + o.short + o.series) < 150;
+  });
+  if (under150.length > 0) {
+    console.log(`languages under 150: ${under150.join(", ")}`);
+  } else {
+    console.log("all target languages have 150+ new candidates");
+  }
+  
   console.log(`estimate: detail calls=${est.detailCalls} + discover calls=${est.discoverCalls} = ${est.totalCalls} calls`);
   console.log(`  at 12 req/s -> ${h}h ${m}m (ignoring 429 back-off and DB time)`);
   if (scan.stoppedEarly) console.log("stopped early: approaching job timeout");
@@ -918,7 +1041,9 @@ async function main() {
           }
           console.log(`after ${s.key} p${page}: kept=${kept.length} upserted=${upserted} details=${detailCalls} 429s=${req429s}`);
         }
+        if (data.results.length === 0) break;
         if (page >= (data.total_pages || 1)) break;
+        if (page >= 500) break; // TMDB maximum page
       }
       if (limit > 0 && detailCalls >= limit) break;
       if (detailCalls >= MAX_DETAILS) break;
