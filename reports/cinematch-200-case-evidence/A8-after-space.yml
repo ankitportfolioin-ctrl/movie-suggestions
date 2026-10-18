@@ -1,0 +1,43 @@
+- generic [ref=e3]:
+  - main [ref=e26]:
+    - generic [ref=e101]:
+      - generic [ref=e102]:
+        - generic [ref=e103]: What to Watch
+        - generic [ref=e104]: Question 1 of 8
+      - generic [ref=e105]: "Session Snapshot:"
+      - generic [ref=e108]:
+        - generic [ref=e109]:
+          - heading "What do you want to watch?" [level=2] [ref=e110]
+          - paragraph [ref=e111]: Pick the format — every later answer adapts to it.
+        - generic [ref=e112]:
+          - button "Movie Feature film, 41 minutes and up" [pressed] [ref=e113] [cursor=pointer]:
+            - generic [ref=e114]: Movie
+            - generic [ref=e117]: Feature film, 41 minutes and up
+          - button "Short film A quick watch, 40 minutes or less" [ref=e118] [cursor=pointer]:
+            - generic [ref=e119]: Short film
+            - generic [ref=e121]: A quick watch, 40 minutes or less
+          - button "Series Episodic TV or web series" [ref=e122] [cursor=pointer]:
+            - generic [ref=e123]: Series
+            - generic [ref=e125]: Episodic TV or web series
+          - button "Any Movies, shorts and series" [ref=e126] [cursor=pointer]:
+            - generic [ref=e127]: Any
+            - generic [ref=e129]: Movies, shorts and series
+      - generic [ref=e130]:
+        - button "Back" [ref=e131] [cursor=pointer]
+        - button "Cancel" [ref=e135] [cursor=pointer]
+        - button "Continue" [ref=e140] [cursor=pointer]
+  - contentinfo [ref=e82]:
+    - generic [ref=e83]:
+      - generic [ref=e84]:
+        - generic [ref=e90]: CineMatch
+        - generic [ref=e91]: © 2026 CineMatch.
+      - generic [ref=e92]:
+        - link "OMDb" [ref=e93] [cursor=pointer]:
+          - /url: https://www.omdbapi.com/
+        - generic [ref=e94]: ·
+        - link "Watchmode" [ref=e95] [cursor=pointer]:
+          - /url: https://watchmode.com/
+        - generic [ref=e96]: ·
+        - link "TMDB" [ref=e97] [cursor=pointer]:
+          - /url: https://www.themoviedb.org/
+    - generic [ref=e98]: No accounts · No tracking · Your picks stay in this browser

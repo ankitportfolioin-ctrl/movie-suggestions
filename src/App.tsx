@@ -30,6 +30,7 @@ import {
 
 const INITIAL_STATE: WizardState = {
   step: 0,
+  types: ['movie'],
   mood: 'Relaxed',
   genres: ['Surprise me'],
   audience: 'Just me',
@@ -73,7 +74,7 @@ function loadQuiz(): StoredQuiz | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed.wizard?.step !== 'number') return null;
     // Never restore into the results view without movies to show.
-    const step = parsed.wizard.step >= 8 && !(parsed.movies || []).length ? 0 : parsed.wizard.step;
+    const step = parsed.wizard.step >= 9 && !(parsed.movies || []).length ? 0 : parsed.wizard.step;
     return {
       wizard: { ...INITIAL_STATE, ...parsed.wizard, step },
       movies: Array.isArray(parsed.movies) ? parsed.movies : [],
@@ -197,7 +198,7 @@ export default function App() {
   };
 
   const handleSubmit = () => {
-    setTouched((t) => (t.includes(7) ? t : [...t, 7]));
+    setTouched((t) => (t.includes(8) ? t : [...t, 8]));
     fetchRecommendations([]);
   };
 
@@ -228,7 +229,7 @@ export default function App() {
   };
 
   const handleBackToFilters = () => {
-    setWizardState((prev) => ({ ...prev, step: 6 }));
+    setWizardState((prev) => ({ ...prev, step: 7 }));
   };
 
   const handleReset = () => {
@@ -321,7 +322,7 @@ export default function App() {
     setLoadError(false);
     setShowSaved(false);
     setResetStatus('');
-    setWizardState((prev) => ({ ...prev, step: 8 })); // Results view
+    setWizardState((prev) => ({ ...prev, step: 9 })); // Results view (8 questions + results)
 
     const currentExcludes = customExclude ?? seenMovieIds;
 
@@ -335,6 +336,7 @@ export default function App() {
         audience: wizardState.audience,
         maxRuntime: wizardState.maxRuntime,
         languages: wizardState.languages,
+        types: wizardState.types || ['movie'],
         preferences: wizardState.preferences,
         note: wizardState.note,
         excludeIds: currentExcludes,
@@ -447,20 +449,20 @@ export default function App() {
     }
   };
 
-  // Progress Bar calculation (steps 1 through 7)
+  // Progress Bar calculation (steps 1 through 8)
   const progressPercent =
     wizardState.step === 0
       ? 0
-      : wizardState.step >= 8
+      : wizardState.step >= 9
       ? 100
-      : Math.round((wizardState.step / 7) * 100);
+      : Math.round((wizardState.step / 8) * 100);
 
-  const showHeader = !showSaved && wizardState.step !== 0 && wizardState.step < 8 ? false : true;
+  const showHeader = !showSaved && wizardState.step !== 0 && wizardState.step < 9 ? false : true;
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#F5F5F5] flex flex-col justify-between selection:bg-[#E63946]/30 selection:text-[#F5F5F5]">
       {/* Thin red-to-orange progress bar at top (quiz only) */}
-      {wizardState.step > 0 && wizardState.step < 8 && !showSaved && (
+      {wizardState.step > 0 && wizardState.step < 9 && !showSaved && (
         <div className="fixed top-0 left-0 right-0 h-1 bg-[#1a1a1a] z-50 overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-[#E63946] to-[#FF7A2F] transition-all duration-300 ease-out"
@@ -548,7 +550,7 @@ export default function App() {
             onToggleSave={toggleSave}
             onBack={() =>
               movies.length > 0
-                ? (setShowSaved(false), setWizardState((prev) => ({ ...prev, step: 8 })))
+                ? (setShowSaved(false), setWizardState((prev) => ({ ...prev, step: 9 })))
                 : handleCancel()
             }
             onStartQuiz={() => {
@@ -557,7 +559,7 @@ export default function App() {
               window.scrollTo({ top: 0 });
             }}
           />
-        ) : wizardState.step < 8 ? (
+        ) : wizardState.step < 9 ? (
           wizardState.step === 0 ? (
             <Hero
               onStart={() => setWizardState((prev) => ({ ...prev, step: 1 }))}

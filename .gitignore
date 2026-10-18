@@ -21,3 +21,14 @@ release-report/
 eval/
 
 .vercel
+
+# Ignore generated test / report artifacts (never commit):
+baseline*.txt
+final-test*.txt
+test-out*.txt
+test-output.txt
+test-baseline.txt
+audit-report.txt
+evidence/
+serve-api.tmp.ts
+tmp-dbq.mjs

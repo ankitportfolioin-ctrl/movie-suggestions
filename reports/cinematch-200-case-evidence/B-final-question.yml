@@ -1,0 +1,64 @@
+- generic [ref=f3e3]:
+  - main [ref=f3e22]:
+    - generic [ref=f3e97]:
+      - generic [ref=f3e98]:
+        - generic [ref=f3e99]: Refinements
+        - generic [ref=f3e100]: Question 7 of 8
+      - generic [ref=f3e101]:
+        - generic [ref=f3e102]: "Session Snapshot:"
+        - generic [ref=f3e140]: "Type: Movie"
+        - generic [ref=f3e208]: "Mood: Relaxed"
+        - generic [ref=f3e249]: "Genres: Surprise me"
+        - generic [ref=f3e288]: "Company: Just me"
+        - generic [ref=f3e322]: "Runtime: Under 2 hours"
+        - generic [ref=f3e337]: "Language: Any"
+      - generic [ref=f3e338]:
+        - generic [ref=f3e339]:
+          - heading "Fine-tune Preferences" [level=2] [ref=f3e340]
+          - paragraph [ref=f3e341]: Toggle specific criteria for higher precision.
+        - generic [ref=f3e342]:
+          - generic [ref=f3e343]:
+            - generic [ref=f3e344]:
+              - generic [ref=f3e345]: Highly rated only (7+)
+              - generic [ref=f3e346]: Focus strictly on critically praised films rated 7.0 and above.
+            - switch "Highly rated only (7+)" [ref=f3e347] [cursor=pointer]
+          - generic [ref=f3e349]:
+            - generic [ref=f3e350]:
+              - generic [ref=f3e351]: Hidden gems
+              - generic [ref=f3e352]: Surface overlooked masterpieces over blockbusters.
+            - switch "Hidden gems" [ref=f3e353] [cursor=pointer]
+          - generic [ref=f3e355]:
+            - generic [ref=f3e356]:
+              - generic [ref=f3e357]: Recent (last 5 years)
+              - generic [ref=f3e358]: Released from 2020 onwards with modern production design.
+            - switch "Recent (last 5 years)" [ref=f3e359] [cursor=pointer]
+          - generic [ref=f3e361]:
+            - generic [ref=f3e362]:
+              - generic [ref=f3e363]: Classics (before 2000)
+              - generic [ref=f3e364]: Golden age and legendary cinema history.
+            - switch "Classics (before 2000)" [ref=f3e365] [cursor=pointer]
+          - generic [ref=f3e367]:
+            - generic [ref=f3e368]:
+              - generic [ref=f3e369]: Include mature content
+              - generic [ref=f3e370]: Allow R-rated and dark psychological cinema (defaults OFF).
+            - switch "Include mature content" [ref=f3e371] [cursor=pointer]
+        - group [ref=f3e373]:
+          - generic "More ways to tune Optional" [ref=f3e374] [cursor=pointer]:
+            - generic [ref=f3e375]:
+              - generic [ref=f3e376]: More ways to tune
+              - generic [ref=f3e377]: Optional
+  - contentinfo [ref=f3e78]:
+    - generic [ref=f3e79]:
+      - generic [ref=f3e80]:
+        - generic [ref=f3e86]: CineMatch
+        - generic [ref=f3e87]: © 2026 CineMatch.
+      - generic [ref=f3e88]:
+        - link "OMDb" [ref=f3e89] [cursor=pointer]:
+          - /url: https://www.omdbapi.com/
+        - generic [ref=f3e90]: ·
+        - link "Watchmode" [ref=f3e91] [cursor=pointer]:
+          - /url: https://watchmode.com/
+        - generic [ref=f3e92]: ·
+        - link "TMDB" [ref=f3e93] [cursor=pointer]:
+          - /url: https://www.themoviedb.org/
+    - generic [ref=f3e94]: No accounts · No tracking · Your picks stay in this browser

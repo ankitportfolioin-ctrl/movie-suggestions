@@ -36,7 +36,19 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
   // D-03: only title-specific provider pages are offered — never a search
   // fallback. No verified link means the control is plainly unavailable.
   const providerLink = movie.providers?.find((p) => p.url)?.url;
-  const mediaLabel = movie.mediaType === 'series' ? 'TV series' : movie.mediaType === 'movie' ? 'Movie' : '';
+  // Catalog kind wins; OMDb's mediaType is the fallback (older rows).
+  const kindLabel = movie.type === 'series' ? 'Series'
+    : movie.type === 'short' ? 'Short film'
+    : movie.type === 'movie' ? 'Movie'
+    : movie.mediaType === 'series' ? 'TV series'
+    : movie.mediaType === 'movie' ? 'Movie' : '';
+  const isSeries = movie.type === 'series' || movie.mediaType === 'series';
+  const seriesFacts = isSeries && (movie.seasons || movie.episodeRuntime)
+    ? [
+        movie.seasons ? `${movie.seasons} season${movie.seasons === 1 ? '' : 's'}` : '',
+        movie.episodeRuntime ? `~${formatRuntime(movie.episodeRuntime)}/ep` : '',
+      ].filter(Boolean).join(' · ')
+    : '';
   const ratingSourceLabel =
     movie.ratingSource === 'imdb' ? 'IMDb' : movie.ratingSource === 'tmdb' ? 'TMDB' : '';
   const watchOptionsClass =
@@ -99,7 +111,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
             </span>
             <span className="px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#8C8C8C] text-xs flex items-center gap-1">
               <Clock size={11} className="text-[#FF7A2F]" />
-              {formatRuntime(movie.runtime)}
+              {formatRuntime(movie.runtime)}{isSeries ? ' /ep' : ''}
             </span>
             <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#FF7A2F] text-xs font-semibold">
               <Star size={11} className="fill-[#FF7A2F] text-[#FF7A2F]" />
@@ -108,9 +120,14 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
                 <span className="opacity-70 text-[10px] font-medium">{ratingSourceLabel}</span>
               )}
             </span>
-            {mediaLabel && (
+            {kindLabel && (
               <span className="px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#8C8C8C] text-xs">
-                {mediaLabel}
+                {kindLabel}
+              </span>
+            )}
+            {seriesFacts && (
+              <span className="px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#8C8C8C] text-xs">
+                {seriesFacts}
               </span>
             )}
             {movie.certificate && (
@@ -188,7 +205,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
             </div>
           ) : (
             <p className="text-xs text-[#8C8C8C] italic">
-              Not available to stream in your country right now.
+              Not streaming in your country.
             </p>
           )}
         </div>

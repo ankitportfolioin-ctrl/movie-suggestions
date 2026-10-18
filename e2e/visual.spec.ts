@@ -48,22 +48,24 @@ test('visual matrix: every state x every viewport', async ({ page }) => {
     await check('landing');
     await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match/ }).click();
     await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
-    await check('q1');
+    await check('q1-type');
     await page.getByRole('button', { name: 'Continue' }).click();
-    await check('q2');
+    await check('q2-mood');
     await page.getByRole('button', { name: 'Continue' }).click();
-    await check('q3');
+    await check('q3-genre');
     await page.getByRole('button', { name: 'Continue' }).click();
-    await check('q4');
+    await check('q4-company');
     await page.getByRole('button', { name: 'Continue' }).click();
-    await check('q5');
+    await check('q5-runtime');
     await page.getByRole('button', { name: 'Continue' }).click();
-    await check('q6-top');
+    await check('q6-language');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await check('q7-refinements-top');
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await check('q6-bottom');
+    await check('q7-refinements-bottom');
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.getByRole('button', { name: 'Continue' }).click();
-    await check('q7');
+    await check('q8-note');
     const [resp] = await Promise.all([
       page.waitForResponse((r) => r.url().includes('/api/recommend')),
       page.getByRole('button', { name: 'Find my movies' }).click(),
@@ -85,59 +87,65 @@ test('visual options deep pass (1366x768)', async ({ page }) => {
   const art = recordFlow(page);
   await page.setViewportSize({ width: 1366, height: 768 });
   await startQuiz(page);
-  // Q1: each of 8 moods
-  for (const m of MOODS) {
-    await page.getByRole('button', { name: new RegExp(`^${m}`) }).first().click();
-    await page.screenshot({ path: shotName('1366x768', 'visual', `q1-mood-${m.toLowerCase()}`) });
+  // Q1: each of 4 media types (Series also enables the miniseries runtime)
+  for (const t of ['Movie', 'Short film', 'Series', 'Any']) {
+    await page.getByRole('button', { name: new RegExp(`^${t}`) }).first().click();
+    await page.screenshot({ path: shotName('1366x768', 'visual', `q1-type-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`) });
   }
   await page.getByRole('button', { name: 'Continue' }).click();
-  // Q2: surprise, 3 genres, attempt 4th
-  await page.screenshot({ path: shotName('1366x768', 'visual', 'q2-surprise') });
+  // Q2: each of 8 moods
+  for (const m of MOODS) {
+    await page.getByRole('button', { name: new RegExp(`^${m}`) }).first().click();
+    await page.screenshot({ path: shotName('1366x768', 'visual', `q2-mood-${m.toLowerCase()}`) });
+  }
+  await page.getByRole('button', { name: 'Continue' }).click();
+  // Q3: surprise, 3 genres, attempt 4th
+  await page.screenshot({ path: shotName('1366x768', 'visual', 'q3-surprise') });
   for (const g of ['Comedy', 'Drama', 'Sci-Fi']) {
     await page.getByRole('button', { name: new RegExp(`^${g}`) }).click();
   }
-  await page.screenshot({ path: shotName('1366x768', 'visual', 'q2-3genres') });
+  await page.screenshot({ path: shotName('1366x768', 'visual', 'q3-3genres') });
   await page.getByRole('button', { name: /^Horror/ }).click();
-  await page.screenshot({ path: shotName('1366x768', 'visual', 'q2-attempt-4th') });
+  await page.screenshot({ path: shotName('1366x768', 'visual', 'q3-attempt-4th') });
   await page.getByRole('button', { name: 'Continue' }).click();
-  // Q3: 4 audiences
+  // Q4: 4 audiences
   for (const a of AUDIENCES) {
     await page.getByRole('button', { name: new RegExp(a) }).first().click();
     await page.screenshot({
-      path: shotName('1366x768', 'visual', `q3-${a.toLowerCase().replace(/[^a-z]+/g, '-')}`),
+      path: shotName('1366x768', 'visual', `q4-${a.toLowerCase().replace(/[^a-z]+/g, '-')}`),
     });
   }
   await page.getByRole('button', { name: 'Continue' }).click();
-  // Q4: 4 runtimes
+  // Q5: 4 runtimes (5 options when Series is in the mix)
   for (const r of RUNTIMES) {
     await page.getByRole('button', { name: new RegExp(r) }).first().click();
     await page.screenshot({
-      path: shotName('1366x768', 'visual', `q4-${r.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`),
+      path: shotName('1366x768', 'visual', `q5-${r.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`),
     });
   }
   await page.getByRole('button', { name: 'Continue' }).click();
-  // Q5: 9 languages
+  // Q6: 9 languages
   for (const l of LANGS) {
     await page.getByRole('button', { name: new RegExp(`^${l}$`) }).click();
-    await page.screenshot({ path: shotName('1366x768', 'visual', `q5-${l.toLowerCase()}`) });
+    await page.screenshot({ path: shotName('1366x768', 'visual', `q6-${l.toLowerCase()}`) });
   }
   await page.getByRole('button', { name: 'Continue' }).click();
-  // Q6: top, scroll bottom, toggles ON
-  await page.screenshot({ path: shotName('1366x768', 'visual', 'q6-top') });
+  // Q7: top, scroll bottom, toggles ON
+  await page.screenshot({ path: shotName('1366x768', 'visual', 'q7-top') });
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await page.screenshot({ path: shotName('1366x768', 'visual', 'q6-bottom-off') });
+  await page.screenshot({ path: shotName('1366x768', 'visual', 'q7-bottom-off') });
   for (const t of ['Highly rated only', 'Hidden gems', 'Recent \\(last 5 years\\)', 'Classics \\(before 2000\\)']) {
     await page.getByRole('switch', { name: new RegExp(t) }).click();
   }
-  await page.screenshot({ path: shotName('1366x768', 'visual', 'q6-bottom-on') });
+  await page.screenshot({ path: shotName('1366x768', 'visual', 'q7-bottom-on') });
   // Note: Recent+Classics are mutually exclusive by design (last wins).
   await page.getByRole('button', { name: 'Continue' }).click();
-  // Q7 variants
-  await page.screenshot({ path: shotName('1366x768', 'visual', 'q7-empty') });
+  // Q8 variants
+  await page.screenshot({ path: shotName('1366x768', 'visual', 'q8-empty') });
   await page.locator('#quiz-user-notes').fill('a'.repeat(200));
-  await page.screenshot({ path: shotName('1366x768', 'visual', 'q7-200chars') });
+  await page.screenshot({ path: shotName('1366x768', 'visual', 'q8-200chars') });
   await page.locator('#quiz-user-notes').fill('मुझे कोई हल्की-फुल्की कॉमेडी दिखाओ 🎬🍿');
-  await page.screenshot({ path: shotName('1366x768', 'visual', 'q7-hindi-emoji') });
+  await page.screenshot({ path: shotName('1366x768', 'visual', 'q8-hindi-emoji') });
   await page.locator('#quiz-user-notes').fill('');
   // Loading state (delay recommend 2s)
   await page.route('**/api/recommend', async (route) => {
@@ -161,7 +169,7 @@ test('visual error state (1366x768)', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   await startQuiz(page);
   await page.route('**/api/recommend', (route) => route.abort('failed'));
-  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue' }).click();
+  for (let i = 0; i < 7; i++) await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('button', { name: 'Find my movies' }).click();
   await expect(page.getByText(/went wrong/i)).toBeVisible({ timeout: 10000 });
   await page.screenshot({ path: shotName('1366x768', 'visual', 'error-blocked-api') });
@@ -171,7 +179,9 @@ test('visual error state (1366x768)', async ({ page }) => {
 test('visual no-matches attempt (1366x768)', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   await startQuiz(page);
-  // Q1 default Relaxed -> Q2 Documentary
+  // Q1 media type: keep the default Movie
+  await page.getByRole('button', { name: 'Continue' }).click();
+  // Q2 default Relaxed -> Q3 Documentary
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('button', { name: /^Documentary/ }).click();
   await page.getByRole('button', { name: 'Continue' }).click();

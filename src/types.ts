@@ -26,6 +26,17 @@ export interface Movie {
   certificate?: string;
   /** Provider-reported content type: "movie" or "series". */
   mediaType?: string;
+  /** Media kind from the catalog: 'movie' | 'short' | 'series'. */
+  type?: string;
+  /** Series facts (absent for movies/shorts). runtime mirrors episodeRuntime. */
+  seasons?: number;
+  episodes?: number;
+  episodeRuntime?: number;
+  network?: string;
+  firstAirYear?: number;
+  lastAirYear?: number;
+  status?: string;
+  webSeries?: boolean;
   /**
    * Which provider the displayed rating came from. Omitted when the rating is
    * a local-catalog value that no provider verified.
@@ -47,7 +58,9 @@ export interface Preferences {
 }
 
 export interface WizardState {
-  step: number; // 0 = Hero, 1..7 = Questions, 8 = Results
+  step: number; // 0 = Hero, 1..8 = Questions, 9 = Results
+  /** Media kinds: ['movie'] | ['short'] | ['series'] | all three ('Any'). */
+  types: string[];
   mood: string;
   genres: string[];
   audience: string;

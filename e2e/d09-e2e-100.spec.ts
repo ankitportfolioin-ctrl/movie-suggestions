@@ -26,10 +26,11 @@ async function freshHome(page: Page) {
 
 async function startQuiz(page: Page) {
   await page.getByRole('button', { name: /Start Full Quiz/ }).first().click();
-  await expect(page.getByText('Question 1 of 7')).toBeVisible();
+  await expect(page.getByText('Question 1 of 8')).toBeVisible();
 }
 
 interface QuizOpts {
+  media?: string;
   mood?: string;
   genres?: string[];
   audience?: string;
@@ -39,9 +40,12 @@ interface QuizOpts {
   note?: string;
 }
 
-/** Click through steps 1..6 with the given picks (defaults otherwise), land on step 7. */
-async function answerToStep7(page: Page, opts: QuizOpts = {}) {
+/** Click through questions 1..7 with the given picks (defaults otherwise), land on the note (Q8). */
+async function answerToStep8(page: Page, opts: QuizOpts = {}) {
   const next = page.getByRole('button', { name: 'Continue', exact: true });
+  // Q1 media type: only click when the test cares; default stays Movie.
+  if (opts.media) await page.getByRole('button', { name: new RegExp(`^${opts.media}`) }).first().click();
+  await next.click();
   if (opts.mood) await page.getByRole('button', { name: new RegExp(`^${opts.mood}`) }).click();
   await next.click();
   for (const g of opts.genres ?? []) {
@@ -70,7 +74,7 @@ async function submit(page: Page, waitMs = 25_000) {
 
 async function runQuiz(page: Page, opts: QuizOpts = {}) {
   await startQuiz(page);
-  await answerToStep7(page, opts);
+  await answerToStep8(page, opts);
   return submit(page);
 }
 
@@ -125,8 +129,8 @@ test('TC-005 How It Works scrolls to the section', async ({ page }) => {
 test('TC-006 Header Start Quiz opens question 1', async ({ page }) => {
   await freshHome(page);
   await page.getByRole('button', { name: /Start Quiz/ }).first().click();
-  await expect(page.getByText('Question 1 of 7')).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Happy/ })).toBeVisible();
+  await expect(page.getByText('Question 1 of 8')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Movie/ }).first()).toBeVisible();
 });
 
 test('TC-007 Hero Start Full Quiz opens question 1', async ({ page }) => {
@@ -135,15 +139,21 @@ test('TC-007 Hero Start Full Quiz opens question 1', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
 });
 
-test('TC-008 In-app Back from step 2 keeps answers', async ({ page }) => {
+test('TC-008 In-app Back keeps the previous answer', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
+  await page.getByRole('button', { name: /^Series/ }).first().click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByText('Question 2 of 8')).toBeVisible();
   await page.getByRole('button', { name: /^Happy/ }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await expect(page.getByText('Question 2 of 7')).toBeVisible();
+  await expect(page.getByText('Question 3 of 8')).toBeVisible();
   await page.getByRole('button', { name: 'Back' }).click();
-  await expect(page.getByText('Question 1 of 7')).toBeVisible();
+  await expect(page.getByText('Question 2 of 8')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Happy/ })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Back' }).click();
+  await expect(page.getByText('Question 1 of 8')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Series/ }).first()).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('TC-009 Full page scroll reaches the footer', async ({ page }) => {
@@ -307,6 +317,7 @@ test('TC-024 NL: "like Arrival, but lighter" uses the reference and says so', as
 test('TC-025 All 8 moods expose aria-pressed selected state (D-05)', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click(); // Q2 moods
   for (const label of ['Happy', 'Relaxed', 'Tired', 'Stressed', 'Romantic', 'Adventurous', 'Curious', 'Sad']) {
     const btn = page.getByRole('button', { name: new RegExp(`^${label}`) });
     await btn.click();
@@ -318,7 +329,8 @@ test('TC-025 All 8 moods expose aria-pressed selected state (D-05)', async ({ pa
 test('TC-026 Surprise me is exclusive of picked genres', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click(); // Q2 moods
+  await page.getByRole('button', { name: 'Continue', exact: true }).click(); // Q3 genres
   await page.getByRole('button', { name: 'Action', exact: true }).click();
   await page.getByRole('button', { name: 'Surprise me', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Action', exact: true })).toHaveAttribute('aria-pressed', 'false');
@@ -328,7 +340,8 @@ test('TC-026 Surprise me is exclusive of picked genres', async ({ page }) => {
 test('TC-027 Three genres all show selected', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click(); // Q2 moods
+  await page.getByRole('button', { name: 'Continue', exact: true }).click(); // Q3 genres
   for (const g of ['Comedy', 'Sci-Fi', 'Mystery']) {
     await page.getByRole('button', { name: g, exact: true }).click();
     await expect(page.getByRole('button', { name: g, exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -339,7 +352,8 @@ test('TC-027 Three genres all show selected', async ({ page }) => {
 test('TC-028 Fourth genre is refused at the cap', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click(); // Q2 moods
+  await page.getByRole('button', { name: 'Continue', exact: true }).click(); // Q3 genres
   for (const g of ['Comedy', 'Sci-Fi', 'Mystery']) {
     await page.getByRole('button', { name: g, exact: true }).click();
   }
@@ -350,7 +364,8 @@ test('TC-028 Fourth genre is refused at the cap', async ({ page }) => {
 test('TC-029 Deselecting a genre updates state', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click(); // Q2 moods
+  await page.getByRole('button', { name: 'Continue', exact: true }).click(); // Q3 genres
   await page.getByRole('button', { name: 'Comedy', exact: true }).click();
   await page.getByRole('button', { name: 'Comedy', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Comedy', exact: true })).toHaveAttribute('aria-pressed', 'false');
@@ -361,6 +376,7 @@ test('TC-030 Audience "Just me" is exclusive and snapped in the snapshot', async
   await startQuiz(page);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: /^Just me/ }).click();
   await expect(page.getByRole('button', { name: /^Just me/ })).toHaveAttribute('aria-pressed', 'true');
 });
@@ -368,6 +384,7 @@ test('TC-030 Audience "Just me" is exclusive and snapped in the snapshot', async
 test('TC-031 Audience "Partner" exclusive', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: /^Partner/ }).click();
@@ -380,6 +397,7 @@ test('TC-032 Audience "Friends" exclusive', async ({ page }) => {
   await startQuiz(page);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: /^Friends/ }).click();
   await expect(page.getByRole('button', { name: /^Friends/ })).toHaveAttribute('aria-pressed', 'true');
 });
@@ -389,6 +407,7 @@ test('TC-033 Family with kids keeps safety guardrails visible', async ({ page })
   await startQuiz(page);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: /^Family with kids/ }).click();
   await expect(page.getByRole('button', { name: /^Family with kids/ })).toHaveAttribute('aria-pressed', 'true');
 });
@@ -396,7 +415,7 @@ test('TC-033 Family with kids keeps safety guardrails visible', async ({ page })
 test('TC-034 Runtime Under 90 min exclusive', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: /^Under 90 min/ }).click();
   await expect(page.getByRole('button', { name: /^Under 90 min/ })).toHaveAttribute('aria-pressed', 'true');
 });
@@ -404,7 +423,7 @@ test('TC-034 Runtime Under 90 min exclusive', async ({ page }) => {
 test('TC-035 Runtime Under 2 hours exclusive', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: /^Under 2 hours/ }).click();
   await expect(page.getByRole('button', { name: /^Under 90 min/ })).toHaveAttribute('aria-pressed', 'false');
 });
@@ -412,7 +431,7 @@ test('TC-035 Runtime Under 2 hours exclusive', async ({ page }) => {
 test('TC-036 Runtime Under 2.5 hours exclusive', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: /^Under 2\.5 hours/ }).click();
   await expect(page.getByRole('button', { name: /^Under 2\.5 hours/ })).toHaveAttribute('aria-pressed', 'true');
 });
@@ -420,7 +439,7 @@ test('TC-036 Runtime Under 2.5 hours exclusive', async ({ page }) => {
 test('TC-037 Runtime Any length exclusive', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: /^Any length/ }).click();
   await expect(page.getByRole('button', { name: /^Any length/ })).toHaveAttribute('aria-pressed', 'true');
 });
@@ -428,7 +447,7 @@ test('TC-037 Runtime Any length exclusive', async ({ page }) => {
 test('TC-038 Language English exclusive', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'English', exact: true }).click();
   await expect(page.getByRole('button', { name: 'English', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
@@ -436,7 +455,7 @@ test('TC-038 Language English exclusive', async ({ page }) => {
 test('TC-039 Language Korean exclusive', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Korean', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Korean', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: 'Any', exact: true })).toHaveAttribute('aria-pressed', 'false');
@@ -445,7 +464,7 @@ test('TC-039 Language Korean exclusive', async ({ page }) => {
 test('TC-040 Language Any exclusive', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Any', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Any', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
@@ -453,7 +472,7 @@ test('TC-040 Language Any exclusive', async ({ page }) => {
 test('TC-041 Back from step 6 keeps earlier answers', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'English', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Back' }).click();
@@ -477,7 +496,7 @@ test('TC-042 Cancel confirms then clears answers', async ({ page }) => {
 test('TC-043 Highly-rated switch reports aria-checked', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   const sw = page.getByRole('switch', { name: 'Highly rated only (7+)' });
   await sw.click();
   await expect(sw).toHaveAttribute('aria-checked', 'true');
@@ -488,7 +507,7 @@ test('TC-043 Highly-rated switch reports aria-checked', async ({ page }) => {
 test('TC-044 Hidden-gems switch reports aria-checked', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   const sw = page.getByRole('switch', { name: 'Hidden gems' });
   await sw.click();
   await expect(sw).toHaveAttribute('aria-checked', 'true');
@@ -497,7 +516,7 @@ test('TC-044 Hidden-gems switch reports aria-checked', async ({ page }) => {
 test('TC-045 Recent switch reports aria-checked and clears classics', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   const classics = page.getByRole('switch', { name: 'Classics (before 2000)' });
   await classics.click();
   await expect(classics).toHaveAttribute('aria-checked', 'true');
@@ -510,7 +529,7 @@ test('TC-045 Recent switch reports aria-checked and clears classics', async ({ p
 test('TC-046 Classics switch reports aria-checked', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   const sw = page.getByRole('switch', { name: 'Classics (before 2000)' });
   await sw.click();
   await expect(sw).toHaveAttribute('aria-checked', 'true');
@@ -519,7 +538,7 @@ test('TC-046 Classics switch reports aria-checked', async ({ page }) => {
 test('TC-047 Mature switch defaults off and toggles', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   const sw = page.getByRole('switch', { name: 'Include mature content' });
   await expect(sw).toHaveAttribute('aria-checked', 'false');
   await sw.click();
@@ -529,7 +548,7 @@ test('TC-047 Mature switch defaults off and toggles', async ({ page }) => {
 test('TC-048 More ways to tune exposes tone/pace/intensity', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByText('More ways to tune').click();
   const tone = page.getByRole('button', { name: 'Light & fun' });
   await tone.click();
@@ -539,7 +558,7 @@ test('TC-048 More ways to tune exposes tone/pace/intensity', async ({ page }) =>
 test('TC-049 Empty note is accepted', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  await answerToStep7(page);
+  await answerToStep8(page);
   await expect(page.locator('#quiz-user-notes')).toHaveValue('');
   await expect(page.getByRole('button', { name: 'Find my movies' })).toBeEnabled();
 });
@@ -547,14 +566,14 @@ test('TC-049 Empty note is accepted', async ({ page }) => {
 test('TC-050 Ordinary note is retained verbatim', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  await answerToStep7(page, { note: "Loved 'Arrival', no horror please" });
+  await answerToStep8(page, { note: "Loved 'Arrival', no horror please" });
   await expect(page.locator('#quiz-user-notes')).toHaveValue("Loved 'Arrival', no horror please");
 });
 
 test('TC-051 Note counter tracks 200-char boundary', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  await answerToStep7(page, { note: 'x'.repeat(200) });
+  await answerToStep8(page, { note: 'x'.repeat(200) });
   await expect(page.getByText('200 / 200')).toBeVisible();
 });
 
@@ -575,7 +594,7 @@ test('TC-052 Over-long note is truncated, never overflowed', async ({ page }) =>
 test('TC-053 Reference search returns real IMDb-backed chips', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  await answerToStep7(page);
+  await answerToStep8(page);
   await page.locator('#reference-movie-search').fill('The Social Network');
   await expect(page.getByText(/titles? found/i)).toBeVisible({ timeout: 20_000 });
   await page.getByRole('button', { name: /The Social Network/ }).first().click();
@@ -585,7 +604,7 @@ test('TC-053 Reference search returns real IMDb-backed chips', async ({ page }) 
 test('TC-054 Reference cap 3 + removal', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  await answerToStep7(page);
+  await answerToStep8(page);
   for (const title of ['Arrival', 'Coherence', 'Gattaca']) {
     await page.locator('#reference-movie-search').fill(title);
     await expect(page.getByText(/titles? found/i)).toBeVisible({ timeout: 20_000 });
@@ -767,7 +786,7 @@ test('TC-071 Availability caveat names the region-ish truth, no invented country
   await runQuiz(page);
   const text = await page.locator('body').innerText();
   if (/not available to stream/i.test(text)) {
-    expect(text).toMatch(/in your country right now/);
+    expect(text).toMatch(/Not streaming in your country/);
   }
 });
 
@@ -777,7 +796,7 @@ test('TC-072 Offer area states either provider offers or an honest empty', async
   const text = await page.locator('body').innerText();
   expect(text).toMatch(/available on/i);
   expect(text).toMatch(
-    /not available to stream in your country right now|\(stream\)|\(rent\)|\(buy\)|\(free\)|\(included\)|watch options/i
+    /Not streaming in your country|\(stream\)|\(rent\)|\(buy\)|\(free\)|\(included\)|watch options/i
   );
 });
 
@@ -959,7 +978,7 @@ test('TC-090 Retry after a real failure recovers', async ({ page }) => {
     await route.fallback();
   });
   await startQuiz(page);
-  await answerToStep7(page);
+  await answerToStep8(page);
   await page.getByRole('button', { name: 'Find my movies' }).click();
   await expect(page.getByText('Something went wrong')).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: 'Try again' }).click();
@@ -1048,7 +1067,7 @@ test('TC-097 H1, labelled inputs, named controls, live regions', async ({ page }
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await expect(page.locator('#hero-search-input')).toHaveAttribute('aria-label', /Search movies by exact title/);
   await startQuiz(page);
-  await answerToStep7(page);
+  await answerToStep8(page);
   await expect(page.locator('#reference-movie-search')).toHaveAttribute('id', 'reference-movie-search');
   await expect(page.getByText('Movies you liked (optional, up to 3)')).toBeVisible();
   await expect(page.locator('#quiz-user-notes')).toBeVisible();

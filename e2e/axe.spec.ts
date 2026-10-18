@@ -10,7 +10,7 @@ test('axe: landing, q1, results, error', async ({ page }) => {
   await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match/ }).click();
   r = await new AxeBuilder({ page }).analyze();
   console.log('AXE-q1: ' + JSON.stringify(r.violations.map((v) => `${v.impact}/${v.id}/${v.nodes.length}`)));
-  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Continue' }).click();
+  for (let i = 0; i < 7; i++) await page.getByRole('button', { name: 'Continue' }).click();
   await page.route('**/api/recommend', (route) => route.abort('failed'));
   await page.getByRole('button', { name: 'Find my movies' }).click();
   await expect(page.getByText(/went wrong/i)).toBeVisible({ timeout: 10000 });

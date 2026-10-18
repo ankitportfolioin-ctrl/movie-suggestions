@@ -67,11 +67,11 @@ export function assertClean(
 export async function completeQuizToResults(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: /Start Full Quiz|Start Tonight's Match|Start Quiz/ }).first().click();
-  // Q1..Q6: keep defaults, click Continue 6 times
-  for (let i = 0; i < 6; i++) {
+  // Q1..Q7: keep defaults, click Continue 7 times
+  for (let i = 0; i < 7; i++) {
     await page.getByRole('button', { name: 'Continue' }).click();
   }
-  // Q7: submit
+  // Q8: submit
   const [resp] = await Promise.all([
     page.waitForResponse(
       (r) => r.url().includes('/api/recommend') && r.request().method() === 'POST',

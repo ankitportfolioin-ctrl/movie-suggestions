@@ -1,0 +1,67 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - button "CineMatch home" [ref=e6] [cursor=pointer]:
+        - generic [ref=e13]: CineMatch
+      - navigation [ref=e14]:
+        - button "Discover" [ref=e15] [cursor=pointer]
+        - button "How It Works" [ref=e16] [cursor=pointer]
+        - button "Saved Picks" [ref=e17] [cursor=pointer]
+      - button "Start Quiz" [ref=e22] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e122]:
+      - generic [ref=e123]:
+        - generic [ref=e124]: No more endless scrolling
+        - heading "Movie Night Picker" [level=1] [ref=e127]
+        - paragraph [ref=e128]: Tell us your vibe. We'll pick tonight's movie. Personalized 3-choice recommendations tailored in under 60 seconds.
+        - generic [ref=e129]:
+          - generic [ref=e130]:
+            - button "Exact Title" [ref=e131]
+            - button "Natural Language" [ref=e132]
+          - generic [ref=e133]:
+            - textbox "Describe what you want to watch" [ref=e177]:
+              - /placeholder: e.g. "a space movie like Interstellar but shorter", "feel-good comedy for family"
+              - text: feel-good comedy for family
+            - status
+        - button "Start Full Quiz" [ref=e136] [cursor=pointer]
+      - generic [ref=e141]:
+        - generic [ref=e142]:
+          - heading "Emotion-First" [level=3] [ref=e147]
+          - paragraph [ref=e148]: We match your mental bandwidth, from tired and chilled to intense thrills.
+        - generic [ref=e149]:
+          - heading "Streaming Ready" [level=3] [ref=e154]
+          - paragraph [ref=e155]: Find instant watch options across Netflix, Prime Video, Apple TV and more.
+        - generic [ref=e156]:
+          - heading "3 Curated Picks" [level=3] [ref=e161]
+          - paragraph [ref=e162]: Zero decision paralysis. Three hand-curated options including a hidden gem.
+      - generic [ref=e164]:
+        - paragraph [ref=e165]: How it works
+        - heading "From \"what to watch?\" to \"pressing play\"" [level=2] [ref=e166]
+        - generic [ref=e167]:
+          - generic [ref=e168]:
+            - text: "01"
+            - heading "Answer 7 quick questions" [level=3] [ref=e169]
+            - paragraph [ref=e170]: Mood, genres, company, runtime, language and a note. Done in under a minute.
+          - generic [ref=e171]:
+            - text: "02"
+            - heading "Get 3 tailored matches" [level=3] [ref=e172]
+            - paragraph [ref=e173]: A curated triage with fit scores, including one hidden gem every time.
+          - generic [ref=e174]:
+            - text: "03"
+            - heading "Press play tonight" [level=3] [ref=e175]
+            - paragraph [ref=e176]: Every pick shows where to stream it, so the decision ends in action.
+  - contentinfo [ref=e82]:
+    - generic [ref=e83]:
+      - generic [ref=e84]:
+        - generic [ref=e90]: CineMatch
+        - generic [ref=e91]: © 2026 CineMatch.
+      - generic [ref=e92]:
+        - link "OMDb" [ref=e93] [cursor=pointer]:
+          - /url: https://www.omdbapi.com/
+        - generic [ref=e94]: ·
+        - link "Watchmode" [ref=e95] [cursor=pointer]:
+          - /url: https://watchmode.com/
+        - generic [ref=e96]: ·
+        - link "TMDB" [active] [ref=e97] [cursor=pointer]:
+          - /url: https://www.themoviedb.org/
+    - generic [ref=e98]: No accounts · No tracking · Your picks stay in this browser
