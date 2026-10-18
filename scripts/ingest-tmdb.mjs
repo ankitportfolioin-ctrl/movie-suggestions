@@ -1050,7 +1050,9 @@ async function runIngestExport(mode, KEY, pool, opts, pastDeadline) {
   const { createInterface } = await import("node:readline");
   
   const gunzip = createGunzip();
+  gunzip.on('error', (err) => { console.error('gunzip error:', err.message); throw err; });
   const rl = createInterface({ input: exportStream.pipe(gunzip), crlfDelay: Infinity });
+  exportStream.on('error', (err) => { console.error('export stream error:', err.message); throw err; });
   
   let totalLines = 0;
   let adultVideoDropped = 0;
@@ -1593,7 +1595,9 @@ async function runSample(KEY, pool, opts, pastDeadline) {
     const { createInterface } = await import("node:readline");
     
     const gunzip = createGunzip();
+    gunzip.on('error', (err) => { console.error('gunzip error:', err.message); throw err; });
     const rl = createInterface({ input: exportStream.pipe(gunzip), crlfDelay: Infinity });
+    exportStream.on('error', (err) => { console.error('export stream error:', err.message); throw err; });
     
     let totalLines = 0;
     let adultVideoDropped = 0;
