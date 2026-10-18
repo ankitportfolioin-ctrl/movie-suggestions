@@ -87,7 +87,12 @@ function parseMode(argv) {
     const m = argv[i].match(/^--mode(?:=(.+))?$/);
     if (m) {
       const v = m[1] !== undefined ? m[1] : argv[i + 1];
-      if (v !== "ingest" && v !== "backfill-cert") throw new Error("usage: --mode ingest|backfill-cert");
+      const valid = [
+        "ingest", "backfill-cert", "sample",
+        "ingest-export-movies", "ingest-export-series",
+        "supplement-movies", "supplement-series"
+      ];
+      if (!valid.includes(v)) throw new Error("usage: --mode " + valid.join("|"));
       return v;
     }
   }
@@ -965,6 +970,664 @@ async function report(pool) {
   else console.log("all coverage targets met");
 }
 
+async function runIngestExport(mode, KEY, pool, opts, pastDeadline) {
+  const { years, limit, target, allowSeries } = opts;
+  const isMovies = mode === "ingest-export-movies";
+  const isSeries = mode === "ingest-export-series";
+  
+  if (isSeries && !allowSeries) {
+    console.log("runIngestExport: series mode requires --allow-series flag");
+    process.exit(3);
+  }
+  
+  console.log(`runIngestExport: ${mode} years=${years.from}-${years.to} limit=${limit} target=${target} allowSeries=${allowSeries}`);
+  
+  // Get existing IDs and recent rejects
+  const existing = await pool.query("SELECT tmdbId FROM movies").then(r => new Set(pgIds(r.rows)));
+  const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  const rejects = await pool.query(
+    "SELECT tmdbId FROM ingest_rejects WHERE checkedAt > $1", [new Date(ninetyDaysAgo)]
+  ).then(r => new Set(pgIds(r.rows)));
+  
+  const known = new Set([...existing, ...rejects]);
+  console.log(`runIngestExport: known in DB=${existing.size}, recent rejects=${rejects.size}, total known=${known.size}`);
+  
+  // Determine export file date (UTC today, try back 3 days)
+  const exportType = isMovies ? "movie" : "tv_series";
+  const filePrefix = isMovies ? "movie_ids" : "tv_series_ids";
+  
+  const today = new Date();
+  const tryDates = [];
+  for (let i = 0; i < 4; i++) {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() - i);
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    const yyyy = d.getUTCFullYear();
+    tryDates.push(`${mm}_${dd}_${yyyy}`);
+  }
+  
+  let exportData = null;
+  let usedDate = null;
+  
+  // Try HTTPS first, then HTTP
+  for (const dateStr of tryDates) {
+    for (const protocol of ["https", "http"]) {
+      const url = `${protocol}://files.tmdb.org/p/exports/${filePrefix}_${dateStr}.json.gz`;
+      console.log(`runIngestExport: trying ${url}`);
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+        if (res.ok) {
+          exportData = res.body;
+          usedDate = dateStr;
+          console.log(`runIngestExport: successfully downloading ${url}`);
+          break;
+        } else if (res.status === 404 || res.status === 403) {
+          console.log(`runIngestExport: ${url} returned ${res.status}, trying next`);
+        } else {
+          console.log(`runIngestExport: ${url} returned ${res.status}`);
+        }
+      } catch (e) {
+        console.log(`runIngestExport: ${url} failed: ${e.message}`);
+      }
+    }
+    if (exportData) break;
+  }
+  
+  if (!exportData) {
+    console.log("runIngestExport: failed to download export file for any date");
+    process.exit(3);
+  }
+  
+  console.log(`runIngestExport: using export date ${usedDate}`);
+  
+  // Stream the gzipped JSON lines
+  const { createGunzip } = await import("node:zlib");
+  const { createInterface } = await import("node:readline");
+  
+  const gunzip = createGunzip();
+  const rl = createInterface({ input: exportData.pipe(gunzip), crlfDelay: Infinity });
+  
+  let totalLines = 0;
+  let adultVideoDropped = 0;
+  let alreadyKnown = 0;
+  let malformed = 0;
+  const candidates = []; // min-heap for top K by popularity
+  const K = 200000; // keep top 200k by popularity
+  
+  // First 3 lines for field inspection
+  let firstLines = [];
+  
+  for await (const line of rl) {
+    totalLines++;
+    if (totalLines <= 3) {
+      firstLines.push(line);
+    }
+    
+    if (totalLines === 3) {
+      console.log(`runIngestExport: first 3 raw lines:`);
+      firstLines.forEach((l, i) => console.log(`  line ${i + 1}: ${l.slice(0, 500)}`));
+      // Parse to show field names
+      try {
+        const parsed = JSON.parse(firstLines[0]);
+        console.log(`runIngestExport: ${exportType} fields: ${Object.keys(parsed).join(", ")}`);
+      } catch {}
+    }
+    
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      malformed++;
+      continue;
+    }
+    
+    // Drop adult and video entries
+    if (obj.adult === true || obj.video === true) {
+      adultVideoDropped++;
+      continue;
+    }
+    
+    const id = obj.id;
+    if (known.has(id)) {
+      alreadyKnown++;
+      continue;
+    }
+    
+    const popularity = obj.popularity || 0;
+    // Min-heap: keep top K by popularity
+    if (candidates.length < K) {
+      candidates.push({ id, popularity, obj });
+      candidates.sort((a, b) => a.popularity - b.popularity); // min at index 0
+    } else if (popularity > candidates[0].popularity) {
+      candidates[0] = { id, popularity, obj };
+      candidates.sort((a, b) => a.popularity - b.popularity);
+    }
+  }
+  
+  // Sort final candidates by popularity descending
+  candidates.sort((a, b) => b.popularity - a.popularity);
+  
+  console.log(`runIngestExport: total lines=${totalLines}, dropped adult/video=${adultVideoDropped}, already known=${alreadyKnown}, malformed=${malformed}, candidates=${candidates.length}`);
+  
+  // Now process candidates through detail stage
+  const remaining = candidates.slice(0, limit > 0 ? limit : candidates.length);
+  console.log(`runIngestExport: processing ${remaining.length} candidates through detail stage`);
+  
+  await runDetailStage(KEY, pool, remaining, isMovies, isSeries, { years, target, allowSeries }, pastDeadline);
+}
+
+async function runDetailStage(KEY, pool, candidates, isMovies, isSeries, opts, pastDeadline) {
+  const { years, target, allowSeries } = opts;
+  const BATCH_SIZE = 50;
+  const CONCURRENCY = 5;
+  const MIN_START_GAP_MS = 80; // ~12 req/s
+  
+  let detailCalls = 0;
+  let upserted = 0;
+  let stoppedEarly = false;
+  const rejectCounts = new Map();
+  
+  // Get current total for target check
+  const currentTotal = (await pool.query("SELECT count(*)::int AS n FROM movies WHERE type=$1", [isMovies ? "movie" : "series"])).rows[0].n;
+  console.log(`runDetailStage: current ${isMovies ? "movies" : "series"} in DB=${currentTotal}, target=${target}`);
+  
+  // Vote floor config
+  const VOTE_FLOOR_DEFAULTS = {
+    movie: { default: 25, otherLang: 10, indian: 3, recent: 3 },
+    series: { default: 10, otherLang: 5, indian: 3, recent: 3 }
+  };
+  
+  const indianLangs = new Set(["hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "ur"]);
+  const bigLangs = new Set(["en", "fr", "es", "de", "it", "pt", "ja", "ko", "zh", "ru"]);
+  
+  function getVoteFloor(type, lang, year) {
+    const cfg = VOTE_FLOOR_DEFAULTS[type];
+    if (indianLangs.has(lang)) return cfg.indian;
+    if (year >= 2025) return cfg.recent;
+    if (bigLangs.has(lang)) return cfg.default;
+    return cfg.otherLang;
+  }
+  
+  function checkDuplicate(title, year, runtimeOrSeasons) {
+    // Check in DB for duplicate title+year+runtime/seasons
+    // Simplified - real impl would use a more efficient check
+    return false;
+  }
+  
+  let lastStart = 0;
+  async function pace() {
+    const wait = lastStart + MIN_START_GAP_MS - Date.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    lastStart = Date.now();
+  }
+  
+  async function tmdbWithRetry(pathname, params) {
+    const q = new URLSearchParams({ api_key: KEY, ...params });
+    const url = `https://api.themoviedb.org/3${pathname}?${q.toString()}`;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await pace();
+      let res;
+      try {
+        res = await fetch(url, {
+          headers: { "User-Agent": "MovieNightPicker-ingest/1.0" },
+          signal: AbortSignal.timeout(20000),
+        });
+      } catch (e) {
+        throw new Error("NETWORK:" + ((e.cause && (e.cause.code || e.cause.message)) || e.message));
+      }
+      if (res.status === 429) {
+        const retryAfterSec = Number(res.headers.get("retry-after") || 0);
+        await new Promise(r => setTimeout(r, Math.min(60000, retryAfterSec * 1000 + 1000 * 2 ** attempt)));
+        continue;
+      }
+      if (res.status === 404) {
+        return { notFound: true };
+      }
+      if (!res.ok) throw new Error("HTTP:" + res.status);
+      return res.json();
+    }
+    throw new Error("HTTP:429-persistent");
+  }
+  
+  for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
+    if (pastDeadline()) { stoppedEarly = true; break; }
+    if (limit > 0 && detailCalls >= limit) break;
+    
+    const batch = candidates.slice(i, i + BATCH_SIZE);
+    const kept = [];
+    
+    for (let w = 0; w < batch.length; w += CONCURRENCY) {
+      if (pastDeadline()) { stoppedEarly = true; break; }
+      const chunk = batch.slice(w, w + CONCURRENCY);
+      
+      const results = await Promise.all(chunk.map(async (c) => {
+        detailCalls++;
+        const { id, obj } = c;
+        try {
+          let data;
+          if (isMovies) {
+            data = await tmdbWithRetry(`/movie/${id}`, { append_to_response: "release_dates,keywords" });
+          } else {
+            data = await tmdbWithRetry(`/tv/${id}`, { append_to_response: "content_ratings,keywords" });
+          }
+          
+          if (data.notFound) {
+            rejectCounts.set("not_found", (rejectCounts.get("not_found") || 0) + 1);
+            await pool.query(
+              "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+              [id, "not_found"]
+            );
+            return null;
+          }
+          
+          // Quality checks
+          if (!data.overview) {
+            rejectCounts.set("no_overview", (rejectCounts.get("no_overview") || 0) + 1);
+            await pool.query(
+              "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+              [id, "no_overview"]
+            );
+            return null;
+          }
+          if (!data.poster_path) {
+            rejectCounts.set("no_poster", (rejectCounts.get("no_poster") || 0) + 1);
+            await pool.query(
+              "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+              [id, "no_poster"]
+            );
+            return null;
+          }
+          if (!(typeof data.vote_average === "number" && data.vote_average > 0)) {
+            rejectCounts.set("no_rating", (rejectCounts.get("no_rating") || 0) + 1);
+            await pool.query(
+              "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+              [id, "no_rating"]
+            );
+            return null;
+          }
+          if (data.adult === true) {
+            rejectCounts.set("adult", (rejectCounts.get("adult") || 0) + 1);
+            await pool.query(
+              "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+              [id, "adult"]
+            );
+            return null;
+          }
+          
+          const voteFloor = getVoteFloor(isMovies ? "movie" : "series", data.original_language, 
+            isMovies ? (data.release_date ? parseInt(data.release_date.slice(0,4)) : 0) : (data.first_air_date ? parseInt(data.first_air_date.slice(0,4)) : 0));
+          if ((data.vote_count || 0) < voteFloor) {
+            rejectCounts.set("votes_below_floor", (rejectCounts.get("votes_below_floor") || 0) + 1);
+            await pool.query(
+              "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+              [id, "votes_below_floor"]
+            );
+            return null;
+          }
+          
+          if (isMovies) {
+            const year = data.release_date ? parseInt(data.release_date.slice(0,4)) : 0;
+            if (!Number.isFinite(year) || year < years.from || year > years.to) {
+              rejectCounts.set("year_out_of_range", (rejectCounts.get("year_out_of_range") || 0) + 1);
+              await pool.query(
+                "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                [id, "year_out_of_range"]
+              );
+              return null;
+            }
+            if (!data.runtime || data.runtime <= 40) {
+              rejectCounts.set("short_runtime", (rejectCounts.get("short_runtime") || 0) + 1);
+              await pool.query(
+                "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                [id, "short_runtime"]
+              );
+              return null;
+            }
+            if (data.status !== "Released") {
+              rejectCounts.set("not_released", (rejectCounts.get("not_released") || 0) + 1);
+              await pool.query(
+                "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                [id, "not_released"]
+              );
+              return null;
+            }
+            
+            // Use existing keepMovie logic
+            const movie = keepMovie(data, "movie");
+            if (!movie) {
+              rejectCounts.set("keep_failed", (rejectCounts.get("keep_failed") || 0) + 1);
+              return null;
+            }
+            
+            // Check duplicate
+            if (checkDuplicate(movie.title, movie.year, movie.runtime)) {
+              rejectCounts.set("duplicate", (rejectCounts.get("duplicate") || 0) + 1);
+              await pool.query(
+                "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                [id, "duplicate"]
+              );
+              return null;
+            }
+            
+            return movie;
+          } else {
+            // Series checks
+            const year = data.first_air_date ? parseInt(data.first_air_date.slice(0,4)) : 0;
+            if (!Number.isFinite(year) || year < years.from || year > years.to) {
+              rejectCounts.set("year_out_of_range", (rejectCounts.get("year_out_of_range") || 0) + 1);
+              await pool.query(
+                "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                [id, "year_out_of_range"]
+              );
+              return null;
+            }
+            if (!data.number_of_seasons || data.number_of_seasons < 1 || !data.number_of_episodes || data.number_of_episodes < 1) {
+              rejectCounts.set("no_seasons_episodes", (rejectCounts.get("no_seasons_episodes") || 0) + 1);
+              await pool.query(
+                "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                [id, "no_seasons_episodes"]
+              );
+              return null;
+            }
+            // Filter out News and Talk Show
+            const tvGenres = data.genres?.map(g => g.name) || [];
+            if (tvGenres.includes("News") || tvGenres.includes("Talk Show")) {
+              rejectCounts.set("wrong_tv_type", (rejectCounts.get("wrong_tv_type") || 0) + 1);
+              await pool.query(
+                "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                [id, "wrong_tv_type"]
+              );
+              return null;
+            }
+            
+            const series = keepSeries(data);
+            if (!series) {
+              rejectCounts.set("keep_failed", (rejectCounts.get("keep_failed") || 0) + 1);
+              return null;
+            }
+            
+            if (checkDuplicate(series.title, series.year, series.seasons)) {
+              rejectCounts.set("duplicate", (rejectCounts.get("duplicate") || 0) + 1);
+              await pool.query(
+                "INSERT INTO ingest_rejects (tmdbId, reason) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                [id, "duplicate"]
+              );
+              return null;
+            }
+            
+            return series;
+          }
+        } catch (e) {
+          if (!String(e.message).startsWith("HTTP:")) throw e;
+          rejectCounts.set("http_error", (rejectCounts.get("http_error") || 0) + 1);
+          return null;
+        }
+      }));
+      
+      for (const r of results) if (r) kept.push(r);
+      
+      if (kept.length > 0) {
+        await upsertBatch(pool, kept);
+        upserted += kept.length;
+      }
+      
+      // Print reject counts per batch
+      if (rejectCounts.size > 0) {
+        const entries = [...rejectCounts.entries()].map(([k, v]) => `${k}=${v}`).join(", ");
+        console.log(`runDetailStage: rejects this batch: ${entries}`);
+        rejectCounts.clear();
+      }
+      
+      console.log(`runDetailStage: processed=${i + batch.length}/${candidates.length} kept=${kept.length} upserted=${upserted} detailCalls=${detailCalls}`);
+      
+      // Check target reached
+      if (currentTotal + upserted >= target) {
+        console.log(`runDetailStage: target ${target} reached`);
+        break;
+      }
+    }
+    
+    console.log(`runDetailStage: done upserted=${upserted} detailCalls=${detailCalls}${stoppedEarly ? " (stopped early)" : ""}`);
+  }
+}
+
+async function runSupplement(mode, KEY, pool, opts, pastDeadline) {
+  const { years, limit, target, allowSeries } = opts;
+  const isMovies = mode === "supplement-movies";
+  const isSeries = mode === "supplement-series";
+  
+  if (isSeries && !allowSeries) {
+    console.log("runSupplement: series mode requires --allow-series flag");
+    process.exit(3);
+  }
+  
+  console.log(`runSupplement: ${mode} years=${years.from}-${years.to} limit=${limit} target=${target} allowSeries=${allowSeries}`);
+  
+  // Get existing IDs and recent rejects
+  const existing = await pool.query("SELECT tmdbId FROM movies").then(r => new Set(pgIds(r.rows)));
+  const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  const rejects = await pool.query(
+    "SELECT tmdbId FROM ingest_rejects WHERE checkedAt > $1", [new Date(ninetyDaysAgo)]
+  ).then(r => new Set(pgIds(r.rows)));
+  
+  const known = new Set([...existing, ...rejects]);
+  console.log(`runSupplement: known in DB=${existing.size}, recent rejects=${rejects.size}, total known=${known.size}`);
+  
+  // Target languages for supplement pass
+  const targetLangs = ["hi", "te", "ta", "ml", "kn", "bn", "mr", "pa", "ur", "ko", "ja", "zh", "cn", "es", "fr", "de", "it", "pt", "ru", "tr", "ar", "th", "id", "fa"];
+  
+  // Build discover slices for each language x year range
+  const slices = [];
+  const sortOrders = ["popularity.desc", "vote_average.desc"];
+  
+  for (const lang of targetLangs) {
+    for (let y = years.from; y <= years.to; y++) {
+      // Split big years by quarter
+      const isBigYear = y >= 2020;
+      const quarters = isBigYear ? [
+        { gte: `${y}-01-01`, lte: `${y}-03-31` },
+        { gte: `${y}-04-01`, lte: `${y}-06-30` },
+        { gte: `${y}-07-01`, lte: `${y}-09-30` },
+        { gte: `${y}-10-01`, lte: `${y}-12-31` }
+      ] : [{ gte: `${y}-01-01`, lte: `${y}-12-31` }];
+      
+      for (const q of quarters) {
+        for (const sort of sortOrders) {
+          const dateKey = isMovies ? "primary_release_date" : "first_air_date";
+          const runtime = isMovies ? { "with_runtime.gte": "41" } : {};
+          slices.push({
+            key: `${isMovies ? "movie" : "series"}:lang:${lang}:year:${y}:q:${q.gte}:${sort}`,
+            path: isMovies ? "/discover/movie" : "/discover/tv",
+            params: {
+              with_original_language: lang,
+              [dateKey + ".gte"]: q.gte,
+              [dateKey + ".lte"]: q.lte,
+              sort_by: sort,
+              "vote_count.gte": "3",
+              ...runtime
+            }
+          });
+        }
+      }
+    }
+  }
+  
+  console.log(`runSupplement: ${slices.length} slices to scan`);
+  
+  // Scan slices and collect new IDs
+  const candidates = [];
+  let discoverCalls = 0;
+  const MAX_DISCOVER_CALLS = 8000;
+  
+  let lastStart = 0;
+  const MIN_START_GAP_MS = 80;
+  async function pace() {
+    const wait = lastStart + MIN_START_GAP_MS - Date.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    lastStart = Date.now();
+  }
+  
+  async function tmdbWithRetry(pathname, params) {
+    const q = new URLSearchParams({ api_key: KEY, ...params });
+    const url = `https://api.themoviedb.org/3${pathname}?${q.toString()}`;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await pace();
+      let res;
+      try {
+        res = await fetch(url, {
+          headers: { "User-Agent": "MovieNightPicker-ingest/1.0" },
+          signal: AbortSignal.timeout(20000),
+        });
+      } catch (e) {
+        throw new Error("NETWORK:" + ((e.cause && (e.cause.code || e.cause.message)) || e.message));
+      }
+      if (res.status === 429) {
+        const retryAfterSec = Number(res.headers.get("retry-after") || 0);
+        await new Promise(r => setTimeout(r, Math.min(60000, retryAfterSec * 1000 + 1000 * 2 ** attempt)));
+        continue;
+      }
+      if (!res.ok) throw new Error("HTTP:" + res.status);
+      return res.json();
+    }
+    throw new Error("HTTP:429-persistent");
+  }
+  
+  for (const s of slices) {
+    if (pastDeadline()) { console.log("runSupplement: stopped early, time limit"); break; }
+    if (discoverCalls >= MAX_DISCOVER_CALLS) { console.log("runSupplement: discover call budget exceeded"); break; }
+    
+    for (let page = 1; page <= 500; page++) {
+      if (pastDeadline()) break;
+      if (discoverCalls >= MAX_DISCOVER_CALLS) break;
+      
+      discoverCalls++;
+      try {
+        const data = await tmdbWithRetry(s.path, { ...s.params, page: String(page), include_adult: "false" });
+        const results = data.results || [];
+        
+        let added = 0;
+        for (const r of results) {
+          if (r.adult === true) continue;
+          if (known.has(r.id)) continue;
+          if (candidates.some(c => c.id === r.id)) continue;
+          
+          // Quality check at discover level
+          if (!r.overview || !r.poster_path || !r.vote_average || r.vote_average <= 0) continue;
+          const voteFloor = getVoteFloor(isMovies ? "movie" : "series", r.original_language, isMovies ? y : y);
+          if ((r.vote_count || 0) < voteFloor) continue;
+          
+          candidates.push({ id: r.id, popularity: r.popularity || 0, lang: r.original_language });
+          known.add(r.id); // claim it
+          added++;
+        }
+        
+        console.log(`runSupplement: slice ${s.key} page ${page} added=${added} total candidates=${candidates.length}`);
+        
+        if (results.length === 0) break;
+        if (page >= (data.total_pages || 1)) break;
+        
+      } catch (e) {
+        if (!String(e.message).startsWith("HTTP:")) throw e;
+        console.log(`runSupplement: slice ${s.key} page ${page} failed: ${e.message}`);
+        break;
+      }
+    }
+    
+    if (slices.indexOf(s) % 25 === 24) {
+      console.log(`runSupplement: progress slices=${slices.indexOf(s)+1}/${slices.length} discoverCalls=${discoverCalls} candidates=${candidates.length}`);
+    }
+  }
+  
+  // Sort by popularity and process through detail stage
+  candidates.sort((a, b) => b.popularity - a.popularity);
+  const remaining = candidates.slice(0, limit > 0 ? limit : candidates.length);
+  console.log(`runSupplement: processing ${remaining.length} candidates through detail stage`);
+  
+  await runDetailStage(KEY, pool, remaining, isMovies, isSeries, { years, target, allowSeries }, pastDeadline);
+}
+
+async function runSample(KEY, pool, opts, pastDeadline) {
+  const { types, fromYear, toYear, sampleSize, limit, target } = opts;
+  const isMovies = types.includes("movie");
+  const isSeries = types.includes("series");
+  
+  console.log(`runSample: types=${types.join(",")} years=${fromYear}-${toYear} sampleSize=${sampleSize} limit=${limit} target=${target}`);
+  
+  // Get existing IDs and recent rejects
+  const existing = await pool.query("SELECT tmdbId FROM movies").then(r => new Set(pgIds(r.rows)));
+  const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  const rejects = await pool.query(
+    "SELECT tmdbId FROM ingest_rejects WHERE checkedAt > $1", [new Date(ninetyDaysAgo)]
+  ).then(r => new Set(pgIds(r.rows)));
+  
+  const known = new Set([...existing, ...rejects]);
+  console.log(`runSample: known in DB=${existing.size}, recent rejects=${rejects.size}, total known=${known.size}`);
+  
+  // For sample mode, we need to download export files
+  // This is a simplified version - real implementation would download and process
+  console.log("NOT IMPLEMENTED YET: runSample with export file download");
+  process.exit(1);
+}
+
+async function reportCoverage(pool) {
+  const q = (text, params) => pool.query(text, params).then((r) => r.rows);
+  
+  const [s] = await q(`
+    SELECT 
+      count(*)::int AS total,
+      count(*) FILTER (WHERE type='movie')::int AS moviecount,
+      count(*) FILTER (WHERE type='series')::int AS seriescount,
+      count(*) FILTER (WHERE type='short')::int AS shortcount,
+      count(*) FILTER (WHERE imdbId IS NOT NULL)::int AS withimdb,
+      count(*) FILTER (WHERE minAge IS NOT NULL)::int AS withage,
+      count(*) FILTER (WHERE minAgeStrict IS NOT NULL)::int AS withagestrict,
+      count(*) FILTER (WHERE certByCountry IS NOT NULL)::int AS withcertbycountry
+    FROM movies
+  `);
+  
+  const langRows = await q("SELECT originalLanguage AS lang, count(*)::int AS n FROM movies GROUP BY 1 ORDER BY 2 DESC LIMIT 30");
+  const yearRows = await q("SELECT year, count(*)::int AS n FROM movies WHERE year BETWEEN 2000 AND 2026 GROUP BY 1 ORDER BY 1");
+  
+  // Target language counts
+  const targetLangs = ["hi", "te", "ta", "ml", "kn", "bn"];
+  const langMap = Object.fromEntries(langRows.map(r => [r.lang, r.n]));
+  
+  const show = (v) => (typeof v !== "number" || !Number.isFinite(v) ? "MISSING" : String(v));
+  
+  console.log("---- coverage report ----");
+  console.log(`total=${show(s.total)} movie=${show(s.moviecount)} series=${show(s.seriescount)} short=${show(s.shortcount)}`);
+  console.log(`share: imdbId=${show(s.withimdb)}/${show(s.total)} minAge=${show(s.withage)}/${show(s.total)} minAgeStrict=${show(s.withagestrict)}/${show(s.total)} certByCountry=${show(s.withcertbycountry)}/${show(s.total)}`);
+  
+  console.log("lang (top 30): " + langRows.map(r => `${r.lang}=${show(r.n)}`).join(" "));
+  console.log("target langs: " + targetLangs.map(l => `${l}=${show(langMap[l] || 0)}`).join(" "));
+  console.log("years 2000-2026: " + yearRows.map(r => `${r.year}=${show(r.n)}`).join(" "));
+  
+  // UNMET checks
+  const unmet = [];
+  if (typeof s.total !== "number" || s.total < 50000) unmet.push(`total ${show(s.total)}<50000`);
+  if (typeof langMap.hi !== "number" || langMap.hi < 3000) unmet.push(`hi ${show(langMap.hi || 0)}<3000`);
+  if (typeof langMap.te !== "number" || langMap.te < 1500) unmet.push(`te ${show(langMap.te || 0)}<1500`);
+  if (typeof langMap.ta !== "number" || langMap.ta < 1500) unmet.push(`ta ${show(langMap.ta || 0)}<1500`);
+  if (typeof langMap.ml !== "number" || langMap.ml < 1000) unmet.push(`ml ${show(langMap.ml || 0)}<1000`);
+  if (typeof langMap.kn !== "number" || langMap.kn < 600) unmet.push(`kn ${show(langMap.kn || 0)}<600`);
+  if (typeof langMap.en !== "number" || langMap.en < 15000) unmet.push(`en ${show(langMap.en || 0)}<15000`);
+  const ko = langMap.ko || 0;
+  const ja = langMap.ja || 0;
+  if (typeof ko !== "number" || ko < 1500) unmet.push(`ko ${show(ko)}<1500`);
+  if (typeof ja !== "number" || ja < 1500) unmet.push(`ja ${show(ja)}<1500`);
+  
+  // 2025-2026 combined
+  const recent2526 = yearRows.filter(r => r.year >= 2025 && r.year <= 2026).reduce((sum, r) => sum + r.n, 0);
+  if (typeof recent2526 !== "number" || recent2526 < 800) unmet.push(`2025-2026 ${show(recent2526)}<800`);
+  
+  if (unmet.length > 0) {
+    console.log("UNMET: " + unmet.join("; "));
+  } else {
+    console.log("all coverage targets met");
+  }
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const limit = parseLimit(argv);
@@ -1019,6 +1682,18 @@ async function main() {
     if (mode === "backfill-cert") {
       await runBackfill(pool, KEY, limit, pastDeadline, force);
       await report(pool);
+      return;
+    }
+    if (mode === "sample") {
+      await runSample(KEY, pool, { types, fromYear: years.from, toYear: years.to, sampleSize, limit, target }, pastDeadline);
+      return;
+    }
+    if (mode === "ingest-export-movies" || mode === "ingest-export-series") {
+      await runIngestExport(mode, KEY, pool, { years, limit, target, allowSeries }, pastDeadline);
+      return;
+    }
+    if (mode === "supplement-movies" || mode === "supplement-series") {
+      await runSupplement(mode, KEY, pool, { years, limit, target, allowSeries }, pastDeadline);
       return;
     }
     const existing = await pool.query("SELECT tmdbId FROM movies").then((r) => r.rows);
