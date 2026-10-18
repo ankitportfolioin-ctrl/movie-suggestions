@@ -53,6 +53,13 @@ CREATE INDEX IF NOT EXISTS movies_type_year_idx ON movies (type, year);
 DO $$ BEGIN
   ALTER TABLE movies ADD CONSTRAINT movies_type_check CHECK (type IN ('movie', 'short', 'series'));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Rejects log for idempotent ingest (skip already-processed TMDB ids)
+CREATE TABLE IF NOT EXISTS ingest_rejects (
+  tmdbId BIGINT PRIMARY KEY,
+  reason TEXT NOT NULL,
+  checkedAt TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 `;
 
 if (!isDbConfigured()) {
