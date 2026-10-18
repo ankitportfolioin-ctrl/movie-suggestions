@@ -36,6 +36,7 @@ interface WizardProps {
 
 const STEP_NAMES = [
   '',
+  'What to Watch',
   'Current Mood',
   'Genre Filter',
   'Company',
@@ -43,6 +44,14 @@ const STEP_NAMES = [
   'Dialogue Language',
   'Refinements',
   'Personal Note',
+];
+
+/** Early question 1: the media kind every later constraint applies to. */
+const MEDIA_TYPE_OPTIONS = [
+  { label: 'Movie', desc: 'Feature film, 41 minutes and up', types: ['movie'] },
+  { label: 'Short film', desc: 'A quick watch, 40 minutes or less', types: ['short'] },
+  { label: 'Series', desc: 'Episodic TV or web series', types: ['series'] },
+  { label: 'Any', desc: 'Movies, shorts and series', types: ['movie', 'short', 'series'] },
 ];
 
 const MOODS = [
@@ -87,6 +96,9 @@ const RUNTIMES = [
   { label: 'Under 2.5 hours', desc: 'Epic narratives with room to breathe' },
   { label: 'Any length', desc: 'No time constraints tonight' },
 ];
+
+/** Series-only option: one season, so the runtime cap stays open. */
+const MINISERIES_RUNTIME = { label: 'Miniseries (1 season)', desc: 'A one-season story, no long commitment' };
 
 const LANGUAGES = [
   'Any',
@@ -144,6 +156,18 @@ export const Wizard: React.FC<WizardProps> = ({
   touchedSteps,
 }) => {
   const { step, mood, genres, audience, maxRuntime, languages, preferences, note } = state;
+  const types = state.types || ['movie'];
+  const typeLabel = MEDIA_TYPE_OPTIONS.find((o) => o.types.join(',') === types.join(','))?.label || 'Movie';
+
+  /** Media kind + keep the runtime choice valid when series leave the mix. */
+  const handleTypeSelect = (option: (typeof MEDIA_TYPE_OPTIONS)[number]) => {
+    const updates: Partial<WizardState> = { types: option.types };
+    if (maxRuntime === MINISERIES_RUNTIME.label && !option.types.includes('series')) {
+      updates.maxRuntime = 'Any length';
+    }
+    onChange(updates);
+  };
+  const runtimeOptions = types.includes('series') ? [...RUNTIMES, MINISERIES_RUNTIME] : RUNTIMES;
 
   // Toggle genre logic (up to 3, handling "Surprise me"; blocked past 3)
   const handleGenreToggle = (g: string) => {
@@ -248,7 +272,7 @@ export const Wizard: React.FC<WizardProps> = ({
           {STEP_NAMES[step]}
         </span>
         <span className="text-xs font-mono text-[#8C8C8C]">
-          Question {step} of 7
+          Question {step} of 8
         </span>
       </div>
 
@@ -259,30 +283,35 @@ export const Wizard: React.FC<WizardProps> = ({
         </span>
         {touchedSteps.includes(1) && (
           <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
-            Mood: {mood}
+            Type: {typeLabel}
           </span>
         )}
         {touchedSteps.includes(2) && (
           <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
-            Genres: {genres.filter(g => g !== 'Surprise me').join(', ') || 'Surprise me'}
+            Mood: {mood}
           </span>
         )}
         {touchedSteps.includes(3) && (
           <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
-            Company: {audience}
+            Genres: {genres.filter(g => g !== 'Surprise me').join(', ') || 'Surprise me'}
           </span>
         )}
         {touchedSteps.includes(4) && (
           <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
-            Runtime: {maxRuntime}
+            Company: {audience}
           </span>
         )}
         {touchedSteps.includes(5) && (
           <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
-            Language: {languages.join(', ')}
+            Runtime: {maxRuntime}
           </span>
         )}
         {touchedSteps.includes(6) && (
+          <span className="px-2 py-0.5 rounded-md bg-[#1a1a1a] border border-[#232323] text-[#d0d0d0]">
+            Language: {languages.join(', ')}
+          </span>
+        )}
+        {touchedSteps.includes(7) && (
           <>
             {Object.entries(preferences).map(([key, value]) => {
               if (key === 'tones' && Array.isArray(value) && value.length > 0) {
@@ -316,8 +345,46 @@ export const Wizard: React.FC<WizardProps> = ({
 
       {/* Main Question Container */}
       <div className="flex-grow flex flex-col justify-center my-auto py-4">
-        {/* QUESTION 1: MOOD */}
+        {/* QUESTION 1: MEDIA TYPE */}
         {step === 1 && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
+                What do you want to watch?
+              </h2>
+              <p className="text-sm text-[#8C8C8C] mt-2">
+                Pick the format — every later answer adapts to it.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              {MEDIA_TYPE_OPTIONS.map((item) => {
+                const isSelected = item.types.join(',') === types.join(',');
+                return (
+                  <button
+                    key={item.label}
+                    onClick={() => handleTypeSelect(item)}
+                    aria-pressed={isSelected}
+                    className={`p-4 rounded-[12px] border text-left transition-all duration-200 cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#1c1b1b] border-[#FF7A2F] shadow-[0_0_15px_rgba(255,122,47,0.2)] text-white'
+                        : 'bg-[#141414] border-[#232323] text-[#8C8C8C] hover:border-[#353534] hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-heading font-semibold text-white">{item.label}</span>
+                      {isSelected && <span className="w-2 h-2 rounded-full bg-[#FF7A2F]" />}
+                    </div>
+                    <div className="text-[11px] leading-tight text-[#8C8C8C]">{item.desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* QUESTION 2: MOOD */}
+        {step === 2 && (
           <div className="space-y-6">
             <div>
               <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
@@ -360,8 +427,8 @@ export const Wizard: React.FC<WizardProps> = ({
           </div>
         )}
 
-        {/* QUESTION 2: GENRES */}
-        {step === 2 && (
+        {/* QUESTION 3: GENRES */}
+        {step === 3 && (
           <div className="space-y-6">
             <div>
               <div className="flex items-baseline justify-between">
@@ -399,8 +466,8 @@ export const Wizard: React.FC<WizardProps> = ({
           </div>
         )}
 
-        {/* QUESTION 3: AUDIENCE */}
-        {step === 3 && (
+        {/* QUESTION 4: AUDIENCE */}
+        {step === 4 && (
           <div className="space-y-6">
             <div>
               <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
@@ -447,20 +514,22 @@ export const Wizard: React.FC<WizardProps> = ({
           </div>
         )}
 
-        {/* QUESTION 4: RUNTIME */}
-        {step === 4 && (
+        {/* QUESTION 5: RUNTIME (series: episode length + miniseries) */}
+        {step === 5 && (
           <div className="space-y-6">
             <div>
               <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
                 Time Available
               </h2>
               <p className="text-sm text-[#8C8C8C] mt-2">
-                How long do you want the cinematic journey to be?
+                {types.includes('series')
+                  ? 'How long should one episode be? (Series get one-episode caps.)'
+                  : 'How long do you want the cinematic journey to be?'}
               </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
-              {RUNTIMES.map((item) => {
+              {runtimeOptions.map((item) => {
                 const isSelected = maxRuntime === item.label;
                 return (
                   <button
@@ -488,8 +557,8 @@ export const Wizard: React.FC<WizardProps> = ({
           </div>
         )}
 
-        {/* QUESTION 5: LANGUAGE (single select) */}
-        {step === 5 && (
+        {/* QUESTION 6: LANGUAGE (single select) */}
+        {step === 6 && (
           <div className="space-y-6">
             <div>
               <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
@@ -522,8 +591,8 @@ export const Wizard: React.FC<WizardProps> = ({
           </div>
         )}
 
-        {/* QUESTION 6: PREFERENCES (switch toggles + fine-tune) */}
-        {step === 6 && (
+        {/* QUESTION 7: PREFERENCES (switch toggles + fine-tune) */}
+        {step === 7 && (
           <div className="space-y-6">
             <div>
               <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
@@ -718,8 +787,8 @@ export const Wizard: React.FC<WizardProps> = ({
           </div>
         )}
 
-        {/* QUESTION 7: OPTIONAL FREE TEXT + REFERENCE MOVIES */}
-        {step === 7 && (
+        {/* QUESTION 8: OPTIONAL FREE TEXT + REFERENCE MOVIES */}
+        {step === 8 && (
           <div className="space-y-6">
             <div>
               <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
@@ -890,8 +959,8 @@ export const Wizard: React.FC<WizardProps> = ({
         )}
       </div>
 
-      {/* Bottom Action Bar (hidden on step 7: it has its own CTA) */}
-      {step < 7 && (
+      {/* Bottom Action Bar (hidden on step 8: it has its own CTA) */}
+      {step < 8 && (
         <div className="pt-8 flex items-center gap-3">
           <button
             onClick={onBack}
