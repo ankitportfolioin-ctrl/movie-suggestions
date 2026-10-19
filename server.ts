@@ -1,6 +1,7 @@
-import path from 'path';
+﻿import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
@@ -17,6 +18,7 @@ import { enforceHardConstraints } from './server/gate.js';
 import { runtimeCap } from './server/omdb.js';
 import { enhanceWithGemini } from './server/ai.js';
 import { attachLiveProviders } from './server/watchmode.js';
+import { registerAnalyticsRoutes } from './server/analytics.js';
 import {
   FALLBACK_PNG,
   contentTypeFor,
@@ -263,12 +265,12 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
       notices.push(
         themeRefs.length > 0
           ? `Using ${note.referenceTitleNames.join(', ')} as your similarity reference.`
-          : `Couldn't load ${note.referenceTitleNames.join(', ')} for similarity matching — these picks use your other filters instead.`
+          : `Couldn't load ${note.referenceTitleNames.join(', ')} for similarity matching â€” these picks use your other filters instead.`
       );
     }
     if (picks.length === 0) {
       const cause = await diagnoseEmptyPool(filters).catch(() => null);
-      notices.push(cause ?? 'Nothing matches all of those filters together — try removing one constraint.');
+      notices.push(cause ?? 'Nothing matches all of those filters together â€” try removing one constraint.');
     }
     // Reason comes from the rank features (never a mood template).
     const top3 = picks;
@@ -284,7 +286,7 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
   }
 });
 
-// Artwork proxy: GET /img/:size/:host/:path* (E11 — the browser never
+// Artwork proxy: GET /img/:size/:host/:path* (E11 â€” the browser never
 // requests image.tmdb.org, m.media-amazon.com or cdn.watchmode.com
 // directly). Disk-cached, long Cache-Control.
 app.get('/img/:size/:host/*', async (req: Request, res: Response) => {
@@ -333,7 +335,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
     const sanitizedParams = validation.params;
 
     // 2. Live discovery: widen the candidate pool via TMDB when configured.
-    // Absent key or any failure → local catalog only (never an error).
+    // Absent key or any failure â†’ local catalog only (never an error).
     const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
     let extraCandidates: MovieItem[] = [];
     if (tmdbApiKey) {
@@ -371,7 +373,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
               const { generateEmbeddingsForMovies } = await import('./server/embeddings.js');
               generateEmbeddingsForMovies(found).catch(() => {});
             } catch {
-              // embeddings module unavailable — silent no-op
+              // embeddings module unavailable â€” silent no-op
             }
           }
         }
@@ -408,7 +410,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       // loader falls back internally; never break recommend
     }
 
-    // 3. Recommend (filter → rank → diversify) + enrich via OMDb API
+    // 3. Recommend (filter â†’ rank â†’ diversify) + enrich via OMDb API
     const omdbApiKey = process.env.OMDB_API_KEY?.trim();
     const {
       movies: recommended,
@@ -581,13 +583,16 @@ app.post('/api/taste/reset', rateLimiter, async (req: Request, res: Response) =>
   }
 });
 
+// Anonymous traffic analytics (see server/analytics.ts).
+registerAnalyticsRoutes(app);
+
 // Vite or Static Serving
 async function startServer() {
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     // Test-infra only: in long Playwright runs the HMR websocket churned and
     // vite full-reloaded pages mid-test, resetting quiz state via loadQuiz()
-    // (report §10). Env-gated, so default dev behaviour is untouched.
+    // (report Â§10). Env-gated, so default dev behaviour is untouched.
     const noHmr = process.env.E2E_NO_HMR === '1';
     const vite = await createViteServer({
       server: { middlewareMode: true, ...(noHmr ? { hmr: false } : {}) },

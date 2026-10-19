@@ -15,6 +15,7 @@ import { loadDbCandidates, loadReferenceAnchors, rankGateMovies, ensureMinAge, d
 import type { DbFilters, DbItem } from '../server/dbMovies.js';
 import { discoverCandidates, enrichRuntimes } from '../server/discovery.js';
 import { validateRecommendBody } from '../server/validate.js';
+import { registerAnalyticsRoutes } from '../server/analytics.js';
 import { enforceHardConstraints } from '../server/gate.js';
 import { runtimeCap } from '../server/omdb.js';
 import { enhanceWithGemini } from '../server/ai.js';
@@ -580,6 +581,9 @@ app.post('/api/taste/reset', rateLimiter, async (req: Request, res: Response) =>
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
+
+// Anonymous traffic analytics (see server/analytics.ts).
+registerAnalyticsRoutes(app);
 
 // Export for Vercel serverless
 export default app;

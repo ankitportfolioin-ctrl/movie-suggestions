@@ -27,6 +27,7 @@ import {
   updateTasteFromEvent,
   getTastePayload,
 } from './taste';
+import { trackEvent } from './analytics';
 
 const INITIAL_STATE: WizardState = {
   step: 0,
@@ -259,6 +260,7 @@ export default function App() {
     );
     // Unsaving is ambiguous (cleanup, not dislike): only saves send a signal.
     if (isSaving) {
+      trackEvent('movie_save', { movieId: movie.id });
       const tok = tokenFor(movie.id);
       if (tok) void sendFeedbackEvent(tok, 'save');
       const anon = getAnonId();
@@ -369,6 +371,7 @@ export default function App() {
 
       const data = await res.json();
       if (stale()) return -1; // A newer request Retry/nav owns the UI now.
+      trackEvent('recommendation_served', { count: (data.movies || []).length });
       const newMovies: Movie[] = Array.isArray(data.movies) ? data.movies : [];
       setNotices(
         Array.isArray(data.notices) ? data.notices.filter((n: unknown) => typeof n === 'string') : []
@@ -531,6 +534,7 @@ export default function App() {
                   </span>
                 )}
               </button>
+              <a href="/analytics" className="hover:text-[#F5F5F5] transition-colors">Traffic</a>
             </nav>
 
             <div className="flex items-center gap-2">
@@ -548,6 +552,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => {
+                  trackEvent('quiz_start');
                   setShowSaved(false);
                   setWizardState((prev) => ({ ...prev, step: 1 }));
                   window.scrollTo({ top: 0 });
