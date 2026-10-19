@@ -21,6 +21,7 @@ export default defineConfig({
     timeout: 120_000,
     // Test-only: raise the in-memory rate limit so parallel workers sharing
     // one loopback IP don't 429 each other. Production default (30) unchanged.
-    env: { RATE_LIMIT_MAX_REQUESTS: '1000' },
+    // E2E_NO_HMR stops vite full-reload churn mid-run (test-infra only).
+    env: { RATE_LIMIT_MAX_REQUESTS: '1000', E2E_NO_HMR: '1' },
   },
 });

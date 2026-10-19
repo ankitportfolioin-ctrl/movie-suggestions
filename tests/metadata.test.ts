@@ -4,6 +4,10 @@ import { validateEnrichment, validateDiscoveryCandidate, getRecommendationsWithO
 import { FALLBACK_CATALOG } from '../server/catalog.js';
 import { baseParams } from './params.js';
 
+// Load .env the same way server.ts does, so the key gate reflects the real env;
+// the key present in .env was invisible to the npm test command before this.
+import 'dotenv/config';
+
 const FALL_2006 = { imdbId: 'tt0460791', title: 'The Fall', year: 2006, runtime: 117, genres: ['Adventure', 'Fantasy', 'Drama'] };
 const SHORT_2006 = { Title: 'The Fall', Year: '2006', Runtime: '4 min', Genre: 'Short', Type: 'movie', imdbID: 'tt21437416', Response: 'True' };
 const FEATURE_2008 = { Title: 'The Fall', Year: '2008', Runtime: '117 min', Genre: 'Adventure, Drama, Fantasy', Type: 'movie', imdbID: 'tt0460791', Response: 'True' };

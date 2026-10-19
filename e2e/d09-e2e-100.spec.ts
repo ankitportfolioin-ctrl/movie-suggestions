@@ -65,7 +65,13 @@ async function answerToStep8(page: Page, opts: QuizOpts = {}) {
 
 async function submit(page: Page, waitMs = 25_000) {
   const [resp] = await Promise.all([
-    page.waitForResponse((r) => r.url().includes('/api/recommend') && r.request().method() === 'POST'),
+    // Bounded: the client aborts /api/recommend at 20s by design (D-TIMEOUT-01),
+    // so a response may legitimately never arrive; 25s yields a fast,
+    // diagnosable failure instead of silently eating the whole test budget.
+    page.waitForResponse(
+      (r) => r.url().includes('/api/recommend') && r.request().method() === 'POST',
+      { timeout: 25_000 },
+    ),
     page.getByRole('button', { name: 'Find my movies' }).click(),
   ]);
   await resultsHeading(page).waitFor({ timeout: waitMs }).catch(() => {});
@@ -110,20 +116,23 @@ test('TC-003 Brand click on fresh home: no quit-confirm (D-04)', async ({ page }
   await expect(page.getByRole('heading', { name: /Movie Night/i })).toBeVisible();
 });
 
-test('TC-004 Discover scrolls to the section', async ({ page }) => {
+test('TC-004 Discover scrolls the section into view', async ({ page }) => {
   await freshHome(page);
   await page.getByRole('button', { name: 'Discover' }).click();
-  await page.waitForTimeout(900);
-  const y = await page.evaluate(() => window.scrollY);
-  expect(y).toBeGreaterThan(100);
+  // The state that matters: the section itself lands visibly in the viewport.
+  const section = page.locator('#discover');
+  await expect(section).toBeInViewport({ ratio: 0.5, timeout: 5_000 });
+  const box = await section.boundingBox();
+  expect(box?.y ?? 0).toBeGreaterThan(0); // header never covers the section top edge
 });
 
-test('TC-005 How It Works scrolls to the section', async ({ page }) => {
+test('TC-005 How It Works scrolls the section into view', async ({ page }) => {
   await freshHome(page);
   await page.getByRole('button', { name: 'How It Works' }).click();
-  await page.waitForTimeout(900);
-  const y = await page.evaluate(() => window.scrollY);
-  expect(y).toBeGreaterThan(100);
+  const section = page.locator('#how-it-works');
+  await expect(section).toBeInViewport({ ratio: 0.5, timeout: 5_000 });
+  const box = await section.boundingBox();
+  expect(box?.y ?? 0).toBeGreaterThan(0);
 });
 
 test('TC-006 Header Start Quiz opens question 1', async ({ page }) => {
@@ -580,12 +589,8 @@ test('TC-051 Note counter tracks 200-char boundary', async ({ page }) => {
 test('TC-052 Over-long note is truncated, never overflowed', async ({ page }) => {
   await freshHome(page);
   await startQuiz(page);
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  // Walk Q1..Q7 then land on Q8 — the notes field only exists on step 8.
+  await answerToStep8(page);
   await page.locator('#quiz-user-notes').fill('y'.repeat(250));
   const len = await page.locator('#quiz-user-notes').inputValue();
   expect(len.length).toBe(200);
@@ -1053,8 +1058,11 @@ test('TC-096 Keyboard-only operation works', async ({ page }) => {
   await page.keyboard.press('Shift+Tab');
   const focused = await page.evaluate(() => document.activeElement?.tagName);
   expect(focused).toBeTruthy();
-  // Activate the first mood with the keyboard only.
+  // Activate the first mood with the keyboard only. Moods are question 2, so
+  // keyboard-advance from question 1 first (no mouse anywhere in this test).
   await page.getByRole('button', { name: /Start Full Quiz/ }).first().focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Continue', exact: true }).focus();
   await page.keyboard.press('Enter');
   const mood = page.getByRole('button', { name: /^Happy/ });
   await mood.focus();

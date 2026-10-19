@@ -1,6 +1,9 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import 'dotenv/config';
 
+// Load .env the same way server.ts does, so the DB gate reflects the real env;
+// keys present in .env were invisible to the npm test command before this.
 const hasDb = Boolean(process.env.DATABASE_URL);
 
 describe('postgres index', { skip: !hasDb || undefined }, () => {

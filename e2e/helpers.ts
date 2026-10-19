@@ -73,8 +73,11 @@ export async function completeQuizToResults(page: Page) {
   }
   // Q8: submit
   const [resp] = await Promise.all([
+    // 20s bound: a stuck/slow server fails fast with a clear reason instead of
+    // silently eating the whole test budget. Assertions unchanged.
     page.waitForResponse(
       (r) => r.url().includes('/api/recommend') && r.request().method() === 'POST',
+      { timeout: 20_000 },
     ),
     page.getByRole('button', { name: 'Find my movies' }).click(),
   ]);

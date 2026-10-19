@@ -129,16 +129,16 @@ for (const mode of ['abort', 'timeout-30s', 'malformed', 'http-429', 'http-500']
       else await route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"Something went wrong. Please try again."}' });
     });
     if (mode === 'timeout-30s') {
-      // D-TIMEOUT-01: app has NO client-side fetch timeout. A 30s-delayed API
-      // just spins on loading for 33s then succeeds — no friendly message.
-      // Assert current behavior (loading visible, eventual end state, never blank).
+      // D-TIMEOUT-01 (fixed): the client aborts /api/recommend after 20s
+      // (AbortSignal.timeout in src/App.tsx). A 30s-delayed API must show the
+      // timeout error + Retry inside ~21s, then recover on retry.
       test.setTimeout(90_000);
       await page.getByRole('button', { name: 'Find my movies' }).click();
       await expect(page.getByText(/Analyzing|Taste Profiles/i).first()).toBeVisible({ timeout: 10000 });
-      await expect(page.getByText(/Tailored Match|perfect match|went wrong/i).first()).toBeVisible({ timeout: 60000 });
-      const len = (await page.textContent('body') || '').trim().length;
-      expect(len).toBeGreaterThan(100);
-      console.log(`FAILMODE ${mode}: no client timeout — loading 33s then end state, body=${len} chars (D-TIMEOUT-01)`);
+      await expect(page.getByText(/Something went wrong/i).first()).toBeVisible({ timeout: 25_000 });
+      await expect(page.getByText(/took too long and timed out/i).first()).toBeVisible();
+      await expect(page.getByRole('button', { name: /Try again/ })).toBeVisible();
+      console.log(`FAILMODE ${mode}: 20s client timeout surfaced, retry visible (D-TIMEOUT-01 fixed)`);
     } else {
       await page.getByRole('button', { name: 'Find my movies' }).click();
       await expect(page.getByText(/went wrong/i)).toBeVisible({ timeout: 15000 });

@@ -585,8 +585,12 @@ app.post('/api/taste/reset', rateLimiter, async (req: Request, res: Response) =>
 async function startServer() {
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
+    // Test-infra only: in long Playwright runs the HMR websocket churned and
+    // vite full-reloaded pages mid-test, resetting quiz state via loadQuiz()
+    // (report §10). Env-gated, so default dev behaviour is untouched.
+    const noHmr = process.env.E2E_NO_HMR === '1';
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, ...(noHmr ? { hmr: false } : {}) },
       appType: 'spa',
     });
     app.use(vite.middlewares);
