@@ -1,0 +1,203 @@
+[
+  {
+    "t": "2026-10-19T11:43:47.883Z",
+    "label": "goto / (load)",
+    "result": "ok",
+    "detail": {
+      "_type": "Response",
+      "_guid": "response@a1b17a550d49be2088bea6d119b9f6bf"
+    }
+  },
+  {
+    "t": "2026-10-19T11:43:47.919Z",
+    "label": "hero h1 visible",
+    "result": "ok",
+    "detail": {
+      "_type": "ElementHandle",
+      "_guid": "handle@54c8e3ca473a6be7bcbe5a7443e116ce"
+    }
+  },
+  {
+    "session": "tablet768",
+    "t": "2026-10-19T11:43:47.919Z",
+    "event": "homepage-load-ms",
+    "detail": 639
+  },
+  {
+    "t": "2026-10-19T11:43:49.146Z",
+    "label": "tap Discover",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "session": "tablet768",
+    "event": "discover-scrollY",
+    "detail": 484
+  },
+  {
+    "t": "2026-10-19T11:43:50.890Z",
+    "label": "tap How It Works",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "session": "tablet768",
+    "event": "howitworks-scrollY",
+    "detail": 484
+  },
+  {
+    "t": "2026-10-19T11:43:52.606Z",
+    "label": "tap Start Quiz",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "t": "2026-10-19T11:43:52.617Z",
+    "label": "Q1 visible",
+    "result": "ok",
+    "detail": {
+      "_type": "ElementHandle",
+      "_guid": "handle@637a41f4442198d88c7ce372fc92bfcb"
+    }
+  },
+  {
+    "t": "2026-10-19T11:43:52.763Z",
+    "label": "tap Continue at Q1",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "t": "2026-10-19T11:43:52.812Z",
+    "label": "tap Continue at Q2",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "t": "2026-10-19T11:43:52.861Z",
+    "label": "tap Continue at Q3",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "t": "2026-10-19T11:43:52.913Z",
+    "label": "tap Continue at Q4",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "t": "2026-10-19T11:43:52.963Z",
+    "label": "tap Continue at Q5",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "t": "2026-10-19T11:43:53.013Z",
+    "label": "tap Continue at Q6",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "t": "2026-10-19T11:43:53.061Z",
+    "label": "tap Continue at Q7",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "t": "2026-10-19T11:43:53.117Z",
+    "label": "tap Find my movies",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "t": "2026-10-19T11:44:38.119Z",
+    "label": "tablet /api/recommend response",
+    "result": "err",
+    "detail": "page.waitForResponse: Timeout 45000ms exceeded while waiting for event \"response\""
+  },
+  {
+    "session": "tablet768",
+    "event": "recommend-latency-ms",
+    "detail": {
+      "ms": 45058,
+      "status": null
+    }
+  },
+  {
+    "session": "tablet768",
+    "event": "post-find-cards",
+    "detail": 0
+  },
+  {
+    "session": "tablet768",
+    "event": "trace-written",
+    "detail": "tablet-trace.zip"
+  },
+  {
+    "t": "2026-10-19T11:44:43.369Z",
+    "label": "goto /",
+    "result": "ok",
+    "detail": {
+      "_type": "Response",
+      "_guid": "response@5f41108662586585d8b542617086e02a"
+    }
+  },
+  {
+    "session": "desktop1366",
+    "event": "deployment-markers",
+    "detail": {
+      "assetHashes": [
+        "assets/index-BnmmX0Vh.js",
+        "assets/index-DaVLiiwM.css"
+      ],
+      "vercelHeaders": {
+        "x-vercel-id": "bom1::swj8d-1792410283859-f5196a5bc732",
+        "x-vercel-cache": "HIT",
+        "age": "16845",
+        "last-modified": "Mon, 19 Oct 2026 07:03:57 GMT"
+      },
+      "commitShaClaim": "NOT VERIFIABLE from the served page/headers"
+    }
+  },
+  {
+    "t": "2026-10-19T11:45:24.588Z",
+    "label": "real /api/recommend",
+    "result": "err",
+    "detail": "page.waitForResponse: Timeout 40000ms exceeded while waiting for event \"response\""
+  },
+  {
+    "session": "desktop1366",
+    "event": "recommend-latency-ms",
+    "detail": {
+      "ms": 40017,
+      "status": null,
+      "result": "err"
+    }
+  },
+  {
+    "session": "desktop1366",
+    "event": "cards-metadata",
+    "detail": "missing: locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('article').first() to be visible\u001b[22m\n"
+  },
+  {
+    "session": "desktop1366",
+    "event": "save-local",
+    "detail": "no Save button rendered"
+  },
+  {
+    "t": "2026-10-19T11:46:05.911Z",
+    "label": "prod error state shown",
+    "result": "ok",
+    "detail": null
+  },
+  {
+    "session": "desktop1366",
+    "event": "retry-visible",
+    "detail": true
+  },
+  {
+    "t": "2026-10-19T11:46:26.234Z",
+    "label": "prod retry recovery end-state",
+    "result": "ok",
+    "detail": null
+  }
+]
