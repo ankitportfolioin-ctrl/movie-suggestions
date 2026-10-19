@@ -32,7 +32,7 @@ export const DISCOVERY_LANGUAGE_CODES = LANGUAGE_CODES;
 
 // TMDB feature flag: set TMDB_API_KEY in .env and ENABLE_TMDB=true to enable.
 // Default false: recommendations always work via local catalog first.
-const ENABLE_TMDB = false;
+const ENABLE_TMDB = process.env.ENABLE_TMDB === 'true';
 
 const circuitBreaker = new Map<string, { failures: number; openUntil: number }>();
 

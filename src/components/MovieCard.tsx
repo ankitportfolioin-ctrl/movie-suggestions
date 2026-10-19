@@ -117,7 +117,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
               <Star size={11} className="fill-[#FF7A2F] text-[#FF7A2F]" />
               <span>{movie.rating ? movie.rating.toFixed(1) : '7.5'}</span>
               {ratingSourceLabel && (
-                <span className="opacity-70 text-[10px] font-medium">{ratingSourceLabel}</span>
+                <span className="text-[10px] font-medium">{ratingSourceLabel}</span>
               )}
             </span>
             {kindLabel && (
@@ -146,9 +146,9 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
           </div>
 
           {/* Title */}
-          <h3 className="font-heading text-xl font-semibold text-white mb-2 tracking-tight line-clamp-1 group-hover:text-[#FF7A2F] transition-colors duration-200">
+          <h2 className="font-heading text-xl font-semibold text-white mb-2 tracking-tight line-clamp-1 group-hover:text-[#FF7A2F] transition-colors duration-200">
             {movie.title}
-          </h3>
+          </h2>
 
           {/* 2-Line Concise Synopsis */}
           <p className="text-sm text-[#8C8C8C] leading-relaxed line-clamp-2 mb-4 flex-grow">

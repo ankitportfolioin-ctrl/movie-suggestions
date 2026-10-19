@@ -36,9 +36,9 @@ export const SavedPicksView: React.FC<SavedPicksViewProps> = ({
           <Bookmark size={13} />
           <span>Saved Picks</span>
         </div>
-        <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
+        <h1 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
           Your shortlist
-        </h2>
+        </h1>
         <p className="text-sm text-[#8C8C8C]">
           Picks you bookmarked for later. Stored only in this browser.
         </p>

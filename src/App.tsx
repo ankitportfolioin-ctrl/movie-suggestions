@@ -128,8 +128,12 @@ export default function App() {
   const [movies, setMovies] = useState<Movie[]>(() => loadQuiz()?.movies ?? []);
   const [notices, setNotices] = useState<string[]>(() => loadQuiz()?.notices ?? []);
   const [loadError, setLoadError] = useState(false);
+  // User-facing reason for the error state (timeout vs generic).
+  const [errorDetail, setErrorDetail] = useState('');
   const [seenMovieIds, setSeenMovieIds] = useState<number[]>(() => loadQuiz()?.seen ?? []);
   const [isLoading, setIsLoading] = useState(false);
+  // Latest-request discriminator for /api/recommend (see fetchRecommendations).
+  const recommendSeqRef = useRef(0);
   // Signed impression tokens for the currently shown picks (Step 1/2 learning).
   const [impressionTokens, setImpressionTokens] = useState<ImpressionToken[]>([]);
   // Movies the user dismissed via Seen it / Not for me (excluded going forward).
@@ -318,8 +322,14 @@ export default function App() {
     resetHistory = false,
     genreOverride?: string[]
   ): Promise<number> => {
+    // Same stale-response guard the hero search uses: after retry, navigation,
+    // or starting over, a slow older request must never overwrite newer state.
+    const seq = ++recommendSeqRef.current;
+    const stale = () => seq !== recommendSeqRef.current;
+
     setIsLoading(true);
     setLoadError(false);
+    setErrorDetail('');
     setShowSaved(false);
     setResetStatus('');
     setWizardState((prev) => ({ ...prev, step: 9 })); // Results view (8 questions + results)
@@ -358,6 +368,7 @@ export default function App() {
       }
 
       const data = await res.json();
+      if (stale()) return -1; // A newer request Retry/nav owns the UI now.
       const newMovies: Movie[] = Array.isArray(data.movies) ? data.movies : [];
       setNotices(
         Array.isArray(data.notices) ? data.notices.filter((n: unknown) => typeof n === 'string') : []
@@ -379,15 +390,24 @@ export default function App() {
         resetHistory ? newIds : Array.from(new Set([...prev, ...newIds]))
       );
       return newMovies.length;
-    } catch {
-      // In case of error, set empty movies so error state is shown cleanly
-      setMovies([]);
-      setNotices([]);
-      setImpressionTokens([]);
-      setLoadError(true);
+    } catch (e) {
+      // In case of error, set empty movies so error state is shown cleanly.
+      // A stale request (superseded by retry/nav) writes nothing and lands -1.
+      if (!stale()) {
+        setMovies([]);
+        setNotices([]);
+        setImpressionTokens([]);
+        setLoadError(true);
+        // AbortSignal.timeout surfaces as TimeoutError — name the real cause.
+        setErrorDetail(
+          e instanceof DOMException && e.name === 'TimeoutError'
+            ? 'The search took too long and timed out. Try again in a moment.'
+            : ''
+        );
+      }
       return -1;
     } finally {
-      setIsLoading(false);
+      if (!stale()) setIsLoading(false);
     }
   };
 
@@ -581,6 +601,7 @@ export default function App() {
             movies={movies}
             isLoading={isLoading}
             loadError={loadError}
+            errorDetail={errorDetail}
             notices={notices}
             onMore={handleMore}
             onCycle={handleCycle}
@@ -766,7 +787,7 @@ function Hero({ onStart }: { onStart: () => void }) {
               onClick={() => setSearchMode('title')}
               className={`px-4 py-2 rounded-[10px] text-sm font-medium transition-all ${
                 searchMode === 'title'
-                  ? 'bg-[#FF7A2F] text-white'
+                  ? 'bg-[#FF7A2F] text-black'
                   : 'bg-[#141414] border border-[#232323] text-[#8C8C8C] hover:text-white hover:border-[#353534]'
               }`}
             >
@@ -776,7 +797,7 @@ function Hero({ onStart }: { onStart: () => void }) {
               onClick={() => setSearchMode('natural')}
               className={`px-4 py-2 rounded-[10px] text-sm font-medium transition-all ${
                 searchMode === 'natural'
-                  ? 'bg-[#FF7A2F] text-white'
+                  ? 'bg-[#FF7A2F] text-black'
                   : 'bg-[#141414] border border-[#232323] text-[#8C8C8C] hover:text-white hover:border-[#353534]'
               }`}
             >
@@ -832,7 +853,7 @@ function Hero({ onStart }: { onStart: () => void }) {
           </form>
           {showResults && searchResults.length > 0 && (
             <div className="mt-6 w-full max-h-96 overflow-y-auto">
-              <h3 className="text-sm font-medium text-[#8C8C8C] mb-3 text-left">Search Results</h3>
+              <h2 className="text-sm font-medium text-[#8C8C8C] mb-3 text-left">Search Results</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {searchResults.map((movie) => (
                   <button
@@ -846,15 +867,17 @@ function Hero({ onStart }: { onStart: () => void }) {
                     }}
                   >
                     <div className="relative aspect-[2/3] rounded-[8px] overflow-hidden bg-[#232323] mb-2">
-                      <img
-                        src={movie.posterUrl}
-                        alt=""
-                        aria-hidden="true"
-                        className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      />
+                      {movie.posterUrl ? (
+                        <img
+                          src={movie.posterUrl}
+                          alt=""
+                          aria-hidden="true"
+                          className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      ) : null}
                     </div>
-                    <h4 className="font-medium text-white text-sm truncate group-hover:text-[#FF7A2F] transition-colors">{movie.title}</h4>
+                    <span className="block font-medium text-white text-sm truncate group-hover:text-[#FF7A2F] transition-colors">{movie.title}</span>
                     <p className="text-xs text-[#8C8C8C] mt-1">{movie.year} • {movie.genres.slice(0, 2).join(', ')} • {movie.runtime}m • {movie.rating}/10</p>
                   </button>
                 ))}
@@ -872,8 +895,9 @@ function Hero({ onStart }: { onStart: () => void }) {
         </button>
       </div>
 
-      {/* Discover: feature cards */}
+      {/* Discover: feature cards. sr-only h2 keeps heading order (h1 → h2 → h3) */}
       <div id="discover" className="w-full max-w-6xl mx-auto px-4 pb-14 scroll-mt-20">
+        <h2 className="sr-only">Discover</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {FEATURES.map((f) => (
             <div

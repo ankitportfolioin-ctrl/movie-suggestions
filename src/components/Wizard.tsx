@@ -349,9 +349,9 @@ export const Wizard: React.FC<WizardProps> = ({
         {step === 1 && (
           <div className="space-y-6">
             <div>
-              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
+              <h1 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
                 What do you want to watch?
-              </h2>
+              </h1>
               <p className="text-sm text-[#8C8C8C] mt-2">
                 Pick the format — every later answer adapts to it.
               </p>
@@ -387,9 +387,9 @@ export const Wizard: React.FC<WizardProps> = ({
         {step === 2 && (
           <div className="space-y-6">
             <div>
-              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
+              <h1 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
                 How are you feeling right now?
-              </h2>
+              </h1>
               <p className="text-sm text-[#8C8C8C] mt-2">
                 Pick the dominant vibe that fits your headspace tonight.
               </p>
@@ -432,9 +432,9 @@ export const Wizard: React.FC<WizardProps> = ({
           <div className="space-y-6">
             <div>
               <div className="flex items-baseline justify-between">
-                <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
+                <h1 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
                   Select Genres
-                </h2>
+                </h1>
                 <span className="text-xs text-[#8C8C8C] shrink-0">Max 3</span>
               </div>
               <p className="text-sm text-[#8C8C8C] mt-2">
@@ -470,9 +470,9 @@ export const Wizard: React.FC<WizardProps> = ({
         {step === 4 && (
           <div className="space-y-6">
             <div>
-              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
+              <h1 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
                 Who is watching?
-              </h2>
+              </h1>
               <p className="text-sm text-[#8C8C8C] mt-2">
                 This calibrates pacing, tone, and maturity guardrails.
               </p>
@@ -518,9 +518,9 @@ export const Wizard: React.FC<WizardProps> = ({
         {step === 5 && (
           <div className="space-y-6">
             <div>
-              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
+              <h1 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
                 Time Available
-              </h2>
+              </h1>
               <p className="text-sm text-[#8C8C8C] mt-2">
                 {types.includes('series')
                   ? 'How long should one episode be? (Series get one-episode caps.)'
@@ -561,9 +561,9 @@ export const Wizard: React.FC<WizardProps> = ({
         {step === 6 && (
           <div className="space-y-6">
             <div>
-              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
+              <h1 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
                 Preferred Audio / Language
-              </h2>
+              </h1>
               <p className="text-sm text-[#8C8C8C] mt-2">
                 Select original dialogue preferences.
               </p>
@@ -595,9 +595,9 @@ export const Wizard: React.FC<WizardProps> = ({
         {step === 7 && (
           <div className="space-y-6">
             <div>
-              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
+              <h1 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
                 Fine-tune Preferences
-              </h2>
+              </h1>
               <p className="text-sm text-[#8C8C8C] mt-2">
                 Toggle specific criteria for higher precision.
               </p>
@@ -791,9 +791,9 @@ export const Wizard: React.FC<WizardProps> = ({
         {step === 8 && (
           <div className="space-y-6">
             <div>
-              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
+              <h1 className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]">
                 Anything else?
-              </h2>
+              </h1>
               <p className="text-sm text-[#8C8C8C] mt-2">
                 A movie you loved recently, an actor you dislike, or a specific mood keyword.
               </p>
@@ -855,13 +855,17 @@ export const Wizard: React.FC<WizardProps> = ({
                         onClick={() => addReferenceMovie(s)}
                         className="w-full px-4 py-3 hover:bg-[#1c1b1b] focus:bg-[#1c1b1b] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A2F] cursor-pointer flex items-center gap-3 text-left"
                       >
-                        <img
-                          src={s.posterUrl}
-                          alt=""
-                          aria-hidden="true"
-                          className="w-12 h-18 object-cover rounded-[6px] bg-[#232323]"
-                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                        />
+                        {s.posterUrl ? (
+                          <img
+                            src={s.posterUrl}
+                            alt=""
+                            aria-hidden="true"
+                            className="w-12 h-18 object-cover rounded-[6px] bg-[#232323]"
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                          />
+                        ) : (
+                          <div className="w-12 h-18 rounded-[6px] bg-[#232323] shrink-0" aria-hidden="true" />
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-[#F5F5F5] truncate">{s.title}</p>
                           <p className="text-xs text-[#8C8C8C]">{s.year}</p>

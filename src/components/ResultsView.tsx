@@ -7,6 +7,8 @@ interface ResultsViewProps {
   movies: Movie[];
   isLoading: boolean;
   loadError: boolean;
+  // Optional user-facing cause (e.g. the 20s timeout), else generic copy.
+  errorDetail?: string;
   notices: string[];
   onMore: () => void;
   onCycle: () => void;
@@ -36,6 +38,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   movies,
   isLoading,
   loadError,
+  errorDetail,
   notices,
   onMore,
   onCycle,
@@ -101,12 +104,12 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           <AlertCircle className="w-7 h-7" />
         </div>
         <div>
-          <h2 className="font-heading text-2xl font-bold text-[#F5F5F5]">
+          <h1 className="font-heading text-2xl font-bold text-[#F5F5F5]">
             {loadError ? 'Something went wrong' : 'No perfect match'}
-          </h2>
+          </h1>
           <p className="text-sm text-[#8C8C8C] mt-2 leading-relaxed">
             {loadError
-              ? 'Our movie services stumbled. Check your connection and try again.'
+              ? errorDetail || 'Our movie services stumbled. Check your connection and try again.'
               : 'Try relaxing a few filters or broadening the runtime.'}
           </p>
         </div>
@@ -160,14 +163,12 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           <BadgeCheck size={14} />
           <span>Tonight's Curated Triage</span>
         </div>
-        <h2
+        <h1
           className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]"
-          role="status"
-          aria-live="polite"
           data-testid="results-heading"
         >
           Your {movies.length} Tailored Match{movies.length === 1 ? '' : 'es'}
-        </h2>
+        </h1>
         <p className="text-sm text-[#8C8C8C]">
           Handpicked for your mood, runtime threshold, and language choice.
         </p>
