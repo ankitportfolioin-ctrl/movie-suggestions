@@ -155,8 +155,9 @@ export function registerAnalyticsRoutes(app: Express): void {
       const pool = getPool();
       const [overview, topCountries, topCities, topRegions, topPages, topReferrers, hourly, daily, events, trend] = await Promise.all([
         pool.query(`
-          SELECT COUNT(DISTINCT anon_id) AS unique_visitors, COUNT(*) AS total_page_views,
-                 COUNT(DISTINCT id) AS total_sessions,
+          SELECT COUNT(DISTINCT anon_id) AS unique_visitors,
+                 COALESCE(SUM(total_page_views), 0) AS total_page_views,
+                 (SELECT COUNT(DISTINCT session_id) FROM analytics_page_views WHERE created_at >= ${since}) AS total_sessions,
                  COUNT(*) FILTER (WHERE is_returning) AS returning_visitors,
                  COUNT(*) FILTER (WHERE NOT is_returning) AS new_visitors,
                  COALESCE(SUM(total_quiz_starts), 0) AS quiz_starts,
