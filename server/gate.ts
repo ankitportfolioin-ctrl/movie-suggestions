@@ -175,8 +175,11 @@ export function enforceHardConstraints<T extends GateMovie>(
       }
     } else if (!constraints.matureAllowed) {
       if (age !== null) {
-        // Mature OFF excludes minAge 16+.
-        if (age >= 16) {
+        // Mature OFF excludes 16+. An EXPLICIT language ask ("Kannada movie")
+        // raises the boundary to 18: the viewer asked for that industry's
+        // catalog, and ingest cert-buckets 15/17 as 16. Family is unaffected.
+        const cap = constraints.langCodes.length > 0 ? 18 : 16;
+        if (age >= cap) {
           removedMaturity += 1;
           return false;
         }

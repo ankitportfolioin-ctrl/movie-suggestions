@@ -102,7 +102,12 @@ export function buildWhereClause(f: DbFilters): { text: string; params: unknown[
     clauses.push(`((minAge IS NOT NULL AND minAge <= 6) OR (minAge IS NULL AND ` +
       `genres && '{Family,Animation}' AND NOT (genres && '{Horror,Crime,Thriller,War}')))`);
   } else if (!f.matureAllowed) {
-    clauses.push(`((minAge IS NULL OR minAge < 16) AND ` +
+    // Non-family: block adult-only content. The cap is 16 — except when the
+    // viewer EXPLICITLY named language(s) (e.g. "Kannada movie"): then the
+    // viewer asked for that industry's catalog and 15/17-certified rows
+    // (ingest-tagged 16) may serve; OMDb backfill still scrubs truly adult.
+    const cap = f.languages.length > 0 ? 18 : 16;
+    clauses.push(`((minAge IS NULL OR minAge < ${cap}) AND ` +
       `NOT (minAge IS NULL AND genres && '{Horror}'))`);
   }
   return { text: clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '', params };
@@ -159,18 +164,38 @@ export async function queryDbCandidates(f: DbFilters): Promise<DbItem[]> {
  */
 export async function loadReferenceAnchors(titles: string[]): Promise<DbItem[]> {
   if (titles.length === 0 || !process.env.DATABASE_URL) return [];
-  // Punctuation/case-insensitive match in SQL; accented titles also match their
-  // exact lowercase spelling (SQL cannot fold diacritics without an extension).
+  // Exact or prefix match: "Baahubali" anchors "Baahubali: The Beginning".
+  // Punctuation/case-insensitive; translate() folds diacritics so accent
+  // spellings ("Bāhubali") anchor too. 20-row cap keeps it honest.
   const normalized = titles.map(normalizeTitle).filter(Boolean);
   const lowered = titles.map((t) => t.trim().toLowerCase()).filter(Boolean);
+  // Double-letter collapse ("baahubali" == "bahubali") on top of diacritic
+  // folding: "Bāhubali" folds to "bahubali" and the user's "baahubali"
+  // collapses to the same stem.
+  const squashed = normalized.map((n) => n.replace(/(.)\1+/g, '$1')).filter(Boolean);
+  const FOLD_FROM = 'āàáâäãåēèéêëīìíîïōòóôöõùúûüñçšž';
+  const FOLD_TO = 'aaaaaaeeeeeiiiiioooooouuuuuncsz';
   try {
     const { rows } = await getDbPool().query(
       `SELECT ${DB_COLS} FROM movies
        WHERE regexp_replace(lower(title), '[^a-z0-9]', '', 'g') = ANY($1)
           OR regexp_replace(lower(title), '[^a-z0-9]', '', 'g') LIKE ANY($2)
           OR lower(title) = ANY($3)
+          OR lower(title) LIKE ANY($4)
+          OR regexp_replace(translate(lower(title), $5, $6), '[^a-z0-9]', '', 'g') = ANY($7)
+          OR regexp_replace(translate(lower(title), $5, $6), '[^a-z0-9]', '', 'g') LIKE ANY($8)
+          OR regexp_replace(
+               regexp_replace(translate(lower(title), $5, $6), '(.)\\1+', '\\1', 'g'),
+               '[^a-z0-9]', '', 'g') = ANY($7)
+          OR regexp_replace(
+               regexp_replace(translate(lower(title), $5, $6), '(.)\\1+', '\\1', 'g'),
+               '[^a-z0-9]', '', 'g') LIKE ANY($8)
        LIMIT 20`,
-      [normalized, normalized.map((n) => `${n}%`), lowered],
+      [
+        normalized, normalized.map((n) => `${n}%`), lowered,
+        lowered.map((l) => `${l.replace(/'/g, "''")}%`),
+        FOLD_FROM, FOLD_TO, squashed, squashed.map((s) => `${s}%`),
+      ],
     );
     return rows.map(toDbItem);
   } catch {
@@ -209,8 +234,10 @@ export function matchesFilters(m: Filterable, f: DbFilters): boolean {
     else if (!(m.genres.includes('Family') || m.genres.includes('Animation')) ||
       m.genres.some((g) => ['Horror', 'Crime', 'Thriller', 'War'].includes(g))) return false;
   } else if (!f.matureAllowed) {
-    if (typeof m.minAge === 'number') { if (m.minAge >= 16) return false; }
-    else if (m.genres.includes('Horror')) return false;
+    if (typeof m.minAge === 'number') {
+      // Explicit-language asks trust the viewer's catalog request (see SQL twin).
+      if (m.minAge >= (f.languages.length > 0 ? 18 : 16)) return false;
+    } else if (m.genres.includes('Horror')) return false;
   }
   return true;
 }

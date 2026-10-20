@@ -80,6 +80,10 @@ const GENRE_KEYWORDS: [RegExp, string][] = [
   [/\bhistor(y|ical)\b|\bperiod (piece|drama)\b/, 'History'],
   [/\bbiograph|\bbiopic\b|\btrue stor|\bbased on (a |the )?true\b/, 'Biography'],
   [/\bsports?\b/, 'Sports'],
+  // Mood-vocab genres the 200-run showed users expect decoded.
+  [/\bmind-?bend|\bmind blower|\btrippy\b|\bpsychodelic\b/, 'Mystery'],
+  [/\bnostalg|\bchildhood\b|\bfavourite from\b/, 'Family'],
+  [/\binspir|\bmotivat|\bunderdog\b/, 'Drama'],
   // Devanagari script genres (Hindi-script queries). Note: \b is ASCII-only
   // in JS, so these are substring matches on distinctive words.
   [/कॉमेडी|हास्य/, 'Comedy'],
@@ -180,26 +184,30 @@ const MOOD_KEYWORDS: [RegExp, string][] = [
   [/\budaas\b|\bdukhi\b/, 'Sad'],
 ];
 
-// Reference movie patterns: "like X", "similar to X", "in the vein of X", "reminiscent of X"
+// Reference movie patterns: "like X", "similar to X", "in the vein of X",
+// "reminiscent of X". Title tokens start with a capital OR a digit (so
+// "3 Idiots", "1917", "21 Jump Street" parse like "Interstellar").
+const TITLE_TOKEN = "(?:\\d[A-Za-z0-9'&:!\\-]*|[A-Z][A-Za-z0-9'&:!\\-]*)";
+const TITLE_SEQ = `${TITLE_TOKEN}(?:\\s+${TITLE_TOKEN})*`;
 const REFERENCE_PATTERNS: RegExp[] = [
-  /\blike\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
-  /\bsimilar to\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
-  /\bin the vein of\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
-  /\breminiscent of\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
-  /\bakin to\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
-  /\bresembles\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
+  new RegExp(`\\blike\\s+(${TITLE_SEQ})`),
+  new RegExp(`\\bsimilar to\\s+(${TITLE_SEQ})`),
+  new RegExp(`\\bin the vein of\\s+(${TITLE_SEQ})`),
+  new RegExp(`\\breminiscent of\\s+(${TITLE_SEQ})`),
+  new RegExp(`\\bakin to\\s+(${TITLE_SEQ})`),
+  new RegExp(`\\bresembles\\s+(${TITLE_SEQ})`),
 ];
 
 // Comparative patterns: "less dark than X", "more funny than X", "shorter than X"
 const COMPARATIVE_PATTERNS: [RegExp, string][] = [
-  [/\bless\s+(\w+)\s+than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'less'],
-  [/\bmore\s+(\w+)\s+than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'more'],
-  [/\bshorter than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'shorter'],
-  [/\blonger than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'longer'],
-  [/\bdarker than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'darker'],
-  [/\blighter than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'lighter'],
-  [/\bfunnier than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'funnier'],
-  [/\bscarier than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'scarier'],
+  [new RegExp(`\\bless\\s+(\\w+)\\s+than\\s+(${TITLE_SEQ})`), 'less'],
+  [new RegExp(`\\bmore\\s+(\\w+)\\s+than\\s+(${TITLE_SEQ})`), 'more'],
+  [new RegExp(`\\bshorter than\\s+(${TITLE_SEQ})`), 'shorter'],
+  [new RegExp(`\\blonger than\\s+(${TITLE_SEQ})`), 'longer'],
+  [new RegExp(`\\bdarker than\\s+(${TITLE_SEQ})`), 'darker'],
+  [new RegExp(`\\blighter than\\s+(${TITLE_SEQ})`), 'lighter'],
+  [new RegExp(`\\bfunnier than\\s+(${TITLE_SEQ})`), 'funnier'],
+  [new RegExp(`\\bscarier than\\s+(${TITLE_SEQ})`), 'scarier'],
 ];
 
 const NEGATION_WORDS =
@@ -444,11 +452,13 @@ export function parseNote(rawNote: string): NoteSignals {
         signals.runtimeMaxMinutes = Number(rm[2]); rMaxPhrase = rm[0].trim();
       }
     }
-    // "90 minute movie" / "2 hour movie" — the stated length is the MAX.
+    // "90 minute movie" / "90 minute family movie" / "2 hour movie" — the
+    // stated length is a MAX; allow short adjective runs between the number
+    // and the noun ("90 minute family movie").
     if (signals.runtimeMaxMinutes === undefined) {
-      if ((rm = text.match(/\b(\d{2,3})\s*min(?:ute)?s?\s+(?:movie|film|long)\b/))) {
+      if ((rm = text.match(/\b(\d{2,3})\s*min(?:ute)?s?[\w\s,]{0,25}?\b(?:movie|film|long)\b/))) {
         signals.runtimeMaxMinutes = Number(rm[1]); rMaxPhrase = rm[0].trim();
-      } else if ((rm = text.match(/\b(\d+)\s*hours?\s+(?:movie|film|long)\b/))) {
+      } else if ((rm = text.match(/\b(\d+)\s*hours?[\w\s,]{0,25}?\b(?:movie|film|long)\b/))) {
         signals.runtimeMaxMinutes = Number(rm[1]) * 60; rMaxPhrase = rm[0].trim();
       }
     }

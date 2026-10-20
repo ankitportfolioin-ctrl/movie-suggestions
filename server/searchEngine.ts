@@ -195,19 +195,36 @@ export async function runNaturalSearch(
   let candidates = items.filter((m) => !referencedFilms.has(m.id));
   const extraNotices: string[] = [];
   if (referencedFilms.size > 0 && wantedGenres.length === 0) {
-    const seedGenres = [...new Set(
-      [...referencedFilms.values()].flatMap((m) => m.genres),
-    )];
-    if (seedGenres.length > 0 && candidates.length > 0) {
+    const anchor = [...referencedFilms.values()][0];
+    // The anchor's GENRES are what the user wants. Rank with all of them;
+    // narrow the pool to the most SPECIFIC one (Drama/Adventure/Romance/
+    // Family say nothing about intent), seeded with the anchor's own
+    // language. Fall back layer by layer — never return an empty pool that
+    // the wider one could have filled.
+    const GENERIC = new Set(['Drama', 'Romance', 'Adventure', 'Family']);
+    const primary = anchor.genres.find((g) => !GENERIC.has(g)) || anchor.genres[0];
+    const seedLangs = filters.languages.length > 0 ? [] : (
+      anchor.language ? [anchor.language] : []);
+    const loadNarrow = async (langs: string[]) => {
       const { items: narrowed } = await loadDbCandidates(
-        { ...filters, genres: seedGenres },
+        { ...filters, genres: primary ? [primary] : [], languages: langs },
       );
-      const filtered = narrowed.filter((m) => !referencedFilms.has(m.id));
-      if (filtered.length > 0) {
-        candidates = filtered;
+      return narrowed.filter((m) => !referencedFilms.has(m.id));
+    };
+    if (primary) {
+      const names = note.referenceTitleNames.join(', ');
+      const withLang = await loadNarrow([...filters.languages, ...seedLangs]);
+      if (withLang.length > 0) {
+        candidates = withLang;
         extraNotices.push(
-          `Showing titles in genres of ${note.referenceTitleNames.join(', ')} (${seedGenres.join('/')}).`,
+          `Showing titles like ${names} — ${primary}${seedLangs.length > 0 ? ` in its original language` : ''}.`,
         );
+      } else {
+        const genreOnly = await loadNarrow(filters.languages);
+        if (genreOnly.length > 0) {
+          candidates = genreOnly;
+          extraNotices.push(`Showing titles like ${names} — ${primary}.`);
+        }
       }
     }
   }
@@ -231,6 +248,15 @@ export async function runNaturalSearch(
   }, 3);
   const { movies: picks, notices: ageNotices } = await ensureMinAge(
     ranked, audience, false, [mediaType]);
+  // D14/D04 data repair: minAge is the source of truth; ingest certificates
+  // country-hop ("15", "R15+", "U/A 13+", "K-18"). Replace raw strings with
+  // the watch-level label they agree with (card labels read minAge anyway).
+  for (const p of picks) {
+    if (typeof p.minAge === 'number') {
+      p.certificate = p.minAge <= 6 ? 'All ages' : p.minAge <= 12 ? '12+'
+        : p.minAge <= 15 ? '15+' : p.minAge <= 16 ? '16+' : '18+';
+    }
+  }
 
   const notices: string[] = [...extraNotices];
   if (note.excludeGenres.length > 0) notices.push(`Excluding ${note.excludeGenres.join(', ')}`);
