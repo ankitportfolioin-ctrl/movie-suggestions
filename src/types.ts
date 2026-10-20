@@ -24,6 +24,10 @@ export interface Movie {
   language?: string;
   /** OMDb `Rated` certificate as served. */
   certificate?: string;
+  /** Watch-level minimum age from the catalog (TMDB-derived). Source of truth for the card's age label. */
+  minAge?: number | null;
+  /** "Rating not confirmed" when a NULL minAge survived OMDb backfill. */
+  ratingNote?: string;
   /** Provider-reported content type: "movie" or "series". */
   mediaType?: string;
   /** Media kind from the catalog: 'movie' | 'short' | 'series'. */
