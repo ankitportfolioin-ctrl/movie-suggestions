@@ -59,9 +59,8 @@ test('D04: kids safety phrases switch on family mode', () => {
 test('D04: unknown-rating War titles are not family passes', () => {
   const war: GateMovie = {
     id: 1, title: 'War Movie', year: 2017, genres: ['War'],
-    runtime: 90, rating: 8, voteCount: 100, language: 'en',
-    overview: '', posterUrl: '', isMature: false, isHiddenGem: false,
-    providers: [], certificate: '', minAge: null,
+    runtime: 90, rating: 8, language: 'en',
+    isMature: false, certificate: '', minAge: null,
   };
   const fam = enforceHardConstraints([war], gate({ audience: 'Family with kids' }));
   assert.equal(fam.movies.length, 0, 'unknown rating + War genre must fail closed');
