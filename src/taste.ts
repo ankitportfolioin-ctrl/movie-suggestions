@@ -93,14 +93,14 @@ export function applyDecay(anonId: string): void {
 }
 
 /** Update taste from a feedback action on one movie.
- *  s = signal weight (save=+1, not_for_me=-1, different_picks=-0.15)
+ *  s = signal weight (save=+1, not_for_me=-1, less_like_this=-0.5, different_picks=-0.15)
  *  x_f = 1 for each feature of the movie
  *  w[f] = clip(DECAY * w[f] + LR * s * x_f, -1, 1)
  */
 export function updateTasteFromEvent(
   anonId: string,
   movie: Movie,
-  action: 'save' | 'not_for_me' | 'different_picks'
+  action: 'save' | 'not_for_me' | 'less_like_this' | 'different_picks'
 ): void {
   const signal = SIGNAL_WEIGHTS[action];
   if (signal === 0 || signal === undefined) return;

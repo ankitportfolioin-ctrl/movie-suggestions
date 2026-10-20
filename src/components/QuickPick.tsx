@@ -4,7 +4,7 @@ import { MoodSelector, getWizardMoodFromId, MOOD_OPTIONS } from './MoodSelector'
 import { FineTuneDrawer, INITIAL_WIZARD_STATE } from './FineTuneDrawer';
 import { WizardState, ReferenceMovie } from '../types';
 
-interface QuickPickProps {
+export interface QuickPickProps {
   onGetRecommendations: (wizardState: WizardState & { referenceMovies?: ReferenceMovie[] }) => void;
   onSearchTitle: (query: string) => void;
   onSearchNatural: (query: string) => void;

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Movie } from '../types';
+import { Star, Clock, BookmarkPlus, BookmarkCheck, ExternalLink, Shuffle, ThumbsDown, Eye, Minus, Plus } from 'lucide-react';
 
 /** Display score: new fitScore, with old saved matchScore tolerated on read. */
 export function fitScoreOf(m: { fitScore?: number; matchScore?: number }): number {
@@ -21,8 +22,6 @@ export function ageRatingLabel(m: { minAge?: number | null }): string {
   return '18+';
 }
 
-import { Star, Clock, BookmarkPlus, BookmarkCheck, ExternalLink, Shuffle, ThumbsDown, Eye } from 'lucide-react';
-
 interface MovieCardProps {
   movie: Movie;
   index: number;
@@ -30,12 +29,13 @@ interface MovieCardProps {
   dismissed?: boolean;
   onToggleSave?: (movie: Movie) => void;
   onMoreLike?: (movie: Movie) => void;
+  onLessLike?: (movie: Movie) => void;
   onNotForMe?: (movie: Movie) => void;
   onSeenIt?: (movie: Movie) => void;
   onWatchOptions?: (movie: Movie) => void;
 }
 
-export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, onToggleSave, onMoreLike, onNotForMe, onSeenIt, onWatchOptions }) => {
+export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, onToggleSave, onMoreLike, onLessLike, onNotForMe, onSeenIt, onWatchOptions }) => {
   const [imageError, setImageError] = useState(false);
   const [brokenLogos, setBrokenLogos] = useState<Set<string>>(new Set());
 
@@ -271,7 +271,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
         )}
       </div>
 
-      {/* Feedback row: Seen it / Not for me (both exclude from future picks) */}
+      {/* Feedback row: Seen it / Not for me / Less like this / More like this */}
       <div className="px-4 pb-3.5 pt-1 flex items-center gap-2">
         <button
           onClick={() => onSeenIt?.(movie)}
@@ -290,6 +290,15 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
         >
           <ThumbsDown size={14} />
           <span>{dismissed ? 'Marked' : 'Not for me'}</span>
+        </button>
+        <button
+          onClick={() => onLessLike?.(movie)}
+          disabled={dismissed}
+          title="Less like this — show fewer similar picks"
+          className="flex-1 min-h-[44px] rounded-[12px] bg-[#0A0A0A] border border-[#232323] hover:border-[#383838] text-[#8C8C8C] hover:text-[#F5F5F5] text-[13px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+        >
+          <Minus size={14} />
+          <span>Less like this</span>
         </button>
       </div>
     </article>

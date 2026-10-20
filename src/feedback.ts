@@ -14,6 +14,7 @@ export type FeedbackAction =
   | 'save'
   | 'provider_click'
   | 'more_like_this'
+  | 'less_like_this'
   | 'seen_it'
   | 'seen_it_liked'
   | 'not_for_me'
@@ -27,6 +28,7 @@ export const SIGNAL_WEIGHTS: Record<FeedbackAction, number> = {
   save: 1.0,
   provider_click: 0.7,
   more_like_this: 0.8,
+  less_like_this: -0.5,
   seen_it_liked: 0.5,
   not_for_me: -1.0,
   different_picks: -0.15,
