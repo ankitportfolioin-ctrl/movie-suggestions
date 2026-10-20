@@ -23,7 +23,7 @@ interface Query {
 }
 
 const QUERIES: Query[] = [
-  { name: 'tired solo short comedy', params: baseParams({ mood: 'Tired', genres: ['Comedy'], maxRuntime: 'Under 90 min' }), expectCount: 3, mustInclude: ['Office Space', 'Toy Story'], mustExclude: ['What We Do in the Shadows'] },
+  { name: 'tired solo short comedy', params: baseParams({ mood: 'Tired', genres: ['Comedy'], maxRuntime: 'Under 90 min' }), expectCount: 3, mustInclude: ['Office Space', 'Fantastic Mr. Fox'], every: (m) => assert.ok(m.genres.slice(0, 2).includes('Comedy'), `${m.title}: ${m.genres}`), mustExclude: ['What We Do in the Shadows'] },
   { name: 'romantic date night', params: baseParams({ mood: 'Romantic', genres: ['Romance'], audience: 'Partner', maxRuntime: 'Under 2 hours' }), expectMinCount: 2, mustInclude: ['Before Sunrise', 'Past Lives'], every: (m) => assert.ok(m.genres.includes('Romance')) },
   { name: 'family animation night', params: baseParams({ mood: 'Happy', genres: ['Animation'], audience: 'Family with kids', maxRuntime: 'Under 2 hours' }), expectCount: 3, mustInclude: ['My Neighbor Totoro'], mustExclude: ['What We Do in the Shadows', 'Memories of Murder'], every: (m) => { assert.ok(m.genres.includes('Animation')); assert.ok(!m.genres.some((g) => ['Horror', 'Crime', 'Thriller'].includes(g))); } },
   { name: 'friends action sci-fi', params: baseParams({ mood: 'Adventurous', genres: ['Action', 'Sci-Fi'], audience: 'Friends', maxRuntime: 'Any length', languages: ['English'] }), expectMinCount: 2, mustInclude: ['Edge of Tomorrow', 'Interstellar'] },

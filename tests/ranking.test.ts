@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { scoreMovie, scoreWithFeatures, selectDiverse, buildReason, themeSimilarity, qualifiesAsGem, franchiseKey, RANK_WEIGHTS, RankSignals } from '../server/ranking.js';
+import { scoreMovie, scoreWithFeatures, selectDiverse, buildReason, themeSimilarity, qualifiesAsGem, franchiseKey, RANK_WEIGHTS, RankSignals, bayesianRating } from '../server/ranking.js';
 import type { FitFeature } from '../server/ranking.js';
 import type { MovieItem } from '../server/catalog.js';
 
@@ -25,11 +25,14 @@ const signals: RankSignals = {
   mentionedTitles: [],
 };
 
+// D07: the rating term is the Bayesianized rating (prior mean 6.5,
+// prior weight 25 votes) — D06 adds the primary-tag bonus.
 test('formula: rating base + genre + mood + confidence are additive', () => {
   const s = scoreMovie(movie(), signals);
   const expected =
-    RANK_WEIGHTS.ratingBase * 7.5 +
+    RANK_WEIGHTS.ratingBase * bayesianRating(7.5, 1000) +
     RANK_WEIGHTS.genrePerMatch * 1 +
+    RANK_WEIGHTS.primaryGenreBonus + // 'Comedy' is the only tag -> leads
     RANK_WEIGHTS.moodAffinity +
     RANK_WEIGHTS.moodUpliftPerGenre * 1 + // Comedy lifts Happy
     RANK_WEIGHTS.ratingConfidence * (1000 / 5000) +
@@ -37,6 +40,14 @@ test('formula: rating base + genre + mood + confidence are additive', () => {
   assert.ok(Math.abs(s - expected) < 1e-9, `got ${s}, want ${expected}`);
 });
 
+// D07: a 10.0 with 12 votes cannot outrank an 8.0 backed by thousands.
+test('bayesianized rating beats tiny-vote 10.0 despite vote confidence', () => {
+  const big = scoreMovie(movie({ title: 'Big', rating: 8.0, voteCount: 5000, genres: ['Comedy'] }), signals);
+  const hype = scoreMovie(movie({ title: 'Hype', rating: 10.0, voteCount: 12, genres: ['Comedy'] }), signals);
+  assert.ok(big > hype, `8.0/5000=${big} must beat 10.0/12=${hype}`);
+});
+
+// D07: same numbers, only vote spread differs.
 test('higher vote count wins rating ties (confidence)', () => {
   const low = scoreMovie(movie({ voteCount: 50 }), signals);
   const high = scoreMovie(movie({ voteCount: 5000 }), signals);
@@ -137,16 +148,22 @@ test('score invariance: recorded pre-change scores, order and fit values', () =>
     mk(1, ['Sci-Fi'], 8.0, 108, 2000), mk(2, ['Comedy'], 7.0, 95, 500),
     mk(3, ['Sci-Fi', 'Comedy'], 7.5, 130, 8000), mk(4, ['Drama'], 9.0, 100, 100),
   ];
-  for (const [m, expected] of [[pool[0], 19.8], [pool[1], 22.2], [pool[2], 27], [pool[3], 19.04]] as const) {
-    assert.equal(scoreWithFeatures(m, sig).score, expected);
-    assert.equal(scoreMovie(m, sig), expected);
+  // D06/D07 recorded values: bayesian rating + primary-tag bonus.
+  for (const [m, expected] of [
+    [pool[0], 22.762962962962963], [pool[1], 25.152380952380952],
+    [pool[2], 29.993769470404985], [pool[3], 18.04],
+  ] as const) {
+    assert.ok(
+      Math.abs(scoreWithFeatures(m, sig).score - expected) < 1e-9,
+      `${m.title}: ${scoreWithFeatures(m, sig).score} != ${expected}`,
+    );
   }
   const out = selectDiverse(pool.map((m) => {
     const b = scoreWithFeatures(m, sig);
     return { movie: m, score: b.score, features: b.features };
   }), 3, false);
-  assert.deepEqual(out.map((o) => o.movie.id), [3, 2, 4]);
-  assert.deepEqual(out.map((o) => o.fitScore), [99, 94, 90]);
+  assert.deepEqual(out.map((o) => o.movie.id), [3, 2, 1]);
+  assert.deepEqual(out.map((o) => o.fitScore), [99, 93, 90]);
 });
 
 test('buildReason cites only positively contributing known features', () => {

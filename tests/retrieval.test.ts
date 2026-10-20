@@ -42,11 +42,14 @@ test('OMDb enriches a real film end to end', { skip: !OMDB_KEY }, async () => {
     OMDB_KEY
   );
   assert.ok(movies.length >= 2);
-  const toy = movies.find((m) => m.title === 'Toy Story');
-  assert.ok(toy, 'Toy Story should be recommended');
-  assert.ok(toy!.rating > 0 && toy!.posterUrl.startsWith('http'));
-  assert.ok(toy!.reason.length > 10 && !/guaranteed/i.test(toy!.reason));
-  assert.ok(toy!.fitScore >= 90 && toy!.fitScore <= 99);
+  // D06: the wanted genre must lead (first or second tag) on every pick —
+  // a Comedy hiding in tag #3 (like Toy Story's) no longer makes the cut.
+  for (const m of movies) {
+    assert.ok(m.genres.slice(0, 2).includes('Comedy'), `${m.title}: ${m.genres}`);
+    assert.ok(m.rating > 0 && m.posterUrl.startsWith('http'));
+    assert.ok(m.reason.length > 10 && !/guaranteed/i.test(m.reason));
+    assert.ok(m.fitScore >= 90 && m.fitScore <= 99);
+  }
   assert.ok(Array.isArray(notices));
 });
 

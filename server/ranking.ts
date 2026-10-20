@@ -79,6 +79,8 @@ export const RANK_WEIGHTS = {
   /** Penalty per bleak-genre match against an upbeat mood (Fix 3a). */
   moodDownerPerGenre: 2.0,
   ratingConfidence: 2.0,
+  /** Bonus when the wanted genre is the title's FIRST or SECOND tag. */
+  primaryGenreBonus: 3.0,
   runtimeFit: 1.0,
   languageFit: 1.0,
   hiddenGemBonus: 10.0,
@@ -202,7 +204,21 @@ export const MOOD_TONE: Record<string, { uplift: string[]; downers: string[] }> 
   Adventurous: { uplift: ['Adventure', 'Action', 'Sci-Fi', 'Fantasy'], downers: [] },
   Curious: { uplift: ['Mystery', 'Documentary', 'Sci-Fi', 'Crime'], downers: [] },
   Sad: { uplift: ['Drama', 'Romance', 'Family', 'Comedy'], downers: [] },
+  // No stated mood: nothing uplifted, nothing penalized.
+  Neutral: { uplift: [], downers: [] },
 };
+
+/**
+ * Bayesianized rating (IMDb-style): a 10.0 with 12 votes must not outrank a
+ * solid 8.0 backed by thousands. Low-vote titles are pulled toward the
+ * catalog-wide prior mean until they earn confidence.
+ */
+const BAYES_PRIOR_MEAN = 6.5;
+const BAYES_PRIOR_VOTES = 25;
+export function bayesianRating(rating: number, votes: number): number {
+  const v = Math.max(0, votes || 0);
+  return (v * rating + BAYES_PRIOR_VOTES * BAYES_PRIOR_MEAN) / (v + BAYES_PRIOR_VOTES);
+}
 
 export interface FitFeature {
   key: string;
@@ -233,11 +249,12 @@ export function scoreWithFeatures(
   const features: FitFeature[] = [];
   let score = 0;
 
-  const ratingPart = w.ratingBase * movie.rating;
+  const effRating = bayesianRating(movie.rating, movie.voteCount);
+  const ratingPart = w.ratingBase * effRating;
   score += ratingPart;
   features.push({
     key: 'rating', label: 'Rating', contribution: ratingPart,
-    evidence: movie.rating > 0 ? `rated ${movie.rating.toFixed(1)}` : undefined,
+    evidence: movie.rating > 0 ? `rated ${movie.rating.toFixed(1)} (${movie.voteCount || 0} votes)` : undefined,
     status: movie.rating > 0 ? 'matched' : 'unknown',
   });
 
@@ -256,6 +273,21 @@ export function scoreWithFeatures(
     evidence: noteOverlap.length > 0 ? noteOverlap.slice(0, 3).join(' + ') : undefined,
     status: noteOverlap.length > 0 ? 'matched' : 'not_matched',
   });
+
+  // The wanted genre should lead the card — first or second tag — not hide
+  // in tag #4. Decisive against vote-confidence noise on category queries.
+  const wantedAll = [...new Set([...signals.quizGenres, ...signals.noteGenres])]
+    .filter((g) => g !== 'Surprise me');
+  const primaryHits = wantedAll.filter((g) => movie.genres.slice(0, 2).includes(g));
+  const primaryPart = primaryHits.length > 0 ? w.primaryGenreBonus : 0;
+  score += primaryPart;
+  if (wantedAll.length > 0) {
+    features.push({
+      key: 'primary_genre', label: 'Primary genre', contribution: primaryPart,
+      evidence: primaryHits.length > 0 ? `${primaryHits.join(' / ')} leads the tags` : undefined,
+      status: primaryHits.length > 0 ? 'matched' : 'not_matched',
+    });
+  }
 
   const moodOverlap = movie.genres.filter((g) => signals.moodGenres.includes(g));
   const moodPart = moodOverlap.length > 0 ? w.moodAffinity : 0;
