@@ -28,7 +28,15 @@ let pool: Pool | null = null;
 export function getDbPool(): Pool {
   if (!pool) {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
-    pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+    // D15: cap every upstream wait. Without these, a dead serverless
+    // connection hangs on the OS TCP timeout (~20s) before its catch fires.
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 3,
+      connectionTimeoutMillis: 5000,
+      statement_timeout: 5000,
+      query_timeout: 5000,
+    });
   }
   return pool;
 }
@@ -81,7 +89,7 @@ export function buildWhereClause(f: DbFilters): { text: string; params: unknown[
   if (f.genres.length > 0) clauses.push(`genres && ${next(expandGenres(f.genres))}`);
   if (f.excludeGenres.length > 0) clauses.push(`NOT (genres && ${next(expandGenres(f.excludeGenres))})`);
   if (f.languages.length > 0) clauses.push(`originalLanguage = ANY(${next(f.languages)})`);
-  if (f.runtimeMin !== null) clauses.push(`runtime >= ${next(f.runtimeMin)}`);
+  if (f.runtimeMin !== null) clauses.push(`runtime > ${next(f.runtimeMin)}`);
   if (f.runtimeMax !== null) clauses.push(`runtime <= ${next(f.runtimeMax)}`);
   if (f.yearMin !== null) clauses.push(`year >= ${next(f.yearMin)}`);
   if (f.yearMax !== null) clauses.push(`year <= ${next(f.yearMax)}`);
@@ -190,7 +198,7 @@ export function matchesFilters(m: Filterable, f: DbFilters): boolean {
   if (f.genres.length > 0 && !m.genres.some((g) => wanted.includes(g))) return false;
   if (m.genres.some((g) => banned.includes(g))) return false;
   if (f.languages.length > 0 && !f.languages.includes(m.language)) return false;
-  if (f.runtimeMin !== null && !(m.runtime >= f.runtimeMin)) return false;
+  if (f.runtimeMin !== null && !(m.runtime > f.runtimeMin)) return false;
   if (f.runtimeMax !== null && !(m.runtime > 0 && m.runtime <= f.runtimeMax)) return false;
   if (f.yearMin !== null && !(m.year >= f.yearMin)) return false;
   if (f.yearMax !== null && !(m.year <= f.yearMax)) return false;
@@ -335,6 +343,23 @@ export async function ensureMinAge<T extends DbItem>(
     highlyRated: false, recent: false, classics: false, audience, matureAllowed,
     types, seasonsMax,
   };
+  // D15: all OMDb lookups run in parallel — three sequential 3s calls blew
+  // the total budget; parallel keeps the pick order. Each call already
+  // aborts at 3s (fetchFromOMDb's own timeout).
+  const needLookup = picks.filter(
+    (p) => typeof p.minAge !== 'number' && p.imdbId && key,
+  );
+  const lookups = new Map<string, { Rated?: string } | null>();
+  if (key) {
+    await Promise.all(needLookup.map(async (p) => {
+      const imdbId = p.imdbId as string;
+      const data = await Promise.race([
+        fetchFromOMDb({ imdbId }, key).catch(() => null),
+        new Promise<null>((r) => setTimeout(() => r(null), 3500)),
+      ]);
+      lookups.set(imdbId, data);
+    }));
+  }
   for (const pick of picks) {
     if (typeof pick.minAge === 'number' || !pick.imdbId || !key) {
       if (pick.minAge === null || pick.minAge === undefined) {
@@ -342,10 +367,7 @@ export async function ensureMinAge<T extends DbItem>(
       } else movies.push(pick);
       continue;
     }
-    let data: { Rated?: string } | null = null;
-    try {
-      data = await fetchFromOMDb({ imdbId: pick.imdbId }, key);
-    } catch { data = null; }
+    const data = lookups.get(pick.imdbId) ?? null;
     const age = data?.Rated ? OMDB_RATED_AGE[data.Rated.trim().toUpperCase()] : undefined;
     if (age === undefined || !data?.Rated) {
       movies.push({ ...pick, ratingNote: 'Rating not confirmed' });

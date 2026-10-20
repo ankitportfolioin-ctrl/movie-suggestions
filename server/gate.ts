@@ -93,7 +93,7 @@ function gateType(m: GateMovie): string | undefined {
  */
 function isKidGenre(genres: string[] | undefined): boolean {
   const g = genres || [];
-  if (g.includes('Horror') || g.includes('Crime') || g.includes('Thriller')) return false;
+  if (g.includes('Horror') || g.includes('Crime') || g.includes('Thriller') || g.includes('War')) return false;
   return g.includes('Family') || g.includes('Animation');
 }
 

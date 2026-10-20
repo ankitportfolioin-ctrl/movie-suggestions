@@ -170,7 +170,7 @@ app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) =>
   }
 });
 
-// Natural Language Search Endpoint
+// Natural Language Search Endpoint (shared pipeline with api/index.ts)
 app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
   try {
     const { query, excludeIds } = req.body || {};
@@ -178,114 +178,16 @@ app.post('/api/search', rateLimiter, async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Invalid query' });
       return;
     }
-
-    // Parse the natural language query into structured params
-    const { parseNote } = await import('./server/noteParser.js');
-    const note = parseNote(query);
-
-    // Build recommendation params from parsed note
-    const mood = note.moods[0] || 'Relaxed';
-    const genres = note.genres.length > 0 ? note.genres : ['Surprise me'];
-    const audience: string = 'Just me';
-    // Explicit bounds win; bare "long" is a minimum (150+ min), never a cap.
-    const maxRuntime = note.runtimeHint === 'short' ? 'Under 90 min' : '';
-    const languages = note.languageHints.length > 0 ? note.languageHints : ['Any'];
-    const preferences = {
-      highlyRated: note.wantsHighlyRated || false,
-      hiddenGems: false,
-      recent: note.eraHint === 'recent',
-      classics: note.eraHint === 'classics',
-      mature: false,
-    };
-    const excludeGenres = note.excludeGenres;
-    const excludePeople = note.excludedPeople;
-
-    if (note.contradiction) {
-      res.json({
-        movies: [],
-        parsed: { mood, genres, excludeGenres, runtimeHint: note.runtimeHint, languageHints: note.languageHints, eraHint: note.eraHint },
-        notices: [note.contradiction],
-      });
-      return;
-    }
-
-    // One shared pipeline: Postgres candidates -> ranking.ts -> gate last.
-    const { runtimeCap, LANGUAGE_CODES, MOOD_GENRES, normalizeTitle } = await import('./server/omdb.js');
-    const maxMinutes = note.runtimeMaxMinutes ?? runtimeCap(maxRuntime);
-    const langCodes = languages.includes('Any')
-      ? []
-      : languages.map((l) => LANGUAGE_CODES[l]).filter(Boolean);
-    const currentYear = new Date().getFullYear();
-    const wantedGenres = genres.filter((g) => g !== 'Surprise me');
-    const moodGenreList = MOOD_GENRES[mood] || ['Comedy', 'Adventure'];
-    const quizGenres = genres.includes('Surprise me') ? moodGenreList : wantedGenres;
-
-    const filters: DbFilters = {
-      // NL search is movies-only until the note names a kind (Step 5 wires it).
-      types: ['movie'],
-      genres: wantedGenres, excludeGenres, languages: langCodes,
-      runtimeMin: note.runtimeMinMinutes ?? null,
-      runtimeMax: Number.isFinite(maxMinutes) ? maxMinutes : null,
-      yearMin: note.yearMin ?? (preferences.recent ? currentYear - 5 : null),
-      yearMax: note.yearMax ?? (preferences.classics ? 1999 : null),
-      ratingFloor: preferences.highlyRated ? 7.0 : null,
-      seasonsMax: null,
-      audience, matureAllowed: false,
-      excludeIds: (excludeIds || []).map(Number).filter(Number.isFinite),
-      limit: 500,
-    };
-    const { items } = await loadDbCandidates(filters);
-    // Reference titles from the note ("like Arrival"): anchored on their own
-    // verified overviews, excluded from the picks. Unloadable refs are
-    // disclosed, never silently ignored.
-    const referencedFilms = new Map<number, DbItem>();
-    for (const m of items) {
-      if (note.referenceTitles.includes(normalizeTitle(m.title))) referencedFilms.set(m.id, m);
-    }
-    if (note.referenceTitles.length > 0) {
-      for (const m of await loadReferenceAnchors(note.referenceTitleNames)) {
-        referencedFilms.set(m.id, m);
-      }
-    }
-    const themeRefs = [...referencedFilms.values()].map((m) => m.overview).filter((o) => o.length > 0);
-    const candidates = items.filter((m) => !referencedFilms.has(m.id));
-    const { movies: ranked, relaxed } = rankGateMovies(candidates, {
-      quizGenres, noteGenres: [], moodGenres: moodGenreList, mood, themeRefs,
-      maxMinutes, languageSpecific: langCodes.length > 0,
-      preferHiddenGems: false, mentionedTitles: note.lovedTitles,
-    }, {
-      maxMinutes, maxRuntimeLabel: maxRuntime, langCodes,
-      highlyRated: preferences.highlyRated, recent: preferences.recent,
-      classics: preferences.classics, audience, matureAllowed: false,
-      types: ['movie'], seasonsMax: null,
-    }, 3);
-    const { movies: picks, notices: ageNotices } = await ensureMinAge(ranked, audience, false);
-    const notices = [...(excludeGenres.length > 0 ? [`Excluding ${excludeGenres.join(', ')}`] : []), ...relaxed, ...ageNotices];
-    if (note.referenceTitleNames.length > 0) {
-      notices.push(
-        themeRefs.length > 0
-          ? `Using ${note.referenceTitleNames.join(', ')} as your similarity reference.`
-          : `Couldn't load ${note.referenceTitleNames.join(', ')} for similarity matching â€” these picks use your other filters instead.`
-      );
-    }
-    if (picks.length === 0) {
-      const cause = await diagnoseEmptyPool(filters).catch(() => null);
-      notices.push(cause ?? 'Nothing matches all of those filters together â€” try removing one constraint.');
-    }
-    // Reason comes from the rank features (never a mood template).
-    const top3 = picks;
-
-    res.json({ 
-      movies: top3, 
-      parsed: { mood, genres, excludeGenres, runtimeHint: note.runtimeHint, languageHints: note.languageHints, eraHint: note.eraHint },
-      notices,
-    });
+    const { runNaturalSearch } = await import('./server/searchEngine.js');
+    const result = await runNaturalSearch(
+      query, (excludeIds || []).map(Number).filter(Number.isFinite),
+    );
+    res.json(result);
   } catch (err) {
     console.error('Natural language search error:', err);
     res.status(500).json({ error: 'Search failed' });
   }
 });
-
 // Artwork proxy: GET /img/:size/:host/:path* (E11 â€” the browser never
 // requests image.tmdb.org, m.media-amazon.com or cdn.watchmode.com
 // directly). Disk-cached, long Cache-Control.
