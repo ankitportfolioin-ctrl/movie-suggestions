@@ -105,7 +105,7 @@ test('detects language hints', () => {
 });
 
 test('empty and garbage notes yield empty signals', () => {
-  assert.deepEqual(parseNote(''), { genres: [], excludeGenres: [], unverifiable: [], moods: [], lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [], excludedPeople: [], likedPeople: [], referenceTitles: [], referenceTitleNames: [], themeKeywords: [], comparativePreferences: [] });
+  assert.deepEqual(parseNote(''), { genres: [], excludeGenres: [], unverifiable: [], moods: [], lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [], excludedPeople: [], likedPeople: [], unsupportedGenres: [], referenceTitles: [], referenceTitleNames: [], themeKeywords: [], comparativePreferences: [] });
   assert.deepEqual(parseNote('... !!!').genres, []);
 });
 
@@ -180,14 +180,30 @@ test('hindi: chhoti maps short runtime, purani maps classics', () => {
 for (const [phrase, genre] of [
   ['romantic', 'Romance'], ['romance', 'Romance'], ['rom-com', 'Romance'],
   ['science fiction', 'Sci-Fi'], ['sci-fi', 'Sci-Fi'], ['documentary', 'Documentary'],
-  ['superhero', 'Action'], ['thriller', 'Thriller'], ['animated', 'Animation'],
-  ['family', 'Family'],
+  ['thriller', 'Thriller'], ['animated', 'Animation'],
+  ['family', 'Family'], ['war', 'War'], ['musical', 'Music'],
+  ['western', 'Western'], ['historical', 'History'], ['biopic', 'Biography'],
+  ['true story', 'Biography'], ['sports', 'Sports'],
 ] as [string, string][]) {
   test(`genre phrase "${phrase}" -> ${genre}`, () => {
     const s = parseNote(`show me a ${phrase} movie`);
     assert.ok(s.genres.includes(genre), `${phrase}: got ${JSON.stringify(s.genres)}`);
   });
 }
+
+// D02/H09: "superhero" is not a filterable catalog tag — it is disclosed,
+// never mapped to Action, and a negated mention must not exclude Action.
+test('positive "superhero" discloses instead of mapping to Action', () => {
+  const s = parseNote('show me a superhero movie');
+  assert.deepEqual(s.genres, []);
+  assert.ok(s.unsupportedGenres.includes('Superhero'));
+});
+test('"an action movie that is not a superhero movie" keeps Action', () => {
+  const s = parseNote('an action movie that is not a superhero movie');
+  assert.deepEqual(s.genres, ['Action']);
+  assert.deepEqual(s.excludeGenres, []);
+  assert.deepEqual(s.unsupportedGenres, []);
+});
 
 // STEP 2 regression: year phrases -> explicit yearMin/yearMax.
 for (const [phrase, min, max] of [

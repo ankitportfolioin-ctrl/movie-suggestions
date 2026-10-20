@@ -91,6 +91,8 @@ export const MOOD_GENRES: Record<string, string[]> = {
   Adventurous: ['Adventure', 'Action', 'Sci-Fi', 'Fantasy'],
   Curious: ['Mystery', 'Documentary', 'Sci-Fi', 'Crime'],
   Sad: ['Drama', 'Family', 'Comedy'],
+  // No stated mood = no hidden bias: the query's own genres decide.
+  Neutral: [],
 };
 
 export const LANGUAGE_CODES: Record<string, string> = {
@@ -102,6 +104,28 @@ export const LANGUAGE_CODES: Record<string, string> = {
   Japanese: 'ja',
   Spanish: 'es',
   French: 'fr',
+  Malayalam: 'ml',
+  Kannada: 'kn',
+  Bengali: 'bn',
+  Marathi: 'mr',
+  Punjabi: 'pa',
+  Gujarati: 'gu',
+  Urdu: 'ur',
+  Chinese: 'zh',
+  Mandarin: 'zh',
+  Cantonese: 'zh',
+  German: 'de',
+  Italian: 'it',
+  Turkish: 'tr',
+  Thai: 'th',
+  Russian: 'ru',
+  Portuguese: 'pt',
+  Arabic: 'ar',
+  Indonesian: 'id',
+  Persian: 'fa',
+  Polish: 'pl',
+  Dutch: 'nl',
+  Swedish: 'sv',
 };
 
 // Minimal known-title-to-genre mapping for note-driven genre inference.
