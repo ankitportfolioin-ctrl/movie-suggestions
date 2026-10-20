@@ -70,7 +70,7 @@ const GENRE_KEYWORDS: [RegExp, string][] = [
   [/\bromantik\b|\bpyaar\b/, 'Romance'],
   [/\bmystery\b|\bdetectiv|\bwhodunit\b|\bnoir\b/, 'Mystery'],
   [/\bromance\b|\brom-com\b|\bromcom\b|\brom com\b|\blove stor|\bromantic\b/, 'Romance'],
-  [/\bsci-?fi\b|\bscience fiction\b|\bspace\b|\bcyberpunk\b|\bdystopi/, 'Sci-Fi'],
+  [/\bsci-?fi\b|\bsc-?fi\b|\bscience fiction\b|\bspace\b|\bcyberpunk\b|\bdystopi/, 'Sci-Fi'],
   [/\bthriller\b|\bspy\b|\bespionage\b/, 'Thriller'],
   // Catalog-backed genres that were missing (covered by the SQL filter +
   // an honest coverage notice when the catalog has no/wanting titles).
@@ -80,6 +80,16 @@ const GENRE_KEYWORDS: [RegExp, string][] = [
   [/\bhistor(y|ical)\b|\bperiod (piece|drama)\b/, 'History'],
   [/\bbiograph|\bbiopic\b|\btrue stor|\bbased on (a |the )?true\b/, 'Biography'],
   [/\bsports?\b/, 'Sports'],
+  // Devanagari script genres (Hindi-script queries). Note: \b is ASCII-only
+  // in JS, so these are substring matches on distinctive words.
+  [/कॉमेडी|हास्य/, 'Comedy'],
+  [/रोमांस|रोमांटिक|प्रेम/, 'Romance'],
+  [/हॉरर|डरावनी/, 'Horror'],
+  [/एक्शन/, 'Action'],
+  [/थ्रिलर/, 'Thriller'],
+  [/ड्रामा/, 'Drama'],
+  [/साइंस फिक्शन|विज्ञान फंतासी/, 'Sci-Fi'],
+  [/रहस्य/, 'Mystery'],
 ];
 
 /**
@@ -123,6 +133,7 @@ const THEME_KEYWORDS: [RegExp, string][] = [
   [/\bcrime\b|\bgangster\b|\bmafia\b/, 'crime'],
   [/\bmystery\b|\bpuzzle\b|\benigma\b/, 'mystery'],
   [/\bsci.?fi\b|\bfuturistic\b|\bcyberpunk\b|\bdystopi\b/, 'sci-fi'],
+  [/\btime travel\b|\btimetravel\b|\btemporal\b/, 'time travel'],
   [/\bfantasy\b|\bmagic\b|\bwizard\b|\bdragon\b/, 'fantasy'],
   [/\bhistorical\b|\bperiod piece\b|\b19\d\d\b|\b20\d\d\b/, 'historical'],
   [/\bwestern\b|\bcowboy\b/, 'western'],

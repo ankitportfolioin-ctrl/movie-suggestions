@@ -129,7 +129,7 @@ export const LANGUAGE_CODES: Record<string, string> = {
 };
 
 // Minimal known-title-to-genre mapping for note-driven genre inference.
-const NOTE_TITLE_GENRES: Record<string, string[]> = {
+export const NOTE_TITLE_GENRES: Record<string, string[]> = {
   'breaking bad': ['Crime', 'Drama', 'Thriller'],
   'breakingbad': ['Crime', 'Drama', 'Thriller'],
   'the godfather': ['Crime', 'Drama'],

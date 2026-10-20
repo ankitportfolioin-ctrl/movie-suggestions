@@ -20,7 +20,7 @@ import {
   loadDbCandidates, loadReferenceAnchors, rankGateMovies, ensureMinAge, diagnoseEmptyPool,
 } from './dbMovies.js';
 import type { DbFilters, DbItem } from './dbMovies.js';
-import { runtimeCap, LANGUAGE_CODES, MOOD_GENRES, normalizeTitle } from './omdb.js';
+import { runtimeCap, LANGUAGE_CODES, MOOD_GENRES, normalizeTitle, NOTE_TITLE_GENRES } from './omdb.js';
 import { themeSimilarity } from './ranking.js';
 import { FALLBACK_CATALOG } from './catalog.js';
 
@@ -45,7 +45,7 @@ export interface NaturalSearchResult {
 }
 
 const INTENT_WORDS =
-  /\b(movie|film|watch|watching|something|anything|find|suggest|recommend|looking|list|show)\b/;
+  /\b(movie|film|watch|watching|something|anything|find|suggest|recommend|looking|list|show|about)\b/;
 
 function parsedFor(note: NoteSignals, mood: string, genres: string[]): NaturalSearchResult['parsed'] {
   return {
@@ -78,7 +78,8 @@ async function tryExactTitle(
     note.referenceTitles.length > 0 || note.excludedPeople.length > 0 ||
     note.runtimeMinMinutes !== undefined || note.runtimeMaxMinutes !== undefined ||
     note.runtimeHint !== undefined || note.wantsSeries === true || note.audienceSafe === true ||
-    note.yearMin !== undefined || note.yearMax !== undefined;
+    note.yearMin !== undefined || note.yearMax !== undefined ||
+    note.lovedTitles.length > 0 || note.themeKeywords.length > 0;
   if (hasOtherSignal) return null;
   const norm = normalizeTitle(trimmed);
   if (!norm) return null;
@@ -148,10 +149,6 @@ export async function runNaturalSearch(
   const classics = note.eraHint === 'classics';
   const wantedGenres = genres.filter((g) => g !== 'Surprise me');
   const moodGenreList = MOOD_GENRES[mood] || [];
-  // D05: no stated mood → Neutral → empty mood list, no hidden bias.
-  // When genres are stated they are the ranking targets; the old default trio
-  // came precisely from "no genres parsed" collapsing into mood bias.
-  const quizGenres = wantedGenres.length > 0 ? wantedGenres : moodGenreList;
 
   const filters: DbFilters = {
     // D12: series asks search series; everything else is movies.
@@ -192,7 +189,37 @@ export async function runNaturalSearch(
     }
   }
   const themeRefs = [...referencedFilms.values()].map((m) => m.overview).filter((o) => o.length > 0);
-  const candidates = items.filter((m) => !referencedFilms.has(m.id));  const { movies: ranked, relaxed } = rankGateMovies(candidates, {
+  // D10: a loaded reference defines the GENRES the user wants — narrow the
+  // pool to them (so every pick shares some genre DNA) instead of letting
+  // genre diversity dilute the similarity anchors.
+  let candidates = items.filter((m) => !referencedFilms.has(m.id));
+  const extraNotices: string[] = [];
+  if (referencedFilms.size > 0 && wantedGenres.length === 0) {
+    const seedGenres = [...new Set(
+      [...referencedFilms.values()].flatMap((m) => m.genres),
+    )];
+    if (seedGenres.length > 0 && candidates.length > 0) {
+      const { items: narrowed } = await loadDbCandidates(
+        { ...filters, genres: seedGenres },
+      );
+      const filtered = narrowed.filter((m) => !referencedFilms.has(m.id));
+      if (filtered.length > 0) {
+        candidates = filtered;
+        extraNotices.push(
+          `Showing titles in genres of ${note.referenceTitleNames.join(', ')} (${seedGenres.join('/')}).`,
+        );
+      }
+    }
+  }
+  const lovedSeeds = note.lovedTitles.flatMap((t) => NOTE_TITLE_GENRES[t] || []);
+  const refSeedGenres = [...new Set(
+    [...referencedFilms.values()].flatMap((m) => m.genres),
+  )];
+  // Loved names carry known genres even without a loaded catalog row.
+  const seedGenres = [...new Set([...refSeedGenres, ...lovedSeeds])];
+  const quizGenres = wantedGenres.length > 0 ? [...wantedGenres, ...seedGenres]
+    : (seedGenres.length > 0 ? seedGenres : moodGenreList); // neutral mood → []
+  const { movies: ranked, relaxed } = rankGateMovies(candidates, {
     quizGenres, noteGenres: [], moodGenres: moodGenreList, mood, themeRefs,
     maxMinutes, languageSpecific: langCodes.length > 0,
     preferHiddenGems: false, mentionedTitles: note.lovedTitles,
@@ -205,7 +232,7 @@ export async function runNaturalSearch(
   const { movies: picks, notices: ageNotices } = await ensureMinAge(
     ranked, audience, false, [mediaType]);
 
-  const notices: string[] = [];
+  const notices: string[] = [...extraNotices];
   if (note.excludeGenres.length > 0) notices.push(`Excluding ${note.excludeGenres.join(', ')}`);
   for (const u of note.unsupportedGenres) {
     notices.push(`"${u}" is not a filterable tag in our catalog — picking by your other filters instead.`);

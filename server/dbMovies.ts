@@ -167,9 +167,10 @@ export async function loadReferenceAnchors(titles: string[]): Promise<DbItem[]> 
     const { rows } = await getDbPool().query(
       `SELECT ${DB_COLS} FROM movies
        WHERE regexp_replace(lower(title), '[^a-z0-9]', '', 'g') = ANY($1)
-          OR lower(title) = ANY($2)
+          OR regexp_replace(lower(title), '[^a-z0-9]', '', 'g') LIKE ANY($2)
+          OR lower(title) = ANY($3)
        LIMIT 20`,
-      [normalized, lowered],
+      [normalized, normalized.map((n) => `${n}%`), lowered],
     );
     return rows.map(toDbItem);
   } catch {
