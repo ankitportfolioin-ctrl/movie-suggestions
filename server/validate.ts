@@ -5,8 +5,11 @@
 import type { RecommendParams } from './omdb.js';
 
 export const VALID_MOODS = new Set([
+  // Legacy moods (Wizard)
   'Happy', 'Relaxed', 'Tired', 'Stressed',
   'Romantic', 'Adventurous', 'Curious', 'Sad',
+  // New moods (PickForMe / HomePage / NaturalSearch)
+  'Mind-bending', 'Suspenseful', 'Funny', 'Feel-good', 'Emotional', 'Surprise me',
 ]);
 
 export const VALID_GENRES = new Set([
@@ -16,11 +19,13 @@ export const VALID_GENRES = new Set([
 ]);
 
 export const VALID_AUDIENCES = new Set([
-  'Just me', 'Partner', 'Friends', 'Family with kids',
+  'Just me', 'Partner', 'Friends', 'Family with kids', 'Family / kids',
 ]);
 
 export const VALID_RUNTIMES = new Set([
   'Under 90 min', 'Under 2 hours', 'Under 2.5 hours', 'Any length',
+  // New runtimes (PickForMe)
+  '90–120 min', 'Over 2 hours', 'One episode',
   // Series-only choice: episode-length cap stays open, seasons capped at 1.
   'Miniseries (1 season)',
 ]);
