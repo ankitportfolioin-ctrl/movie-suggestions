@@ -83,6 +83,7 @@ export interface RecommendParams {
 }
 
 export const MOOD_GENRES: Record<string, string[]> = {
+  // Legacy moods (Wizard)
   Happy: ['Comedy', 'Adventure', 'Animation'],
   Relaxed: ['Comedy', 'Romance', 'Animation', 'Family'],
   Tired: ['Comedy', 'Animation', 'Family'],
@@ -91,8 +92,15 @@ export const MOOD_GENRES: Record<string, string[]> = {
   Adventurous: ['Adventure', 'Action', 'Sci-Fi', 'Fantasy'],
   Curious: ['Mystery', 'Documentary', 'Sci-Fi', 'Crime'],
   Sad: ['Drama', 'Family', 'Comedy'],
+  // New moods (PickForMe / HomePage / NaturalSearch)
+  'Mind-bending': ['Sci-Fi', 'Mystery', 'Thriller', 'Documentary'],
+  Suspenseful: ['Thriller', 'Crime', 'Mystery', 'Horror'],
+  Funny: ['Comedy'],
+  'Feel-good': ['Comedy', 'Animation', 'Family', 'Romance'],
+  Emotional: ['Drama', 'Romance', 'Family'],
   // No stated mood = no hidden bias: the query's own genres decide.
   Neutral: [],
+  'Surprise me': [],
 };
 
 export const LANGUAGE_CODES: Record<string, string> = {
@@ -625,7 +633,7 @@ export async function selectCandidateMovies(
   });
   const items = selectDiverse(
     scored,
-    Math.min(3, scored.length),
+    Math.min(10, scored.length),
     gemChecked.some((m) => m.isHiddenGem),
     [...quizGenres, ...note.genres, ...moodGenreList],
     1 // Fix 3d: at most one pick per franchise

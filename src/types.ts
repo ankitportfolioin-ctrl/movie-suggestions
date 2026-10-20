@@ -73,6 +73,11 @@ export interface WizardState {
   preferences: Preferences;
   note: string;
   referenceMovies?: ReferenceMovie[];
+  /** Explicit collection intent for truthful collections */
+  collectionIntent?: { 
+    type: 'best-of-year' | 'new-this-week' | 'hidden-gems' | 'family-night';
+    year?: number;
+  };
 }
 
 export interface ReferenceMovie {

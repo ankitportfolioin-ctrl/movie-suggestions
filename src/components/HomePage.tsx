@@ -17,24 +17,11 @@ import {
   Flower2,
   Droplet,
   Compass,
+  Send,
 } from 'lucide-react';
 import { MoodSelector, MOOD_OPTIONS } from './MoodSelector';
 import { FineTuneDrawer, INITIAL_WIZARD_STATE } from './FineTuneDrawer';
 import { WizardState, ReferenceMovie } from '../types';
-
-interface HomePageProps {
-  onGetRecommendations: (wizardState: WizardState & { referenceMovies?: ReferenceMovie[] }) => void;
-  onSearchTitle: (query: string) => void;
-  onSearchNatural: () => void;
-  onOpenSaved: () => void;
-  savedCount: number;
-  isLoading?: boolean;
-  onPickForMe: () => void;
-  onBrowseMood: (moodId?: string) => void;
-  onPopularNow: () => void;
-  onMoviesSeries: () => void;
-  onCollectionClick: (collection: string) => void;
-}
 
 /** Four intent shortcuts shown on the homepage. */
 interface IntentShortcut {
@@ -105,138 +92,26 @@ interface HomePageProps {
   onPopularNow: () => void;
   onMoviesSeries: () => void;
   onCollectionClick: (collection: string) => void;
+  onSearchSubmit: (query: string, mode: 'title' | 'natural') => void;
+  isLoading?: boolean;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
-  onGetRecommendations,
-  onSearchTitle,
-  onSearchNatural,
-  onOpenSaved,
-  savedCount,
-  isLoading = false,
   onPickForMe,
   onBrowseMood,
   onPopularNow,
   onMoviesSeries,
   onCollectionClick,
+  onSearchSubmit,
+  isLoading = false,
 }) => {
   const [searchMode, setSearchMode] = useState<'title' | 'natural'>('natural');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
-  const [searchResults, setSearchResults] = useState<Array<{ id: number; title: string; year: number; genres: string[]; runtime: number; rating: number; overview: string; posterUrl: string; language: string }>>([]);
-  const [showSearchResults, setShowSearchResults] = useState(false);
-  const [searchNotices, setSearchNotices] = useState<string[]>([]);
   const [showMoodCollections, setShowMoodCollections] = useState(false);
   const [showFineTune, setShowFineTune] = useState(false);
-  const searchSeqRef = useRef(0);
-
-  const fineTuneRef = useRef<WizardState & { referenceMovies?: ReferenceMovie[] }>({
-    ...INITIAL_WIZARD_STATE,
-    mood: 'Surprise me',
-  });
-
-  const readError = async (res: Response, fallback: string) => {
-    try {
-      const data = await res.json();
-      if (typeof data?.error === 'string' && data.error) return data.error;
-    } catch { /* non-JSON error body */ }
-    return fallback;
-  };
-
-  const handleTitleSearch = async (query: string) => {
-    if (!query.trim() || query.trim().length < 2) {
-      setSearchResults([]);
-      return;
-    }
-    const seq = ++searchSeqRef.current;
-    const stale = () => seq !== searchSeqRef.current;
-    setSearchLoading(true);
-    setSearchError('');
-    setSearchNotices([]);
-    try {
-      const res = await fetch(`/api/search-title?q=${encodeURIComponent(query.trim())}`);
-      if (stale()) return;
-      if (res.status === 429) throw new Error('RATE_LIMITED');
-      if (!res.ok) throw new Error(await readError(res, 'Search failed. Please try again.'));
-      const data = await res.json();
-      if (stale()) return;
-      setSearchResults(data.results || []);
-      setShowSearchResults(true);
-    } catch (e) {
-      if (stale()) return;
-      setSearchError(e instanceof Error && e.message === 'RATE_LIMITED'
-        ? 'Too many searches, try again in a few minutes.'
-        : e instanceof Error ? e.message : 'Search failed. Please try again.');
-      setSearchResults([]);
-    } finally {
-      if (!stale()) setSearchLoading(false);
-    }
-  };
-
-  const handleNaturalSearch = async (query: string) => {
-    if (!query.trim() || query.trim().length < 3) {
-      setSearchResults([]);
-      return;
-    }
-    const seq = ++searchSeqRef.current;
-    const stale = () => seq !== searchSeqRef.current;
-    setSearchLoading(true);
-    setSearchError('');
-    setSearchNotices([]);
-    try {
-      const res = await fetch('/api/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: query.trim() }),
-      });
-      if (stale()) return;
-      if (res.status === 429) throw new Error('RATE_LIMITED');
-      if (!res.ok) throw new Error(await readError(res, 'Search failed. Please try again.'));
-      const data = await res.json();
-      if (stale()) return;
-      setSearchResults(data.movies || []);
-      setSearchNotices(Array.isArray(data.notices) ? data.notices : []);
-      setShowSearchResults(true);
-    } catch (e) {
-      if (stale()) return;
-      setSearchError(e instanceof Error && e.message === 'RATE_LIMITED'
-        ? 'Too many searches, try again in a few minutes.'
-        : e instanceof Error ? e.message : 'Search failed. Please try again.');
-      setSearchResults([]);
-    } finally {
-      if (!stale()) setSearchLoading(false);
-    }
-  };
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const q = searchQuery.trim();
-    if (!q) {
-      setSearchError('Type what you want to watch');
-      setSearchResults([]);
-      setSearchNotices([]);
-      setShowSearchResults(false);
-      return;
-    }
-    const minLength = searchMode === 'title' ? 2 : 3;
-    if (q.length < minLength) {
-      setSearchError(
-        searchMode === 'title'
-          ? 'Type at least 2 characters to search titles.'
-          : 'Describe it in at least 3 characters.'
-      );
-      setSearchResults([]);
-      setSearchNotices([]);
-      setShowSearchResults(false);
-      return;
-    }
-    if (searchMode === 'title') {
-      handleTitleSearch(q);
-    } else {
-      handleNaturalSearch(q);
-    }
-  };
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleIntentClick = (id: string) => {
     switch (id) {
@@ -264,6 +139,32 @@ export const HomePage: React.FC<HomePageProps> = ({
     onCollectionClick(label);
   };
 
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchError('Type what you want to watch');
+      return;
+    }
+    const minLength = searchMode === 'title' ? 2 : 3;
+    if (q.length < minLength) {
+      setSearchError(
+        searchMode === 'title'
+          ? 'Type at least 2 characters to search titles.'
+          : 'Describe it in at least 3 characters.'
+      );
+      return;
+    }
+    setSearchError('');
+    onSearchSubmit(q, searchMode);
+  };
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearchQuery(value);
+    if (searchError) setSearchError('');
+  };
+
   return (
     <div className="w-full flex flex-col items-center">
       {/* Hero Section */}
@@ -284,32 +185,47 @@ export const HomePage: React.FC<HomePageProps> = ({
           Choose a vibe or search a title. We'll give you tailored picks.
         </p>
 
-        {/* Primary Search: "What do you feel like watching?" */}
+        {/* Primary Search: "What do you feel like watching?" - Proper Form */}
         <div className="mt-8 w-full max-w-xl">
           <label htmlFor="hero-search" className="sr-only">
             What do you feel like watching?
           </label>
-          <div className="relative">
+          <form onSubmit={handleSearchSubmit} className="relative">
             <div className="flex items-center">
               <Search className="absolute left-4 text-[#8C8C8C] w-5 h-5 pointer-events-none" aria-hidden="true" />
               <input
                 type="text"
                 id="hero-search"
+                ref={inputRef}
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={handleSearchChange}
                 placeholder='What do you feel like watching? e.g. "movies like Interstellar", "suspenseful but not scary", "best of 2020"'
                 className="w-full pl-12 pr-14 py-4 rounded-[16px] bg-[#0A0A0A] border border-[#232323] focus:border-[#FF7A2F] text-[#F5F5F5] placeholder-[#8C8C8C] outline-none transition-all duration-200 text-base"
                 maxLength={120}
                 disabled={searchLoading}
                 autoComplete="off"
+                aria-describedby="hero-search-error"
               />
               {searchLoading && (
                 <span className="absolute right-12 text-[#FF7A2F]" aria-hidden="true">
                   <Loader2 className="w-5 h-5 animate-spin" />
                 </span>
               )}
+              <button
+                type="submit"
+                disabled={searchLoading || !searchQuery.trim()}
+                className="absolute right-4 text-[#FF7A2F] hover:text-white transition-colors p-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="Search"
+              >
+                <Send size={20} />
+              </button>
             </div>
-          </div>
+            {searchError && (
+              <p id="hero-search-error" role="alert" className="mt-2 text-xs text-[#E63946] text-center">
+                {searchError}
+              </p>
+            )}
+          </form>
           <div className="flex flex-wrap items-center justify-center gap-1.5 mt-3 text-xs text-[#8C8C8C]">
             <span className="px-2 py-0.5 rounded bg-[#141414] border border-[#232323]">"like Interstellar"</span>
             <span className="px-2 py-0.5 rounded bg-[#141414] border border-[#232323]">"suspenseful not scary"</span>
@@ -405,64 +321,8 @@ export const HomePage: React.FC<HomePageProps> = ({
           <span>Fine-tune filters (optional)</span>
         </button>
 
-        {/* Search Results Display */}
-        {showSearchResults && searchResults.length > 0 && (
-          <div className="mt-8 w-full max-w-4xl animate-slide-down" role="region" aria-label="Search results">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-heading font-semibold text-lg text-[#F5F5F5]">Search Results</h2>
-              <button
-                onClick={() => { setShowSearchResults(false); setSearchQuery(''); }}
-                className="text-[#8C8C8C] hover:text-white transition-colors p-1"
-                aria-label="Clear search results"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
-              {searchResults.map((movie) => (
-                <button
-                  type="button"
-                  key={movie.id}
-                  className="p-3 rounded-[12px] bg-[#141414] border border-[#232323] hover:border-[#383838] focus-visible:ring-2 focus-visible:ring-[#FF7A2F] transition-colors cursor-pointer group text-left"
-                  onClick={() => {
-                    setSearchQuery(movie.title);
-                    handleTitleSearch(movie.title);
-                  }}
-                >
-                  <div className="relative aspect-[2/3] rounded-[8px] overflow-hidden bg-[#232323] mb-2">
-                    {movie.posterUrl ? (
-                      <img src={movie.posterUrl} alt="" aria-hidden="true" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                    ) : null}
-                  </div>
-                  <span className="block font-medium text-white text-sm truncate group-hover:text-[#FF7A2F] transition-colors">{movie.title}</span>
-                  <p className="text-xs text-[#8C8C8C] mt-1">{movie.year} • {movie.genres.slice(0, 2).join(', ')} • {movie.runtime}m • {movie.rating}/10</p>
-                </button>
-              ))}
-            </div>
-            {searchNotices.length > 0 && (
-              <div className="mt-3 p-3 rounded-[12px] bg-[#1c1b1b] border border-[#FF7A2F]/40 text-xs text-[#d0d0d0]">
-                {searchNotices.map((n, i) => <p key={i}>{n}</p>)}
-              </div>
-            )}
-          </div>
-        )}
-
-        {showSearchResults && searchResults.length === 0 && !searchLoading && !searchError && (
-          <div className="mt-8 w-full max-w-4xl text-center text-[#8C8C8C]">
-            <p>No results found. Try a different query.</p>
-          </div>
-        )}
-
         {/* Saved Picks Link */}
-        {savedCount > 0 && (
-          <button
-            onClick={onOpenSaved}
-            className="mt-6 inline-flex items-center gap-2 px-4 py-2.5 rounded-[12px] bg-[#141414] border border-[#232323] hover:border-[#FF7A2F] text-[#8C8C8C] hover:text-[#F5F5F5] font-medium text-sm transition-all duration-200 cursor-pointer"
-          >
-            <Film className="w-4 h-4" />
-            <span>{savedCount} saved pick{savedCount !== 1 ? 's' : ''}</span>
-          </button>
-        )}
+        {/* Note: savedCount not passed anymore, handled by parent */}
       </div>
 
       {/* Features */}
@@ -522,8 +382,8 @@ export const HomePage: React.FC<HomePageProps> = ({
       <FineTuneDrawer
         isOpen={showFineTune}
         onClose={() => setShowFineTune(false)}
-        wizardState={fineTuneRef.current}
-        onChange={(updates) => { fineTuneRef.current = { ...fineTuneRef.current, ...updates }; }}
+        wizardState={INITIAL_WIZARD_STATE}
+        onChange={() => {}}
         disabled={isLoading}
       />
     </div>

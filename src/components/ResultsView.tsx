@@ -205,13 +205,55 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   const hasActiveFilters = activeFilters.length > 0;
 
   const removeFilter = (filterKey: string, filterValue: string) => {
-    onFilterChange?.({ [filterKey]: [] } as any); // Will be handled properly by parent
-    // For now, trigger back to filters to let user adjust
-    onBackToFilters();
+    // Map display labels to canonical API values
+    const canonicalValue = mapToCanonical(filterKey, filterValue);
+    onFilterChange?.({ [filterKey]: [] } as any);
+    // Don't call onBackToFilters - let the parent handle refetch
   };
 
   const clearAllFilters = () => {
-    onBackToFilters();
+    onFilterChange?.({ types: [], moods: [], audiences: [], runtimes: [], providers: [] } as any);
+    // Don't call onBackToFilters - let the parent handle refetch
+  };
+
+  // Map display labels to canonical API values
+  const mapToCanonical = (key: string, value: string): string => {
+    const typeMap: Record<string, string> = {
+      'Movie': 'movie',
+      'Series': 'series',
+      'Short film': 'short',
+      'Any': 'any',
+    };
+    const moodMap: Record<string, string> = {
+      'Mind-bending': 'Mind-bending',
+      'Suspenseful': 'Suspenseful',
+      'Funny': 'Funny',
+      'Feel-good': 'Feel-good',
+      'Emotional': 'Emotional',
+      'Adventurous': 'Adventurous',
+      'Surprise me': 'Surprise me',
+    };
+    const audienceMap: Record<string, string> = {
+      'Just me': 'Just me',
+      'Partner': 'Partner',
+      'Friends': 'Friends',
+      'Family with kids': 'Family with kids',
+    };
+    const runtimeMap: Record<string, string> = {
+      'Under 90 min': 'Under 90 min',
+      'Under 2 hours': 'Under 2 hours',
+      'Under 2.5 hours': 'Under 2.5 hours',
+      'Miniseries (1 season)': 'Miniseries (1 season)',
+      'Any length': 'Any length',
+    };
+
+    switch (key) {
+      case 'types': return typeMap[value] || value;
+      case 'moods': return moodMap[value] || value;
+      case 'audiences': return audienceMap[value] || value;
+      case 'runtimes': return runtimeMap[value] || value;
+      default: return value;
+    }
   };
 
   const toggleFilterGroup = (groupKey: string) => {

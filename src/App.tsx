@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   ArrowRight,
   Bookmark,
@@ -101,6 +101,21 @@ interface ActiveFilters {
   providers: string[];
 }
 
+interface RecommendRequest {
+  mood: string;
+  genres: string[];
+  audience: string;
+  maxRuntime: string;
+  languages: string[];
+  types: string[];
+  preferences: WizardState['preferences'];
+  note: string;
+  excludeIds: number[];
+  anonId: string;
+  taste: { weights: Record<string, number>; eventCount: number };
+  referenceIds: string[];
+}
+
 export default function App() {
   const [wizardState, setWizardState] = useState<WizardState & { referenceMovies?: ReferenceMovie[] }>(() => {
     const loaded = loadQuiz();
@@ -127,12 +142,10 @@ export default function App() {
   const [saved, setSaved] = useState<Movie[]>(loadSaved);
   const [resetStatus, setResetStatus] = useState('');
   const [touched, setTouched] = useState<number[]>(() => loadQuiz()?.touched ?? []);
-  const [showWizard, setShowWizard] = useState(false);
-  const [wizardStep, setWizardStep] = useState(1);
-  const [wizardTouched, setWizardTouched] = useState<number[]>([]);
 
-  // New flow state
+  // New flow state - single source of truth for step
   const [viewMode, setViewMode] = useState<ViewMode>('home');
+  const [showWizard, setShowWizard] = useState(false);
   const [showPickForMe, setShowPickForMe] = useState(false);
   const [showNaturalSearch, setShowNaturalSearch] = useState(false);
   const [naturalSearchQuery, setNaturalSearchQuery] = useState('');
@@ -181,35 +194,37 @@ export default function App() {
   }, []);
 
   // Update wizard properties
-  const handleUpdate = (updates: Partial<WizardState & { referenceMovies?: ReferenceMovie[] }>) => {
+  const handleUpdate = useCallback((updates: Partial<WizardState & { referenceMovies?: ReferenceMovie[] }>) => {
     setWizardState((prev) => ({ ...prev, ...updates }));
-  };
+  }, []);
 
-  const handleWizardNext = () => {
-    const step = wizardStep;
-    setWizardTouched((t) => (t.includes(step) ? t : [...t, step]));
-    setWizardStep((prev) => prev + 1);
-  };
+  const handleWizardNext = useCallback(() => {
+    setWizardState((prev) => {
+      const nextStep = Math.min(prev.step + 1, 8);
+      return { ...prev, step: nextStep };
+    });
+  }, []);
 
-  const handleWizardSubmit = () => {
-    setWizardTouched((t) => (t.includes(8) ? t : [...t, 8]));
-    fetchRecommendationsFromWizard();
-  };
+  const handleWizardBack = useCallback(() => {
+    setWizardState((prev) => ({ ...prev, step: Math.max(1, prev.step - 1) }));
+  }, []);
 
-  const handleWizardBack = () => {
-    setWizardStep((prev) => Math.max(1, prev - 1));
-  };
-
-  const handleWizardCancel = () => {
+  const handleWizardCancel = useCallback(() => {
     if (window.confirm('Quit the quiz? Your answers will be cleared.')) {
       setShowWizard(false);
-      setWizardStep(1);
-      setWizardTouched([]);
-      setWizardState(INITIAL_STATE);
+      setWizardState({ ...INITIAL_STATE, step: 0 });
+      setViewMode('home');
     }
-  };
+  }, []);
 
-  const handleBrandClick = () => {
+  const handleWizardSubmit = useCallback(() => {
+    setWizardState((prev) => ({ ...prev, step: 9 }));
+    fetchRecommendations(buildRecommendRequest(wizardState));
+    setShowWizard(false);
+    setViewMode('results');
+  }, []);
+
+  const handleBrandClick = useCallback(() => {
     const hasProgress = movies.length > 0 || dismissedIds.length > 0 || showWizard || showPickForMe || showNaturalSearch;
     if (hasProgress) {
       if (showWizard) {
@@ -228,15 +243,9 @@ export default function App() {
     setShowSaved(false);
     setViewMode('home');
     setWizardState((prev) => ({ ...prev, step: 0 }));
-  };
+  }, [movies.length, dismissedIds.length, showWizard, showPickForMe, showNaturalSearch, handleWizardCancel]);
 
-  const handleBackToFilters = () => {
-    setShowWizard(true);
-    setWizardStep(7);
-    setViewMode('wizard');
-  };
-
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     setWizardState({ ...INITIAL_STATE, step: 0 });
     setMovies([]);
     setNotices([]);
@@ -246,20 +255,18 @@ export default function App() {
     setImpressionTokens([]);
     setDismissedIds([]);
     setShowWizard(false);
-    setWizardStep(1);
-    setWizardTouched([]);
     setShowPickForMe(false);
     setShowNaturalSearch(false);
     setNaturalSearchQuery('');
     setNaturalSearchChips([]);
     setActiveFilters({ types: [], moods: [], audiences: [], runtimes: [], providers: [] });
     setViewMode('home');
-  };
+  }, []);
 
-  const tokenFor = (movieId: number): ImpressionToken | undefined =>
-    impressionTokens.find((t) => t.movieId === movieId);
+  const tokenFor = useCallback((movieId: number): ImpressionToken | undefined =>
+    impressionTokens.find((t) => t.movieId === movieId), [impressionTokens]);
 
-  const toggleSave = (movie: Movie) => {
+  const toggleSave = useCallback((movie: Movie) => {
     const isSaving = !saved.some((m) => m.id === movie.id);
     setSaved((prev) =>
       prev.some((m) => m.id === movie.id)
@@ -276,9 +283,9 @@ export default function App() {
         setTasteEventCount((c) => c + 1);
       }
     }
-  };
+  }, [saved, tokenFor, tasteEventCount]);
 
-  const dismissMovie = (movie: Movie, action: 'seen_it' | 'not_for_me' | 'less_like_this') => {
+  const dismissMovie = useCallback((movie: Movie, action: 'seen_it' | 'not_for_me' | 'less_like_this') => {
     const tok = tokenFor(movie.id);
     if (tok) void sendFeedbackEvent(tok, action);
     setSeenMovieIds((prev) => (prev.includes(movie.id) ? prev : [...prev, movie.id]));
@@ -290,18 +297,18 @@ export default function App() {
         setTasteEventCount((c) => c + 1);
       }
     }
-  };
+  }, [tokenFor, tasteEventCount]);
 
-  const handleNotForMe = (movie: Movie) => dismissMovie(movie, 'not_for_me');
-  const handleSeenIt = (movie: Movie) => dismissMovie(movie, 'seen_it');
-  const handleLessLike = (movie: Movie) => dismissMovie(movie, 'less_like_this');
+  const handleNotForMe = useCallback((movie: Movie) => dismissMovie(movie, 'not_for_me'), [dismissMovie]);
+  const handleSeenIt = useCallback((movie: Movie) => dismissMovie(movie, 'seen_it'), [dismissMovie]);
+  const handleLessLike = useCallback((movie: Movie) => dismissMovie(movie, 'less_like_this'), [dismissMovie]);
 
-  const handleWatchOptions = (movie: Movie) => {
+  const handleWatchOptions = useCallback((movie: Movie) => {
     const tok = tokenFor(movie.id);
     if (tok) void sendFeedbackEvent(tok, 'provider_click');
-  };
+  }, [tokenFor]);
 
-  const handleResetTaste = async () => {
+  const handleResetTaste = useCallback(async () => {
     const anon = getAnonId();
     const serverOk = anon && anon !== 'none' ? await requestTasteReset(anon) : true;
     resetTaste();
@@ -319,14 +326,31 @@ export default function App() {
         ? 'Taste reset: this browser\'s taste profile is cleared and its anonymous server counts are deleted.'
         : 'Taste reset in this browser. The server could not be reached to delete its anonymous counts — try again later.'
     );
-  };
+  }, []);
 
-  // Fetch recommendations from /api/recommend using current wizardState
-  const fetchRecommendations = async (
-    customExclude?: number[],
-    resetHistory = false,
-    genreOverride?: string[]
-  ): Promise<number> => {
+  // Build recommendation request from explicit state (not closure)
+  const buildRecommendRequest = useCallback((state: WizardState & { referenceMovies?: ReferenceMovie[] }): RecommendRequest => {
+    const anon = getAnonId();
+    const tastePayload = getTastePayload(anon, tasteEventCount);
+    const referenceIds = (state.referenceMovies || []).map((r) => r.imdbId);
+    return {
+      mood: state.mood,
+      genres: state.genres,
+      audience: state.audience,
+      maxRuntime: state.maxRuntime,
+      languages: state.languages,
+      types: state.types || ['movie'],
+      preferences: state.preferences,
+      note: state.note,
+      excludeIds: seenMovieIds,
+      anonId: anon,
+      taste: tastePayload,
+      referenceIds,
+    };
+  }, [seenMovieIds, tasteEventCount]);
+
+  // Single fetch function that takes explicit request state
+  const fetchRecommendations = useCallback(async (request: RecommendRequest): Promise<number> => {
     const seq = ++recommendSeqRef.current;
     const stale = () => seq !== recommendSeqRef.current;
 
@@ -335,33 +359,12 @@ export default function App() {
     setErrorDetail('');
     setShowSaved(false);
     setResetStatus('');
-    setWizardState((prev) => ({ ...prev, step: 9 }));
-
-    const currentExcludes = customExclude ?? seenMovieIds;
 
     try {
-      const anon = getAnonId();
-      const tastePayload = getTastePayload(anon, tasteEventCount);
-      const referenceIds = (wizardState.referenceMovies || []).map((r) => r.imdbId);
-      const payload = {
-        mood: wizardState.mood,
-        genres: genreOverride ?? wizardState.genres,
-        audience: wizardState.audience,
-        maxRuntime: wizardState.maxRuntime,
-        languages: wizardState.languages,
-        types: wizardState.types || ['movie'],
-        preferences: wizardState.preferences,
-        note: wizardState.note,
-        excludeIds: currentExcludes,
-        anonId: anon,
-        taste: tastePayload,
-        referenceIds,
-      };
-
       const res = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(request),
         signal: AbortSignal.timeout(20000),
       });
 
@@ -390,7 +393,7 @@ export default function App() {
       setMovies(newMovies);
       const newIds = newMovies.map((m) => m.id);
       setSeenMovieIds((prev) =>
-        resetHistory ? newIds : Array.from(new Set([...prev, ...newIds]))
+        Array.from(new Set([...prev, ...newIds]))
       );
       return newMovies.length;
     } catch (e) {
@@ -409,51 +412,22 @@ export default function App() {
     } finally {
       if (!stale()) setIsLoading(false);
     }
-  };
+  }, []);
 
-  // Fetch recommendations using wizard step state
-  const fetchRecommendationsFromWizard = async (
-    customExclude?: number[],
-    resetHistory = false,
-    genreOverride?: string[]
-  ): Promise<number> => {
+  // Append new recommendations while preserving existing movies and deduplicating
+  const fetchRecommendationsAppend = useCallback(async (request: RecommendRequest): Promise<number> => {
     const seq = ++recommendSeqRef.current;
     const stale = () => seq !== recommendSeqRef.current;
 
     setIsLoading(true);
     setLoadError(false);
     setErrorDetail('');
-    setShowSaved(false);
-    setResetStatus('');
-    setWizardState((prev) => ({ ...prev, step: 9 }));
-    setShowWizard(false);
-    setViewMode('results');
-
-    const currentExcludes = customExclude ?? seenMovieIds;
 
     try {
-      const anon = getAnonId();
-      const tastePayload = getTastePayload(anon, tasteEventCount);
-      const referenceIds = (wizardState.referenceMovies || []).map((r) => r.imdbId);
-      const payload = {
-        mood: wizardState.mood,
-        genres: genreOverride ?? wizardState.genres,
-        audience: wizardState.audience,
-        maxRuntime: wizardState.maxRuntime,
-        languages: wizardState.languages,
-        types: wizardState.types || ['movie'],
-        preferences: wizardState.preferences,
-        note: wizardState.note,
-        excludeIds: currentExcludes,
-        anonId: anon,
-        taste: tastePayload,
-        referenceIds,
-      };
-
       const res = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(request),
         signal: AbortSignal.timeout(20000),
       });
 
@@ -479,17 +453,19 @@ export default function App() {
           : []
       );
 
-      setMovies(newMovies);
+      // Append new movies, deduplicate by ID
+      setMovies((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const uniqueNew = newMovies.filter((m) => !existingIds.has(m.id));
+        return [...prev, ...uniqueNew];
+      });
       const newIds = newMovies.map((m) => m.id);
       setSeenMovieIds((prev) =>
-        resetHistory ? newIds : Array.from(new Set([...prev, ...newIds]))
+        Array.from(new Set([...prev, ...newIds]))
       );
       return newMovies.length;
     } catch (e) {
       if (!stale()) {
-        setMovies([]);
-        setNotices([]);
-        setImpressionTokens([]);
         setLoadError(true);
         setErrorDetail(
           e instanceof DOMException && e.name === 'TimeoutError'
@@ -501,19 +477,20 @@ export default function App() {
     } finally {
       if (!stale()) setIsLoading(false);
     }
-  };
+  }, []);
 
-  const handleMore = async () => {
-    const count = await fetchRecommendations();
-    if (count >= 0 && count < 3) {
+  const handleMore = useCallback(async () => {
+    const request = buildRecommendRequest(wizardState);
+    const newMovies = await fetchRecommendationsAppend({ ...request, excludeIds: seenMovieIds });
+    if (newMovies >= 0 && newMovies < 3) {
       setNotices((prev) => [
         ...prev,
-        count === 0
+        newMovies === 0
           ? 'No further picks match these filters right now — adjust filters to widen the pool.'
-          : `Only ${count} more pick${count === 1 ? '' : 's'} available with these filters — adjust filters for more options.`,
+          : `Only ${newMovies} more pick${newMovies === 1 ? '' : 's'} available with these filters — adjust filters for more options.`,
       ]);
     }
-  };
+  }, [buildRecommendRequest, fetchRecommendationsAppend, seenMovieIds]);
 
   const MORE_LIKE_GENRES = new Set([
     'Surprise me', 'Action', 'Adventure', 'Animation', 'Comedy', 'Crime',
@@ -521,16 +498,17 @@ export default function App() {
     'Romance', 'Sci-Fi', 'Thriller',
   ]);
 
-  const handleMoreLike = (movie: Movie) => {
+  const handleMoreLike = useCallback((movie: Movie) => {
     const tok = tokenFor(movie.id);
     if (tok) void sendFeedbackEvent(tok, 'more_like_this');
     const seeded = movie.genres.filter((g) => MORE_LIKE_GENRES.has(g)).slice(0, 2);
     const nextGenres = seeded.length > 0 ? seeded : ['Surprise me'];
     setWizardState((prev) => ({ ...prev, genres: nextGenres }));
-    fetchRecommendations(undefined, false, nextGenres);
-  };
+    const request = buildRecommendRequest({ ...wizardState, genres: nextGenres });
+    fetchRecommendations(request);
+  }, [tokenFor, wizardState, buildRecommendRequest, fetchRecommendations]);
 
-  const handleCycle = () => {
+  const handleCycle = useCallback(() => {
     const anon = getAnonId();
     for (const m of movies) {
       const tok = tokenFor(m.id);
@@ -541,16 +519,17 @@ export default function App() {
       }
     }
     const currentIds = movies.map((m) => m.id);
-    fetchRecommendations(currentIds, true);
-  };
+    const request = buildRecommendRequest(wizardState);
+    fetchRecommendations({ ...request, excludeIds: currentIds });
+  }, [movies, tokenFor, wizardState, buildRecommendRequest, fetchRecommendations]);
 
   // HomePage callbacks
-  const handlePickForMe = () => {
+  const handlePickForMe = useCallback(() => {
     setShowPickForMe(true);
     setViewMode('pick-for-me');
-  };
+  }, []);
 
-  const handleBrowseMood = (moodId?: string) => {
+  const handleBrowseMood = useCallback((moodId?: string) => {
     if (moodId) {
       const moodMap: Record<string, string> = {
         'mind-bending': 'Mind-bending',
@@ -562,48 +541,81 @@ export default function App() {
         'surprise': 'Surprise me',
       };
       setWizardState((prev) => ({ ...prev, mood: moodMap[moodId] || 'Surprise me', genres: ['Surprise me'] }));
-      fetchRecommendations();
+      const request = buildRecommendRequest(wizardState);
+      fetchRecommendations(request);
       setViewMode('results');
     } else {
       // Show mood collections - handled by HomePage
     }
-  };
+  }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 
-  const handlePopularNow = () => {
+  const handlePopularNow = useCallback(() => {
     setWizardState((prev) => ({ ...prev, mood: 'Surprise me', genres: ['Surprise me'], preferences: { ...prev.preferences, recent: true } }));
-    fetchRecommendations();
+    const request = buildRecommendRequest(wizardState);
+    fetchRecommendations(request);
     setViewMode('results');
-  };
+  }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 
-  const handleMoviesSeries = () => {
+  const handleMoviesSeries = useCallback(() => {
     setShowWizard(true);
-    setWizardStep(1);
+    setWizardState((prev) => ({ ...prev, step: 1 }));
     setViewMode('wizard');
-  };
+  }, []);
 
-  const handleCollectionClick = (collection: string) => {
+  const handleCollectionClick = useCallback((collection: string) => {
+    const currentYear = new Date().getFullYear();
+    let newState: Partial<WizardState & { referenceMovies?: ReferenceMovie[] }> = {};
+    
     if (collection.includes('Best of')) {
-      const year = new Date().getFullYear();
-      setWizardState((prev) => ({ ...prev, mood: 'Surprise me', genres: ['Surprise me'], preferences: { ...prev.preferences, recent: true }, note: `Best of ${year}` }));
+      const year = currentYear;
+      newState = { 
+        mood: 'Surprise me', 
+        genres: ['Surprise me'], 
+        preferences: { ...wizardState.preferences, recent: true }, 
+        note: `Best of ${year}`,
+        collectionIntent: { type: 'best-of-year', year } as any,
+      };
     } else if (collection === 'New this week') {
-      setWizardState((prev) => ({ ...prev, mood: 'Surprise me', genres: ['Surprise me'], preferences: { ...prev.preferences, recent: true }, note: 'New this week' }));
+      newState = { 
+        mood: 'Surprise me', 
+        genres: ['Surprise me'], 
+        preferences: { ...wizardState.preferences, recent: true }, 
+        note: 'New this week',
+        collectionIntent: { type: 'new-this-week' } as any,
+      };
     } else if (collection === 'Hidden gems') {
-      setWizardState((prev) => ({ ...prev, mood: 'Surprise me', genres: ['Surprise me'], preferences: { ...prev.preferences, hiddenGems: true } }));
+      newState = { 
+        mood: 'Surprise me', 
+        genres: ['Surprise me'], 
+        preferences: { ...wizardState.preferences, hiddenGems: true },
+        collectionIntent: { type: 'hidden-gems' } as any,
+      };
     } else if (collection === 'Family night') {
-      setWizardState((prev) => ({ ...prev, mood: 'Feel-good', genres: ['Family', 'Comedy', 'Animation'], audience: 'Family with kids', preferences: { ...prev.preferences, mature: false } }));
+      newState = { 
+        mood: 'Feel-good', 
+        genres: ['Family', 'Comedy', 'Animation'], 
+        audience: 'Family with kids', 
+        preferences: { ...wizardState.preferences, mature: false },
+        collectionIntent: { type: 'family-night' } as any,
+      };
     }
-    fetchRecommendations();
+    
+    setWizardState((prev) => ({ ...prev, ...newState }));
+    const newWizardState = { ...wizardState, ...newState };
+    const request = buildRecommendRequest(newWizardState);
+    fetchRecommendations(request);
     setViewMode('results');
-  };
+  }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 
-  const handlePickForMeSubmit = (state: WizardState & { referenceMovies?: ReferenceMovie[] }) => {
+  const handlePickForMeSubmit = useCallback((state: WizardState & { referenceMovies?: ReferenceMovie[] }) => {
     setWizardState(state);
     setShowPickForMe(false);
-    fetchRecommendations();
+    const request = buildRecommendRequest(state);
+    fetchRecommendations(request);
     setViewMode('results');
-  };
+  }, [buildRecommendRequest, fetchRecommendations]);
 
-  const handleNaturalSearch = (query: string, chips: SearchChip[]) => {
+  const handleNaturalSearch = useCallback((query: string, chips: SearchChip[]) => {
     setNaturalSearchQuery(query);
     setNaturalSearchChips(chips);
     setShowNaturalSearch(false);
@@ -622,9 +634,8 @@ export default function App() {
 
     const genres = chips.filter(c => c.type === 'genre').map(c => c.label);
     const moods = chips.filter(c => c.type === 'mood').map(c => c.label);
-    const years = chips.filter(c => c.type === 'year').map(c => c.label);
-    const runtimes = chips.filter(c => c.type === 'runtime').map(c => c.label);
     const audiences = chips.filter(c => c.type === 'audience').map(c => c.label);
+    const runtimes = chips.filter(c => c.type === 'runtime').map(c => c.label);
     const references = chips.filter(c => c.type === 'reference').map(c => c.label);
 
     setWizardState((prev) => ({
@@ -641,10 +652,25 @@ export default function App() {
       })),
     }));
 
-    fetchRecommendations();
-  };
+    const request = buildRecommendRequest(wizardState);
+    fetchRecommendations(request);
+  }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 
-  const handleFilterChange = (filters: Partial<ActiveFilters>) => {
+  const handleSearchSubmit = useCallback((query: string, mode: 'title' | 'natural') => {
+    if (mode === 'title') {
+      // For title search, set note and fetch
+      setWizardState((prev) => ({ ...prev, note: query }));
+      const request = buildRecommendRequest(wizardState);
+      fetchRecommendations(request);
+      setViewMode('results');
+    } else {
+      // For natural language, open NaturalSearch with the query
+      setShowNaturalSearch(true);
+      setViewMode('natural-search');
+    }
+  }, [wizardState, buildRecommendRequest, fetchRecommendations]);
+
+  const handleFilterChange = useCallback((filters: Partial<ActiveFilters>) => {
     setActiveFilters(prev => ({ ...prev, ...filters }));
     // Translate to wizard state and refetch
     const newWizardState = { ...wizardState };
@@ -653,10 +679,11 @@ export default function App() {
     if (filters.audiences) newWizardState.audience = filters.audiences[0];
     if (filters.runtimes) newWizardState.maxRuntime = filters.runtimes[0];
     setWizardState(newWizardState);
-    fetchRecommendations();
-  };
+    const request = buildRecommendRequest(newWizardState);
+    fetchRecommendations(request);
+  }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 
-  const buildActiveFilterChips = () => {
+  const buildActiveFilterChips = useCallback(() => {
     const chips: Array<{key: string, label: string, value: string}> = [];
     if (activeFilters.types.length) chips.push(...activeFilters.types.map(v => ({ key: 'types', label: 'Type', value: v })));
     if (activeFilters.moods.length) chips.push(...activeFilters.moods.map(v => ({ key: 'moods', label: 'Mood', value: v })));
@@ -671,7 +698,7 @@ export default function App() {
       wizardState.genres.forEach(g => chips.push({ key: 'genres', label: 'Genre', value: g }));
     }
     return chips;
-  };
+  }, [activeFilters, wizardState]);
 
   const filterOptions = {
     types: ['Movie', 'Series', 'Short film', 'Any'],
@@ -680,9 +707,9 @@ export default function App() {
     runtimes: ['Under 90 min', 'Under 2 hours', 'Under 2.5 hours', 'Miniseries (1 season)', 'Any length'],
   };
 
-  const handleOpenSaved = () => {
+  const handleOpenSaved = useCallback(() => {
     setShowSaved(true);
-  };
+  }, []);
 
   const showHeader = !showSaved && !showWizard && viewMode !== 'results' && !showPickForMe && !showNaturalSearch;
 
@@ -757,7 +784,7 @@ export default function App() {
             onStartQuiz={() => {
               setShowSaved(false);
               setShowWizard(true);
-              setWizardStep(1);
+              setWizardState((prev) => ({ ...prev, step: 1 }));
               setViewMode('wizard');
               window.scrollTo({ top: 0 });
             }}
@@ -771,7 +798,7 @@ export default function App() {
             onCancel={handleWizardCancel}
             onSubmit={handleWizardSubmit}
             isLoading={isLoading}
-            touchedSteps={wizardTouched}
+            touchedSteps={[]}
           />
         ) : showPickForMe ? (
           <PickForMe
@@ -797,8 +824,8 @@ export default function App() {
             onMore={handleMore}
             onCycle={handleCycle}
             onReset={handleReset}
-            onRetry={() => fetchRecommendations()}
-            onBackToFilters={handleBackToFilters}
+            onRetry={() => fetchRecommendations(buildRecommendRequest(wizardState))}
+            onBackToFilters={() => { setShowWizard(true); setWizardState((prev) => ({ ...prev, step: 7 })); setViewMode('wizard'); }}
             saved={saved}
             dismissedIds={dismissedIds}
             onToggleSave={toggleSave}
@@ -815,29 +842,13 @@ export default function App() {
           />
         ) : (
           <HomePage
-            onGetRecommendations={(state) => {
-              setWizardState(state);
-              fetchRecommendations();
-              setViewMode('results');
-            }}
-            onSearchTitle={(query) => {
-              // Title search - use natural search with the query
-              setWizardState((prev) => ({ ...prev, note: query }));
-              fetchRecommendations();
-              setViewMode('results');
-            }}
-            onSearchNatural={() => {
-              setShowNaturalSearch(true);
-              setViewMode('natural-search');
-            }}
-            onOpenSaved={handleOpenSaved}
-            savedCount={saved.length}
-            isLoading={isLoading}
             onPickForMe={handlePickForMe}
             onBrowseMood={handleBrowseMood}
             onPopularNow={handlePopularNow}
             onMoviesSeries={handleMoviesSeries}
             onCollectionClick={handleCollectionClick}
+            onSearchSubmit={handleSearchSubmit}
+            isLoading={isLoading}
           />
         )}
       </main>

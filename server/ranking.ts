@@ -196,6 +196,7 @@ export function themeSimilarity(candidateOverview: string, referenceOverviews: s
  * drama; Stressed accepts comfort OR catharsis).
  */
 export const MOOD_TONE: Record<string, { uplift: string[]; downers: string[] }> = {
+  // Legacy moods (Wizard)
   Happy: { uplift: ['Comedy', 'Animation', 'Family', 'Adventure'], downers: ['Horror', 'Thriller', 'Crime'] },
   Relaxed: { uplift: ['Comedy', 'Romance', 'Animation', 'Family'], downers: ['Horror', 'Thriller', 'Crime'] },
   Tired: { uplift: ['Comedy', 'Animation', 'Family'], downers: ['Horror', 'Thriller', 'Crime'] },
@@ -204,8 +205,15 @@ export const MOOD_TONE: Record<string, { uplift: string[]; downers: string[] }> 
   Adventurous: { uplift: ['Adventure', 'Action', 'Sci-Fi', 'Fantasy'], downers: [] },
   Curious: { uplift: ['Mystery', 'Documentary', 'Sci-Fi', 'Crime'], downers: [] },
   Sad: { uplift: ['Drama', 'Romance', 'Family', 'Comedy'], downers: [] },
+  // New moods (PickForMe / HomePage / NaturalSearch)
+  'Mind-bending': { uplift: ['Sci-Fi', 'Mystery', 'Thriller', 'Documentary'], downers: ['Romance', 'Comedy', 'Family'] },
+  Suspenseful: { uplift: ['Thriller', 'Crime', 'Mystery', 'Horror'], downers: ['Comedy', 'Animation', 'Family', 'Romance'] },
+  Funny: { uplift: ['Comedy'], downers: ['Horror', 'Thriller', 'Crime', 'Drama'] },
+  'Feel-good': { uplift: ['Comedy', 'Animation', 'Family', 'Romance'], downers: ['Horror', 'Thriller', 'Crime'] },
+  Emotional: { uplift: ['Drama', 'Romance', 'Family'], downers: ['Horror', 'Action', 'Crime'] },
   // No stated mood: nothing uplifted, nothing penalized.
   Neutral: { uplift: [], downers: [] },
+  'Surprise me': { uplift: [], downers: [] },
 };
 
 /**
