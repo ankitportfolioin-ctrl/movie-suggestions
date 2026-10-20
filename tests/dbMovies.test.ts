@@ -26,7 +26,7 @@ describe('SQL WHERE builder', () => {
       ratingFloor: 7, excludeIds: [1, 2],
     });
     for (const frag of ['genres && $1', 'NOT (genres && $2)', 'originalLanguage = ANY($3)',
-      'runtime >= $4', 'runtime <= $5', 'year >= $6', 'year <= $7', 'rating >= $8',
+      'runtime > $4', 'runtime <= $5', 'year >= $6', 'year <= $7', 'rating >= $8',
       'NOT (tmdbId = ANY($9))']) {
       assert.ok(text.includes(frag), frag);
     }

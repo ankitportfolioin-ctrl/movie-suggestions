@@ -30,6 +30,12 @@ export interface NoteSignals {
   likedPeople: string[];
   /** Language names from the quiz vocabulary (e.g. "Korean"). */
   languageHints: string[];
+  /** User asks for episodic content ("web series", "TV show", "miniseries", "K-drama"). */
+  wantsSeries?: boolean;
+  /** Kid/family-safe mode ("movie for my 6 year old", "kids", "grandparents"). */
+  audienceSafe?: boolean;
+  /** Sub-genre words we recognize but cannot filter on (e.g. "superhero"). */
+  unsupportedGenres: string[];
   runtimeHint?: 'short' | 'long';
   /** Explicit minute bounds ("under 2 hours", "over 150 minutes", "lambi"). */
   runtimeMinMinutes?: number;
@@ -48,7 +54,7 @@ export interface NoteSignals {
 }
 
 const GENRE_KEYWORDS: [RegExp, string][] = [
-  [/\baction\b|\baction-packed\b|\bmartial arts\b|\bsuperhero\b/, 'Action'],
+  [/\baction\b|\baction-packed\b|\bmartial arts\b/, 'Action'],
   [/\badventure\b|\bquest\b|\bexplor/, 'Adventure'],
   [/\banimat|\bcartoon\b|\banime\b|\bpixar\b|\bghibli\b/, 'Animation'],
   [/\bcomed|\bfunny\b|\bhilarious\b|\blaugh/, 'Comedy'],
@@ -64,8 +70,41 @@ const GENRE_KEYWORDS: [RegExp, string][] = [
   [/\bromantik\b|\bpyaar\b/, 'Romance'],
   [/\bmystery\b|\bdetectiv|\bwhodunit\b|\bnoir\b/, 'Mystery'],
   [/\bromance\b|\brom-com\b|\bromcom\b|\brom com\b|\blove stor|\bromantic\b/, 'Romance'],
-  [/\bsci-?fi\b|\bscience fiction\b|\bspace\b|\bcyberpunk\b|\bdystopi/, 'Sci-Fi'],
+  [/\bsci-?fi\b|\bsc-?fi\b|\bscience fiction\b|\bspace\b|\bcyberpunk\b|\bdystopi/, 'Sci-Fi'],
   [/\bthriller\b|\bspy\b|\bespionage\b/, 'Thriller'],
+  // Catalog-backed genres that were missing (covered by the SQL filter +
+  // an honest coverage notice when the catalog has no/wanting titles).
+  [/\bwar\b/, 'War'],
+  [/\bmusical\b|\bmusic\b/, 'Music'],
+  [/\bwestern\b|\bcowboy\b/, 'Western'],
+  [/\bhistor(y|ical)\b|\bperiod (piece|drama)\b/, 'History'],
+  [/\bbiograph|\bbiopic\b|\btrue stor|\bbased on (a |the )?true\b/, 'Biography'],
+  [/\bsports?\b/, 'Sports'],
+  // Mood-vocab genres the 200-run showed users expect decoded.
+  [/\bmind-?bend|\bmind blower|\btrippy\b|\bpsychodelic\b/, 'Mystery'],
+  [/\bnostalg|\bchildhood\b|\bfavourite from\b/, 'Family'],
+  [/\binspir|\bmotivat|\bunderdog\b/, 'Drama'],
+  // Devanagari script genres (Hindi-script queries). Note: \b is ASCII-only
+  // in JS, so these are substring matches on distinctive words.
+  [/कॉमेडी|हास्य/, 'Comedy'],
+  [/रोमांस|रोमांटिक|प्रेम/, 'Romance'],
+  [/हॉरर|डरावनी/, 'Horror'],
+  [/एक्शन/, 'Action'],
+  [/थ्रिलर/, 'Thriller'],
+  [/ड्रामा/, 'Drama'],
+  [/साइंस फिक्शन|विज्ञान फंतासी/, 'Sci-Fi'],
+  [/रहस्य/, 'Mystery'],
+];
+
+/**
+ * Sub-genre words people ask for that NO catalog tag can verify ("superhero"
+ * is not a TMDB genre). They become an honest disclosure, never a genre
+ * request and never a silent fallback. Excluded mentions ("not a superhero
+ * movie") must NOT re-introduce Action or trigger the disclosure.
+ */
+const UNSUPPORTED_GENRE_WORDS: [RegExp, string][] = [
+  [/\bsuperhero(?:es)?\b/, 'Superhero'],
+  [/\btrue stor(?:y|ies)\b|\bbased on (a |the )?true story\b/, 'True Story'],
 ];
 
 const THEME_KEYWORDS: [RegExp, string][] = [
@@ -98,6 +137,7 @@ const THEME_KEYWORDS: [RegExp, string][] = [
   [/\bcrime\b|\bgangster\b|\bmafia\b/, 'crime'],
   [/\bmystery\b|\bpuzzle\b|\benigma\b/, 'mystery'],
   [/\bsci.?fi\b|\bfuturistic\b|\bcyberpunk\b|\bdystopi\b/, 'sci-fi'],
+  [/\btime travel\b|\btimetravel\b|\btemporal\b/, 'time travel'],
   [/\bfantasy\b|\bmagic\b|\bwizard\b|\bdragon\b/, 'fantasy'],
   [/\bhistorical\b|\bperiod piece\b|\b19\d\d\b|\b20\d\d\b/, 'historical'],
   [/\bwestern\b|\bcowboy\b/, 'western'],
@@ -144,26 +184,30 @@ const MOOD_KEYWORDS: [RegExp, string][] = [
   [/\budaas\b|\bdukhi\b/, 'Sad'],
 ];
 
-// Reference movie patterns: "like X", "similar to X", "in the vein of X", "reminiscent of X"
+// Reference movie patterns: "like X", "similar to X", "in the vein of X",
+// "reminiscent of X". Title tokens start with a capital OR a digit (so
+// "3 Idiots", "1917", "21 Jump Street" parse like "Interstellar").
+const TITLE_TOKEN = "(?:\\d[A-Za-z0-9'&:!\\-]*|[A-Z][A-Za-z0-9'&:!\\-]*)";
+const TITLE_SEQ = `${TITLE_TOKEN}(?:\\s+${TITLE_TOKEN})*`;
 const REFERENCE_PATTERNS: RegExp[] = [
-  /\blike\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
-  /\bsimilar to\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
-  /\bin the vein of\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
-  /\breminiscent of\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
-  /\bakin to\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
-  /\bresembles\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g,
+  new RegExp(`\\blike\\s+(${TITLE_SEQ})`),
+  new RegExp(`\\bsimilar to\\s+(${TITLE_SEQ})`),
+  new RegExp(`\\bin the vein of\\s+(${TITLE_SEQ})`),
+  new RegExp(`\\breminiscent of\\s+(${TITLE_SEQ})`),
+  new RegExp(`\\bakin to\\s+(${TITLE_SEQ})`),
+  new RegExp(`\\bresembles\\s+(${TITLE_SEQ})`),
 ];
 
 // Comparative patterns: "less dark than X", "more funny than X", "shorter than X"
 const COMPARATIVE_PATTERNS: [RegExp, string][] = [
-  [/\bless\s+(\w+)\s+than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'less'],
-  [/\bmore\s+(\w+)\s+than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'more'],
-  [/\bshorter than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'shorter'],
-  [/\blonger than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'longer'],
-  [/\bdarker than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'darker'],
-  [/\blighter than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'lighter'],
-  [/\bfunnier than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'funnier'],
-  [/\bscarier than\s+([A-Z][A-Za-z0-9'&:!\\-]*(?:\s+[A-Z][A-Za-z0-9'&:!\\-]*)*)/g, 'scarier'],
+  [new RegExp(`\\bless\\s+(\\w+)\\s+than\\s+(${TITLE_SEQ})`), 'less'],
+  [new RegExp(`\\bmore\\s+(\\w+)\\s+than\\s+(${TITLE_SEQ})`), 'more'],
+  [new RegExp(`\\bshorter than\\s+(${TITLE_SEQ})`), 'shorter'],
+  [new RegExp(`\\blonger than\\s+(${TITLE_SEQ})`), 'longer'],
+  [new RegExp(`\\bdarker than\\s+(${TITLE_SEQ})`), 'darker'],
+  [new RegExp(`\\blighter than\\s+(${TITLE_SEQ})`), 'lighter'],
+  [new RegExp(`\\bfunnier than\\s+(${TITLE_SEQ})`), 'funnier'],
+  [new RegExp(`\\bscarier than\\s+(${TITLE_SEQ})`), 'scarier'],
 ];
 
 const NEGATION_WORDS =
@@ -232,7 +276,7 @@ export function parseNote(rawNote: string): NoteSignals {
   const signals: NoteSignals = {
     genres: [], excludeGenres: [], unverifiable: [], moods: [],
     lovedTitles: [], hatedTitles: [], mentionedTitles: [], languageHints: [],
-    excludedPeople: [], likedPeople: [],
+    excludedPeople: [], likedPeople: [], unsupportedGenres: [],
     referenceTitles: [],
     referenceTitleNames: [],
     themeKeywords: [],
@@ -288,6 +332,13 @@ export function parseNote(rawNote: string): NoteSignals {
         signals.excludeGenres.push(genre);
       } else {
         signals.genres.push(genre);
+      }
+    }
+  }
+  for (const [re, label] of UNSUPPORTED_GENRE_WORDS) {
+    for (const m of text.matchAll(new RegExp(re.source, 'g'))) {
+      if (!inSpans(guarded, m.index ?? 0) && !hasNegationScope(text, m.index ?? 0)) {
+        signals.unsupportedGenres.push(label);
       }
     }
   }
@@ -394,6 +445,23 @@ export function parseNote(rawNote: string): NoteSignals {
     } else if ((rm = text.match(/\bover\s+(\d+)\s*min(?:utes?)?\b/))) {
       signals.runtimeMinMinutes = Number(rm[1]); rMinPhrase = rm[0].trim();
     }
+    // "between 100 and 120 minutes" sets both bounds at once.
+    if ((rm = text.match(/\bbetween\s+(\d+)\s+and\s+(\d+)\s*min(?:utes?)?\b/))) {
+      signals.runtimeMinMinutes = Number(rm[1]); rMinPhrase = rm[0].trim();
+      if (signals.runtimeMaxMinutes === undefined) {
+        signals.runtimeMaxMinutes = Number(rm[2]); rMaxPhrase = rm[0].trim();
+      }
+    }
+    // "90 minute movie" / "90 minute family movie" / "2 hour movie" — the
+    // stated length is a MAX; allow short adjective runs between the number
+    // and the noun ("90 minute family movie").
+    if (signals.runtimeMaxMinutes === undefined) {
+      if ((rm = text.match(/\b(\d{2,3})\s*min(?:ute)?s?[\w\s,]{0,25}?\b(?:movie|film|long)\b/))) {
+        signals.runtimeMaxMinutes = Number(rm[1]); rMaxPhrase = rm[0].trim();
+      } else if ((rm = text.match(/\b(\d+)\s*hours?[\w\s,]{0,25}?\b(?:movie|film|long)\b/))) {
+        signals.runtimeMaxMinutes = Number(rm[1]) * 60; rMaxPhrase = rm[0].trim();
+      }
+    }
   }
   if (signals.runtimeHint === 'long' && signals.runtimeMinMinutes === undefined) {
     signals.runtimeMinMinutes = 150;
@@ -422,28 +490,100 @@ export function parseNote(rawNote: string): NoteSignals {
     if ((ym = text.match(/\bin\s+(19\d{2}|20\d{2})\b/))) {
       signals.yearMin = Number(ym[1]); signals.yearMax = Number(ym[1]);
     }
+    // "movie of the 90s" / "of the 2020s" / "90s movie" — a strict decade.
+    if ((ym = text.match(/\bof\s+the\s+((?:19|20)\d{2})s\b/)) || (ym = text.match(/\bof\s+the\s+(\d{2})s\b/))) {
+      const d = ym[1].length === 2 ? 1900 + Number(ym[1]) : Math.floor(Number(ym[1]) / 10) * 10;
+      signals.yearMin = d; signals.yearMax = d + 9;
+    } else if ((ym = text.match(/\b((?:19|20)\d{2})s\s+(?:movie|film)s?\b/))) {
+      const d = Math.floor(Number(ym[1]) / 10) * 10;
+      signals.yearMin = d; signals.yearMax = d + 9;
+    } else if ((ym = text.match(/\b(\d{2})s\s+(?:movie|film)s?\b/))) {
+      signals.yearMin = 1900 + Number(ym[1]); signals.yearMax = 1900 + Number(ym[1]) + 9;
+    }
+    // Spelled-out decades ("nineties").
+    if (signals.yearMin === undefined && (ym = text.match(/\b(nineties|eighties|seventies|sixties)\b/))) {
+      const start: Record<string, number> = { nineties: 1990, eighties: 1980, seventies: 1970, sixties: 1960 };
+      const d = start[ym[1]]; signals.yearMin = d; signals.yearMax = d + 9;
+    }
+    // "old black and white classic" — monochrome era, strictly before 1970.
+    if (/\bblack[- ](?:and|&)[- ]white\b|\bb&w\b/.test(text)) signals.yearMax = 1969;
+    // "newest releases of 2026" → that year or later (downstream: honest
+    // notice when nothing recent enough exists).
+    if ((ym = text.match(/\b(?:newest|latest)\b[\s\S]{0,40}?\b(19\d{2}|20\d{2})\b/))) {
+      signals.yearMin = Number(ym[1]) - 1;
+    } else if (/\b(?:newest|latest)\b/.test(text) && signals.yearMin === undefined) {
+      signals.yearMin = new Date().getFullYear() - 1;
+    }
   }
 
-  if (/\brecent\b|\bnew\b|\b2020s\b|\blast five years\b|\bmodern\b|\bnayi\b|\bnaya\b/.test(text)) signals.eraHint = 'recent';
-  else if (/\bclassic\b|\bold\b|\b90s\b|\b80s\b|\b70s\b|\bbefore 2000\b|\bgolden age\b|\bvintage\b|\bpurani\b|\bpurana\b/.test(text))
+  // Kid/family-safe mode: explicit ages, "kids", "grandparents", Hinglish
+  // "bachon ke liye". Negated kid words ("no kids movies tonight") do NOT
+  // trigger it.
+  {
+    const KID_RE = /\b\d{1,2}\s*[- ]?\s*years?\s*[- ]?\s*old\b|\bkids\b|\bchildren\b|\btoddler|\bbach\w*\b|\bke liye\b|\bfor\s+(?:my\s+)?(?:son|daughter|kids?)\b|\bgrandparents?\b|\bteen sleepover\b|\bwhole family\b|\bfamily movie\b|\bfamily film\b/g;
+    for (const m of text.matchAll(KID_RE)) {
+      if (!hasNegationScope(text, m.index ?? 0)) { signals.audienceSafe = true; break; }
+    }
+  }
+  // The user asks for episodic content: never serve movies as a silent match.
+  if (/\bweb[\s-]?series\b|\btv[\s-]?shows?\b|\bmini-?series\b|\bseries\b|\bk-?drama\b|\bbinge-?worth/.test(text)) {
+    signals.wantsSeries = true;
+  }
+
+  // "6 year old" / "my kid is 8 years old" must NOT read as "old classic".
+  const eraText = text.replace(/\b\d{1,2}\s*[- ]?\s*years?\s*[- ]?\s*old\b/g, ' ');
+  if (/\brecent\b|\bnew\b|\b2020s\b|\blast five years\b|\bmodern\b|\bnayi\b|\bnaya\b/.test(eraText)) signals.eraHint = 'recent';
+  else if (/\bclassic\b|\bold\b|\b90s\b|\b80s\b|\b70s\b|\bbefore 2000\b|\bgolden age\b|\bvintage\b|\bpurani\b|\bpurana\b/.test(eraText))
     signals.eraHint = 'classics';
 
   if (/\bacclaimed\b|\bmasterpiece\b|\boscar\b|\bhighly rated\b|\bbest\b|\bmust-?watch\b/.test(text)) {
     signals.wantsHighlyRated = true;
   }
 
-  const LANGUAGE_HINTS: [RegExp, string][] = [
+  const LANGUAGE_HINTS: [RegExp, string | string[]][] = [
     [/\bkorean\b|\bk-?drama\b/, 'Korean'],
-    [/\bhindi\b|\bbollywood\b/, 'Hindi'],
-    [/\btamil\b|\bkollywood\b/, 'Tamil'],
-    [/\btelugu\b|\btollywood\b/, 'Telugu'],
+    [/\bhindi\b/, 'Hindi'],
+    [/\bbollywood\b/, 'Hindi'],
+    [/\btamil\b/, 'Tamil'],
+    [/\bkollywood\b/, 'Tamil'],
+    [/\btelugu\b/, 'Telugu'],
+    [/\btollywood\b/, 'Telugu'],
+    [/\bmalayalam\b/, 'Malayalam'],
+    [/\bmollywood\b/, 'Malayalam'],
+    [/\bkannada\b/, 'Kannada'],
+    [/\bsandalwood\b/, 'Kannada'],
+    [/\bbengali\b/, 'Bengali'],
+    [/\bmarathi\b/, 'Marathi'],
+    [/\bpunjabi\b/, 'Punjabi'],
+    [/\bgujarati\b/, 'Gujarati'],
+    [/\burdu\b/, 'Urdu'],
+    [/\bchinese\b|\bmandarin\b|\bcantonese\b/, 'Chinese'],
+    [/\bgerman\b/, 'German'],
+    [/\bitalian\b/, 'Italian'],
+    [/\bturkish\b/, 'Turkish'],
+    [/\bthai\b/, 'Thai'],
+    [/\brussian\b/, 'Russian'],
+    [/\bportuguese\b|\bbrazilian\b/, 'Portuguese'],
+    [/\barabic\b/, 'Arabic'],
+    [/\bindonesian\b/, 'Indonesian'],
+    [/\bpersian\b|\bfarsi\b/, 'Persian'],
+    [/\bpolish\b/, 'Polish'],
+    [/\bdutch\b/, 'Dutch'],
+    [/\bswedish\b/, 'Swedish'],
     [/\bjapanese\b|\banime\b/, 'Japanese'],
     [/\bfrench\b/, 'French'],
     [/\bspanish\b/, 'Spanish'],
     [/\benglish\b/, 'English'],
+    // Industry umbrella: one ask for the four large southern industries.
+    [/\bsouth indian\b/, ['Tamil', 'Telugu', 'Malayalam', 'Kannada']],
   ];
   for (const [re, lang] of LANGUAGE_HINTS) {
-    if (re.test(text)) signals.languageHints.push(lang);
+    for (const m of text.matchAll(new RegExp(re.source, 'g'))) {
+      // "no Bollywood, only South Indian" — the negated industry word must
+      // not enter the language filters at all.
+      if (hasNegationScope(text, m.index ?? 0)) continue;
+      signals.languageHints.push(...(Array.isArray(lang) ? lang : [lang]));
+    }
   }
   signals.languageHints = unique(signals.languageHints);
 
@@ -452,6 +592,7 @@ export function parseNote(rawNote: string): NoteSignals {
   signals.excludeGenres = unique(signals.excludeGenres);
   signals.genres = signals.genres.filter((g) => !signals.excludeGenres.includes(g));
   signals.unverifiable = unique(signals.unverifiable);
+  signals.unsupportedGenres = unique(signals.unsupportedGenres);
   signals.moods = unique(signals.moods);
   signals.lovedTitles = unique(signals.lovedTitles);
   signals.hatedTitles = unique(signals.hatedTitles);

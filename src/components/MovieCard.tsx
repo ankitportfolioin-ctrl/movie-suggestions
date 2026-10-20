@@ -5,6 +5,22 @@ import { Movie } from '../types';
 export function fitScoreOf(m: { fitScore?: number; matchScore?: number }): number {
   return m.fitScore ?? m.matchScore ?? 95;
 }
+
+/**
+ * D14: the card badge is derived from the watch-level minAge (TMDB-derived),
+ * never a raw foreign certificate string ("K-18", "18SG", "+13"). When no
+ * watch level is known the label says so explicitly.
+ */
+export function ageRatingLabel(m: { minAge?: number | null }): string {
+  const a = m.minAge;
+  if (typeof a !== 'number') return 'Rating not confirmed';
+  if (a <= 6) return 'All ages';
+  if (a <= 12) return '7+';
+  if (a <= 15) return '12+';
+  if (a <= 16) return '16+';
+  return '18+';
+}
+
 import { Star, Clock, BookmarkPlus, BookmarkCheck, ExternalLink, Shuffle, ThumbsDown, Eye } from 'lucide-react';
 
 interface MovieCardProps {
@@ -130,11 +146,9 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
                 {seriesFacts}
               </span>
             )}
-            {movie.certificate && (
-              <span className="px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#FF7A2F] text-xs font-medium">
-                {movie.certificate}
-              </span>
-            )}
+            <span className="px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#FF7A2F] text-xs font-medium">
+              {ageRatingLabel(movie)}
+            </span>
             {movie.language && (
               <span className="px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#232323] text-[#8C8C8C] text-xs flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#FF7A2F]" />

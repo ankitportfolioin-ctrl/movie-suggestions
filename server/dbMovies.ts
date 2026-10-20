@@ -28,7 +28,15 @@ let pool: Pool | null = null;
 export function getDbPool(): Pool {
   if (!pool) {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
-    pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+    // D15: cap every upstream wait. Without these, a dead serverless
+    // connection hangs on the OS TCP timeout (~20s) before its catch fires.
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 3,
+      connectionTimeoutMillis: 5000,
+      statement_timeout: 5000,
+      query_timeout: 5000,
+    });
   }
   return pool;
 }
@@ -81,7 +89,7 @@ export function buildWhereClause(f: DbFilters): { text: string; params: unknown[
   if (f.genres.length > 0) clauses.push(`genres && ${next(expandGenres(f.genres))}`);
   if (f.excludeGenres.length > 0) clauses.push(`NOT (genres && ${next(expandGenres(f.excludeGenres))})`);
   if (f.languages.length > 0) clauses.push(`originalLanguage = ANY(${next(f.languages)})`);
-  if (f.runtimeMin !== null) clauses.push(`runtime >= ${next(f.runtimeMin)}`);
+  if (f.runtimeMin !== null) clauses.push(`runtime > ${next(f.runtimeMin)}`);
   if (f.runtimeMax !== null) clauses.push(`runtime <= ${next(f.runtimeMax)}`);
   if (f.yearMin !== null) clauses.push(`year >= ${next(f.yearMin)}`);
   if (f.yearMax !== null) clauses.push(`year <= ${next(f.yearMax)}`);
@@ -94,7 +102,12 @@ export function buildWhereClause(f: DbFilters): { text: string; params: unknown[
     clauses.push(`((minAge IS NOT NULL AND minAge <= 6) OR (minAge IS NULL AND ` +
       `genres && '{Family,Animation}' AND NOT (genres && '{Horror,Crime,Thriller,War}')))`);
   } else if (!f.matureAllowed) {
-    clauses.push(`((minAge IS NULL OR minAge < 16) AND ` +
+    // Non-family: block adult-only content. The cap is 16 — except when the
+    // viewer EXPLICITLY named language(s) (e.g. "Kannada movie"): then the
+    // viewer asked for that industry's catalog and 15/17-certified rows
+    // (ingest-tagged 16) may serve; OMDb backfill still scrubs truly adult.
+    const cap = f.languages.length > 0 ? 18 : 16;
+    clauses.push(`((minAge IS NULL OR minAge < ${cap}) AND ` +
       `NOT (minAge IS NULL AND genres && '{Horror}'))`);
   }
   return { text: clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '', params };
@@ -151,17 +164,38 @@ export async function queryDbCandidates(f: DbFilters): Promise<DbItem[]> {
  */
 export async function loadReferenceAnchors(titles: string[]): Promise<DbItem[]> {
   if (titles.length === 0 || !process.env.DATABASE_URL) return [];
-  // Punctuation/case-insensitive match in SQL; accented titles also match their
-  // exact lowercase spelling (SQL cannot fold diacritics without an extension).
+  // Exact or prefix match: "Baahubali" anchors "Baahubali: The Beginning".
+  // Punctuation/case-insensitive; translate() folds diacritics so accent
+  // spellings ("Bāhubali") anchor too. 20-row cap keeps it honest.
   const normalized = titles.map(normalizeTitle).filter(Boolean);
   const lowered = titles.map((t) => t.trim().toLowerCase()).filter(Boolean);
+  // Double-letter collapse ("baahubali" == "bahubali") on top of diacritic
+  // folding: "Bāhubali" folds to "bahubali" and the user's "baahubali"
+  // collapses to the same stem.
+  const squashed = normalized.map((n) => n.replace(/(.)\1+/g, '$1')).filter(Boolean);
+  const FOLD_FROM = 'āàáâäãåēèéêëīìíîïōòóôöõùúûüñçšž';
+  const FOLD_TO = 'aaaaaaeeeeeiiiiioooooouuuuuncsz';
   try {
     const { rows } = await getDbPool().query(
       `SELECT ${DB_COLS} FROM movies
        WHERE regexp_replace(lower(title), '[^a-z0-9]', '', 'g') = ANY($1)
-          OR lower(title) = ANY($2)
+          OR regexp_replace(lower(title), '[^a-z0-9]', '', 'g') LIKE ANY($2)
+          OR lower(title) = ANY($3)
+          OR lower(title) LIKE ANY($4)
+          OR regexp_replace(translate(lower(title), $5, $6), '[^a-z0-9]', '', 'g') = ANY($7)
+          OR regexp_replace(translate(lower(title), $5, $6), '[^a-z0-9]', '', 'g') LIKE ANY($8)
+          OR regexp_replace(
+               regexp_replace(translate(lower(title), $5, $6), '(.)\\1+', '\\1', 'g'),
+               '[^a-z0-9]', '', 'g') = ANY($7)
+          OR regexp_replace(
+               regexp_replace(translate(lower(title), $5, $6), '(.)\\1+', '\\1', 'g'),
+               '[^a-z0-9]', '', 'g') LIKE ANY($8)
        LIMIT 20`,
-      [normalized, lowered],
+      [
+        normalized, normalized.map((n) => `${n}%`), lowered,
+        lowered.map((l) => `${l.replace(/'/g, "''")}%`),
+        FOLD_FROM, FOLD_TO, squashed, squashed.map((s) => `${s}%`),
+      ],
     );
     return rows.map(toDbItem);
   } catch {
@@ -190,7 +224,7 @@ export function matchesFilters(m: Filterable, f: DbFilters): boolean {
   if (f.genres.length > 0 && !m.genres.some((g) => wanted.includes(g))) return false;
   if (m.genres.some((g) => banned.includes(g))) return false;
   if (f.languages.length > 0 && !f.languages.includes(m.language)) return false;
-  if (f.runtimeMin !== null && !(m.runtime >= f.runtimeMin)) return false;
+  if (f.runtimeMin !== null && !(m.runtime > f.runtimeMin)) return false;
   if (f.runtimeMax !== null && !(m.runtime > 0 && m.runtime <= f.runtimeMax)) return false;
   if (f.yearMin !== null && !(m.year >= f.yearMin)) return false;
   if (f.yearMax !== null && !(m.year <= f.yearMax)) return false;
@@ -200,8 +234,10 @@ export function matchesFilters(m: Filterable, f: DbFilters): boolean {
     else if (!(m.genres.includes('Family') || m.genres.includes('Animation')) ||
       m.genres.some((g) => ['Horror', 'Crime', 'Thriller', 'War'].includes(g))) return false;
   } else if (!f.matureAllowed) {
-    if (typeof m.minAge === 'number') { if (m.minAge >= 16) return false; }
-    else if (m.genres.includes('Horror')) return false;
+    if (typeof m.minAge === 'number') {
+      // Explicit-language asks trust the viewer's catalog request (see SQL twin).
+      if (m.minAge >= (f.languages.length > 0 ? 18 : 16)) return false;
+    } else if (m.genres.includes('Horror')) return false;
   }
   return true;
 }
@@ -335,6 +371,23 @@ export async function ensureMinAge<T extends DbItem>(
     highlyRated: false, recent: false, classics: false, audience, matureAllowed,
     types, seasonsMax,
   };
+  // D15: all OMDb lookups run in parallel — three sequential 3s calls blew
+  // the total budget; parallel keeps the pick order. Each call already
+  // aborts at 3s (fetchFromOMDb's own timeout).
+  const needLookup = picks.filter(
+    (p) => typeof p.minAge !== 'number' && p.imdbId && key,
+  );
+  const lookups = new Map<string, { Rated?: string } | null>();
+  if (key) {
+    await Promise.all(needLookup.map(async (p) => {
+      const imdbId = p.imdbId as string;
+      const data = await Promise.race([
+        fetchFromOMDb({ imdbId }, key).catch(() => null),
+        new Promise<null>((r) => setTimeout(() => r(null), 3500)),
+      ]);
+      lookups.set(imdbId, data);
+    }));
+  }
   for (const pick of picks) {
     if (typeof pick.minAge === 'number' || !pick.imdbId || !key) {
       if (pick.minAge === null || pick.minAge === undefined) {
@@ -342,10 +395,7 @@ export async function ensureMinAge<T extends DbItem>(
       } else movies.push(pick);
       continue;
     }
-    let data: { Rated?: string } | null = null;
-    try {
-      data = await fetchFromOMDb({ imdbId: pick.imdbId }, key);
-    } catch { data = null; }
+    const data = lookups.get(pick.imdbId) ?? null;
     const age = data?.Rated ? OMDB_RATED_AGE[data.Rated.trim().toUpperCase()] : undefined;
     if (age === undefined || !data?.Rated) {
       movies.push({ ...pick, ratingNote: 'Rating not confirmed' });
