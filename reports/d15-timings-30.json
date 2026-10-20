@@ -1,0 +1,212 @@
+[
+  {
+    "q": "kannada movie",
+    "ms": 2864,
+    "status": 200,
+    "picks": 0,
+    "notices": "Nothing in that language fits your other filters — try Any language."
+  },
+  {
+    "q": "a family movie for my 6 year old",
+    "ms": 488,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "scary horror movie late night",
+    "ms": 112,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "something like Interstellar",
+    "ms": 469,
+    "status": 200,
+    "picks": 3,
+    "notices": "Interstellar didn't change your picks — showing the best matches for your other filters instead."
+  },
+  {
+    "q": "The Matrix",
+    "ms": 129,
+    "status": 200,
+    "picks": 1,
+    "notices": "Exact catalog match: \"The Matrix\" (1999)."
+  },
+  {
+    "q": "comedy for tired brain",
+    "ms": 266,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "web series to binge",
+    "ms": 304,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "a war movie",
+    "ms": 121,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "no bollywood, only south indian movies",
+    "ms": 206,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "old black and white classic",
+    "ms": 242,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "true story movie",
+    "ms": 325,
+    "status": 200,
+    "picks": 0,
+    "notices": "Nothing in Biography fits your other filters — try a different genre or widen the year."
+  },
+  {
+    "q": "a 90s movie with laughs",
+    "ms": 103,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "korean mystery night",
+    "ms": 587,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "long movie over 150 minutes",
+    "ms": 455,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "tollywood action",
+    "ms": 103,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "superhero movie",
+    "ms": 323,
+    "status": 200,
+    "picks": 3,
+    "notices": "\"Superhero\" is not a filterable tag in our catalog — picking by your other filters instead."
+  },
+  {
+    "q": "an action movie that is not a superhero movie",
+    "ms": 309,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "90 minute movie comedy",
+    "ms": 314,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "newest releases of 2026",
+    "ms": 215,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "marathi drama",
+    "ms": 326,
+    "status": 200,
+    "picks": 0,
+    "notices": "Nothing in that language fits your other filters — try Any language."
+  },
+  {
+    "q": "sports underdog movie",
+    "ms": 308,
+    "status": 200,
+    "picks": 0,
+    "notices": "Nothing in Sports fits your other filters — try a different genre or widen the year."
+  },
+  {
+    "q": "musical movie",
+    "ms": 455,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "something for grandparents",
+    "ms": 299,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "anime short watch",
+    "ms": 106,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "animated family night",
+    "ms": 295,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "documentary about space",
+    "ms": 296,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "german thriller",
+    "ms": 113,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "a mandarin action movie",
+    "ms": 112,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  },
+  {
+    "q": "nothing with Tom Cruise action",
+    "ms": 391,
+    "status": 200,
+    "picks": 3,
+    "notices": "Excluding Action | We can't filter by cast yet, so \"without Tom Cruise\" could not be applied."
+  },
+  {
+    "q": "between 100 and 120 minutes drama",
+    "ms": 204,
+    "status": 200,
+    "picks": 3,
+    "notices": ""
+  }
+]

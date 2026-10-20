@@ -27,13 +27,6 @@ interface ResultsViewProps {
   resetStatus: string;
 }
 
-const LOADER_MESSAGES = [
-  'Analyzing sentiment matrix and cognitive bandwidth...',
-  'Cross-referencing high-affinity tags...',
-  'Validating regional streaming availability...',
-  "Locking down tonight's perfect 3 recommendations...",
-];
-
 export const ResultsView: React.FC<ResultsViewProps> = ({
   movies,
   isLoading,
@@ -55,20 +48,27 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   onResetTaste,
   resetStatus,
 }) => {
-  const [tickerIndex, setTickerIndex] = useState(0);
+  // Human, reassuring loading copy
+  const loadingMessages = [
+    'Finding three good options for tonight…',
+    'Checking streaming availability…',
+    'Ranking your best matches…',
+    'Almost there…',
+  ];
+  const [messageIndex, setMessageIndex] = useState(0);
 
   useEffect(() => {
     if (!isLoading) {
-      setTickerIndex(0);
+      setMessageIndex(0);
       return;
     }
     const interval = window.setInterval(() => {
-      setTickerIndex((i) => (i + 1) % LOADER_MESSAGES.length);
-    }, 700);
+      setMessageIndex((i) => (i + 1) % loadingMessages.length);
+    }, 2500); // Slower, more human pace
     return () => window.clearInterval(interval);
   }, [isLoading]);
 
-  // Tasteful loading animation with rotating status ticker
+  // Tasteful loading animation with stable status
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[65vh] px-4 text-center my-auto">
@@ -79,15 +79,15 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             <Sparkles className="w-8 h-8 text-white animate-spin" style={{ animationDuration: '4s' }} />
           </div>
         </div>
-        {/* D-05: assistive tech hears one stable status, not the 700ms ticker */}
+        {/* Stable status for assistive tech */}
         <p role="status" aria-live="polite" className="sr-only">
-          Finding your picks. This can take a few seconds.
+          Finding your picks. This can take up to 20 seconds.
         </p>
         <h2 className="font-heading text-2xl font-bold text-[#F5F5F5] mt-8 tracking-wide" aria-hidden="true">
-          Analyzing Taste Profiles...
+          Finding your picks…
         </h2>
-        <p className="text-sm text-[#8C8C8C] mt-2 h-5 transition-all" aria-hidden="true">
-          {LOADER_MESSAGES[tickerIndex]}
+        <p className="text-sm text-[#8C8C8C] mt-2 h-6 transition-all" aria-hidden="true">
+          {loadingMessages[messageIndex]}
         </p>
       </div>
     );
@@ -161,13 +161,13 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
       <div className="text-center max-w-xl space-y-2">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#141414] border border-[#232323] text-xs font-medium tracking-wider uppercase text-[#FF7A2F]">
           <BadgeCheck size={14} />
-          <span>Tonight's Curated Triage</span>
+          <span>Tonight's Picks</span>
         </div>
         <h1
           className="font-heading text-3xl sm:text-4xl font-bold text-[#F5F5F5]"
           data-testid="results-heading"
         >
-          Your {movies.length} Tailored Match{movies.length === 1 ? '' : 'es'}
+          {movies.length > 0 ? 'Your tailored matches' : 'No matches found'}
         </h1>
         <p className="text-sm text-[#8C8C8C]">
           Handpicked for your mood, runtime threshold, and language choice.
@@ -190,23 +190,55 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
         </div>
       )}
 
-      {/* Exactly 3 movie cards in a responsive row (stacked on mobile) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full items-stretch">
-        {movies.map((movie, index) => (
-          <MovieCard
-            key={movie.id}
-            movie={movie}
-            index={index}
-            saved={savedIds.has(movie.id)}
-            dismissed={dismissed.has(movie.id)}
-            onToggleSave={onToggleSave}
-            onMoreLike={onMoreLike}
-            onNotForMe={onNotForMe}
-            onSeenIt={onSeenIt}
-            onWatchOptions={onWatchOptions}
-          />
-        ))}
-      </div>
+      {/* Results: Top pick emphasized, others as alternatives */}
+      {movies.length > 0 && (
+        <div className="w-full space-y-6">
+          {/* Top Pick - emphasized */}
+          <div className="relative">
+            <div className="absolute -top-3 left-4 z-10 px-3 py-1 rounded-full bg-gradient-to-r from-[#E63946] to-[#FF7A2F] text-white text-xs font-bold tracking-wider uppercase shadow-md">
+              Tonight's pick
+            </div>
+            <MovieCard
+              key={movies[0].id}
+              movie={movies[0]}
+              index={0}
+              saved={savedIds.has(movies[0].id)}
+              dismissed={dismissed.has(movies[0].id)}
+              onToggleSave={onToggleSave}
+              onMoreLike={onMoreLike}
+              onNotForMe={onNotForMe}
+              onSeenIt={onSeenIt}
+              onWatchOptions={onWatchOptions}
+            />
+          </div>
+
+          {/* Alternatives - lower visual weight */}
+          {movies.length > 1 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="text-center py-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#141414] border border-[#232323] text-xs font-medium tracking-wider uppercase text-[#8C8C8C]">
+                  <Sparkles size={12} />
+                  <span>Alternatives</span>
+                </span>
+              </div>
+              {movies.slice(1).map((movie, index) => (
+                <MovieCard
+                  key={movie.id}
+                  movie={movie}
+                  index={index + 1}
+                  saved={savedIds.has(movie.id)}
+                  dismissed={dismissed.has(movie.id)}
+                  onToggleSave={onToggleSave}
+                  onMoreLike={onMoreLike}
+                  onNotForMe={onNotForMe}
+                  onSeenIt={onSeenIt}
+                  onWatchOptions={onWatchOptions}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Nudge + Actions */}
       <div className="flex flex-col items-center w-full max-w-2xl gap-4 pt-2">

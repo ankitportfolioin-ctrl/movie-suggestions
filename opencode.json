@@ -1,13 +1,6 @@
 {
   "mcp": {
     "servers": {
-      "playwright": {
-        "type": "local",
-        "command": [
-          "npx",
-          "@playwright/mcp@latest"
-        ]
-      },
       "stitch": {
         "type": "local",
         "command": [
@@ -16,7 +9,8 @@
           "proxy"
         ],
         "environment": {
-          "STITCH_API_KEY": ""
+          "STITCH_API_KEY": "{env:STITCH_API_KEY}",
+          "STITCH_ACCESS_TOKEN": "{env:STITCH_ACCESS_TOKEN}"
         }
       }
     }
