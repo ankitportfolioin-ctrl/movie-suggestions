@@ -38,3 +38,4 @@ tmp-dbq.mjs
 test_s7.json
 reports/*
 !reports/prod-hardening-check.txt
+api/server/
