@@ -17,6 +17,7 @@ import { validateRecommendBody } from '../server/validate.js';
 import { registerAnalyticsRoutes } from '../server/analytics.js';
 import { enforceHardConstraints } from '../server/gate.js';
 import { runtimeCap } from '../server/omdb.js';
+import { allowRequest } from '../server/rateLimit.js';
 import {
   FALLBACK_PNG,
   contentTypeFor,
@@ -77,39 +78,20 @@ app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
   next(err);
 });
 
-// In-memory rate limiting: 30 requests per 10 minutes per IP
-interface RateLimitEntry {
-  count: number;
-  resetTime: number;
-}
-const rateLimits = new Map<string, RateLimitEntry>();
-// In-memory rate limiting: 30 requests per 10 minutes per IP.
-// shortcut: test-only override via RATE_LIMIT_MAX_REQUESTS (E2E sets it high so
-// parallel workers on one IP don't trip the limiter). Production default unchanged.
-const RATE_LIMIT_WINDOW = 10 * 60 * 1000; // 10 minutes
-const MAX_REQUESTS = Math.max(1, parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '30', 10) || 30);
+// Rate limiting: 30 requests per 10 minutes per IP, counted in Postgres so
+// the counter survives serverless cold starts (server/rateLimit.ts; table
+// created by scripts/db-migrate-rate-limit.ts). In-memory counter only when
+// DATABASE_URL is absent (local dev). RATE_LIMIT_MAX_REQUESTS overrides the
+// default (E2E sets it high so parallel workers on one IP don't trip it).
 
-function rateLimiter(req: Request, res: Response, next: NextFunction) {
+async function rateLimiter(req: Request, res: Response, next: NextFunction) {
   const forwarded = req.headers['x-forwarded-for'];
   const ip = req.socket.remoteAddress || (Array.isArray(forwarded) ? forwarded[0] : forwarded) || 'unknown';
-  const now = Date.now();
-
-  if (rateLimits.size > 1000) {
-    for (const [k, v] of rateLimits) if (v.resetTime <= now) rateLimits.delete(k);
-  }
-
-  const entry = rateLimits.get(ip);
-  if (!entry || entry.resetTime <= now) {
-    rateLimits.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
-    return next();
-  }
-
-  if (entry.count >= MAX_REQUESTS) {
+  const allowed = await allowRequest({ ip });
+  if (!allowed) {
     res.status(429).json({ error: 'Too many searches, try again in a few minutes.' });
     return;
   }
-
-  entry.count += 1;
   next();
 }
 
