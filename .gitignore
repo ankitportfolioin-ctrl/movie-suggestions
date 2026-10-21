@@ -32,3 +32,9 @@ audit-report.txt
 evidence/
 serve-api.tmp.ts
 tmp-dbq.mjs
+
+# Scratch artifacts and evidence dumps (laptop- or run-specific)
+.tmp_movie_ids_*.json.gz
+test_s7.json
+reports/*
+!reports/prod-hardening-check.txt
