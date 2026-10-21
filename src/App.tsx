@@ -16,7 +16,7 @@ import { ResultsView } from './components/ResultsView';
 import { SavedPicksView } from './components/SavedPicksView';
 import { HomePage } from './components/HomePage';
 import { PickForMe } from './components/PickForMe';
-import { NaturalSearch, SearchChip } from './components/NaturalSearch';
+import { NaturalSearch, SearchChip, parseQueryToChips } from './components/NaturalSearch';
 import {
   getAnonId,
   requestTasteReset,
@@ -114,6 +114,48 @@ interface RecommendRequest {
   anonId: string;
   taste: { weights: Record<string, number>; eventCount: number };
   referenceIds: string[];
+}
+
+// UI filter labels -> the lowercase kinds the API understands. Sending the
+// label itself ("Series") made the server drop it and fall back to movies.
+const TYPE_LABEL_TO_API: Record<string, string[]> = {
+  Movie: ['movie'],
+  Series: ['series'],
+  'Short film': ['short'],
+  Any: ['movie', 'short', 'series'],
+};
+function typeLabelsToApi(labels: string[]): string[] {
+  const out = new Set<string>();
+  for (const label of labels) {
+    const mapped = TYPE_LABEL_TO_API[label] ?? (['movie', 'short', 'series'].includes(label.toLowerCase()) ? [label.toLowerCase()] : []);
+    mapped.forEach((t) => out.add(t));
+  }
+  return out.size > 0 ? [...out] : ['movie'];
+}
+
+// Values /api/recommend accepts; anything else would be rejected with a 400.
+const NS_MOODS = new Set(['Mind-bending', 'Suspenseful', 'Funny', 'Feel-good', 'Emotional', 'Adventurous', 'Romantic', 'Surprise me']);
+const NS_GENRES = new Set(['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'Horror', 'Mystery', 'Romance', 'Sci-Fi', 'Thriller']);
+const NS_AUDIENCES = new Set(['Just me', 'Partner', 'Friends', 'Family with kids', 'Family / kids']);
+const NS_RUNTIMES = new Set(['Under 90 min', '90–120 min', 'Over 2 hours', 'Under 2 hours', 'Under 2.5 hours']);
+
+// Resolve a typed title ("the matrix") to a real IMDb id through the title
+// search endpoint. The recommend API only accepts real tt-ids as references.
+const normTitle = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+async function resolveReferenceTitle(title: string, exactOnly = false): Promise<ReferenceMovie | null> {
+  try {
+    const res = await fetch(`/api/title-search?q=${encodeURIComponent(title)}`, {
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const hit = Array.isArray(data?.results)
+      ? data.results.find((r: any) => /^tt\d+$/.test(r?.imdbId ?? '') && (!exactOnly || normTitle(r.title ?? '') === normTitle(title)))
+      : null;
+    return hit ? { imdbId: hit.imdbId, title: hit.title, year: hit.year ?? new Date().getFullYear() } : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function App() {
@@ -617,70 +659,76 @@ export default function App() {
     setViewMode('results');
   }, [buildRecommendRequest, fetchRecommendations]);
 
-  const handleNaturalSearch = useCallback((query: string, chips: SearchChip[]) => {
+  const handleNaturalSearch = useCallback(async (query: string, chips: SearchChip[]) => {
     setNaturalSearchQuery(query);
     setNaturalSearchChips(chips);
     setShowNaturalSearch(false);
     setViewMode('results');
 
-    // Translate chips to wizard state
-    const moodMap: Record<string, string> = {
-      'Mind-bending': 'Mind-bending',
-      'Suspenseful': 'Suspenseful',
-      'Funny': 'Funny',
-      'Feel-good': 'Feel-good',
-      'Emotional': 'Emotional',
-      'Adventurous': 'Adventurous',
-      'Surprise me': 'Surprise me',
-    };
+    // Translate chips into API-valid wizard values.
+    const genres = chips.filter((c) => c.type === 'genre').map((c) => c.label).filter((g) => NS_GENRES.has(g));
+    const mood = chips.filter((c) => c.type === 'mood').map((c) => c.label).find((m) => NS_MOODS.has(m));
+    const audience = chips.filter((c) => c.type === 'audience').map((c) => c.label).find((a) => NS_AUDIENCES.has(a));
+    const runtime = chips.filter((c) => c.type === 'runtime').map((c) => c.label).find((r) => NS_RUNTIMES.has(r));
+    const refTitles = chips
+      .filter((c) => c.type === 'reference')
+      .map((c) => c.label.replace(/^like "/, '').replace(/"$/, ''))
+      .filter(Boolean)
+      .slice(0, 3);
 
-    const genres = chips.filter(c => c.type === 'genre').map(c => c.label);
-    const moods = chips.filter(c => c.type === 'mood').map(c => c.label);
-    const audiences = chips.filter(c => c.type === 'audience').map(c => c.label);
-    const runtimes = chips.filter(c => c.type === 'runtime').map(c => c.label);
-    const references = chips.filter(c => c.type === 'reference').map(c => c.label);
+    // Show the loading state while reference titles resolve (a couple of
+    // hundred ms), then search with the REAL state - never the stale closure.
+    setIsLoading(true);
+    const resolved = (await Promise.all(refTitles.map((t) => resolveReferenceTitle(t)))).filter(
+      (r): r is ReferenceMovie => r !== null,
+    );
+    // A bare title ("Inception") yields no chips: if it exactly matches a
+    // catalog title, treat it as "movies like that title".
+    if (resolved.length === 0 && chips.length === 0 && query.split(/\s+/).length <= 6) {
+      const exact = await resolveReferenceTitle(query, true);
+      if (exact) resolved.push(exact);
+    }
 
-    setWizardState((prev) => ({
-      ...prev,
-      mood: moods[0] ? moodMap[moods[0]] : 'Surprise me',
+    const next = {
+      ...wizardState,
+      mood: mood ?? 'Surprise me',
       genres: genres.length > 0 ? genres : ['Surprise me'],
-      audience: audiences[0] || 'Just me',
-      maxRuntime: runtimes[0] || 'Any length',
+      // The server's family-safety rules key off the exact value 'Family with kids'.
+      audience: !audience ? 'Just me' : audience === 'Family / kids' ? 'Family with kids' : audience,
+      maxRuntime: runtime ?? 'Any length',
       note: query,
-      referenceMovies: references.map((r, i) => ({
-        imdbId: `ref-${i}`,
-        title: r.replace('like "', '').replace('"', ''),
-        year: new Date().getFullYear(),
-      })),
-    }));
-
-    const request = buildRecommendRequest(wizardState);
-    fetchRecommendations(request);
+      referenceMovies: resolved,
+    };
+    setWizardState(next);
+    fetchRecommendations(buildRecommendRequest(next));
   }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 
   const handleSearchSubmit = useCallback((query: string, mode: 'title' | 'natural') => {
     if (mode === 'title') {
-      // For title search, set note and fetch
-      setWizardState((prev) => ({ ...prev, note: query }));
-      const request = buildRecommendRequest(wizardState);
-      fetchRecommendations(request);
+      // Title search: carry the typed text as the note and search right away.
+      const next = { ...wizardState, note: query };
+      setWizardState(next);
+      fetchRecommendations(buildRecommendRequest(next));
       setViewMode('results');
+    } else if (query.trim().length >= 3) {
+      // Natural language: interpret the text and search on the FIRST Enter.
+      void handleNaturalSearch(query.trim(), parseQueryToChips(query.trim()));
     } else {
-      // For natural language, open NaturalSearch with the query pre-filled
+      // Too short to search: open the dedicated page so the user can keep typing.
       setNaturalSearchQuery(query);
       setShowNaturalSearch(true);
       setViewMode('natural-search');
     }
-  }, [wizardState, buildRecommendRequest, fetchRecommendations]);
+  }, [wizardState, buildRecommendRequest, fetchRecommendations, handleNaturalSearch]);
 
   const handleFilterChange = useCallback((filters: Partial<ActiveFilters>) => {
     setActiveFilters(prev => ({ ...prev, ...filters }));
     // Translate to wizard state and refetch
     const newWizardState = { ...wizardState };
-    if (filters.types) newWizardState.types = filters.types;
-    if (filters.moods) newWizardState.mood = filters.moods[0];
-    if (filters.audiences) newWizardState.audience = filters.audiences[0];
-    if (filters.runtimes) newWizardState.maxRuntime = filters.runtimes[0];
+    if (filters.types) newWizardState.types = typeLabelsToApi(filters.types);
+    if (filters.moods) newWizardState.mood = filters.moods[0] ?? 'Surprise me';
+    if (filters.audiences) newWizardState.audience = filters.audiences[0] ?? 'Just me';
+    if (filters.runtimes) newWizardState.maxRuntime = filters.runtimes[0] ?? 'Any length';
     setWizardState(newWizardState);
     const request = buildRecommendRequest(newWizardState);
     fetchRecommendations(request);

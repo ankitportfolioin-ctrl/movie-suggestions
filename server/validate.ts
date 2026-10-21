@@ -76,8 +76,20 @@ export function validateRecommendBody(body: any): ValidationResult {
   }
 
   // Media kinds: unknown values are dropped; default is movies-only.
+  // Case-insensitive ("Series" from a UI label is the same as "series"), and
+  // "any" expands to every kind instead of being silently dropped.
   const sanitizedTypes = Array.isArray(types)
-    ? [...new Set(types.filter((t: any) => typeof t === 'string' && (VALID_TYPES as readonly string[]).includes(t)))].slice(0, 3)
+    ? [
+        ...new Set(
+          types.flatMap((t: any): string[] => {
+            if (typeof t !== 'string') return [];
+            const k = t.trim().toLowerCase();
+            if (k === 'any') return [...VALID_TYPES];
+            if (k === 'short film') return ['short'];
+            return (VALID_TYPES as readonly string[]).includes(k) ? [k] : [];
+          }),
+        ),
+      ].slice(0, 3)
     : [];
   const requestTypes = sanitizedTypes.length > 0 ? sanitizedTypes : ['movie'];
 

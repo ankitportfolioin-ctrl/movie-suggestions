@@ -43,3 +43,17 @@ test('caps genres at three', () => {
   if (!r.ok) throw new Error('should validate');
   assert.equal(r.params.genres.length, 3);
 });
+
+test('media types are case-insensitive and "any" expands to every kind', () => {
+  const t = (types: unknown) => {
+    const r = validateRecommendBody({ ...good, types });
+    assert.equal(r.ok, true);
+    return r.ok ? r.params.types : [];
+  };
+  assert.deepEqual(t(['Series']), ['series']);
+  assert.deepEqual(t(['Movie']), ['movie']);
+  assert.deepEqual(t(['Short film']), ['short']);
+  assert.deepEqual([...t(['Any'])].sort(), ['movie', 'series', 'short']);
+  assert.deepEqual(t(['bogus']), ['movie']);
+  assert.deepEqual(t(undefined), ['movie']);
+});

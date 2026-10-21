@@ -17,6 +17,147 @@ interface NaturalSearchProps {
   initialChips?: SearchChip[];
 }
 
+// Parse natural language into chips (client-side heuristic; pure, so App can call it too)
+export const parseQueryToChips = (q: string): SearchChip[] => {
+  const lower = q.toLowerCase();
+  const newChips: SearchChip[] = [];
+  let chipId = 0;
+
+  // Reference title: "like X" or "similar to X"
+  const likeMatch = lower.match(/(?:like|similar to)\s+["']?([^"']+)["']?/);
+  const refTitle = likeMatch
+    ? likeMatch[1].split(/\s+(?:but|and|with|that|which|only|except|under|over|from|for|not|no|without)\b|[,;]/)[0].trim()
+    : '';
+  if (likeMatch && refTitle) {
+    newChips.push({
+      id: `ref-${chipId++}`,
+      label: `like "${refTitle}"`,
+      type: 'reference',
+      removable: true,
+    });
+  }
+
+  // Year: "best of 2020", "from 2019", "2020s"
+  const yearMatch = lower.match(/(?:best of|from|in)\s+(19|20)\d{2}/) || lower.match(/\b(19|20)\d{2}s?\b/);
+  if (yearMatch) {
+    const year = yearMatch[0].match(/\d{4}/)?.[0] || yearMatch[0].match(/\d{2}/)?.[0];
+    if (year) {
+      newChips.push({
+        id: `year-${chipId++}`,
+        label: year.length === 2 ? `20${year}s` : year,
+        type: 'year',
+        removable: true,
+      });
+    }
+  }
+
+  // Mood/genre keywords
+  const moodKeywords: Record<string, { label: string; type: 'mood' | 'genre' | 'audience' }> = {
+    'mind.bending': { label: 'Mind-bending', type: 'mood' },
+    'suspense': { label: 'Suspenseful', type: 'mood' },
+    'thriller': { label: 'Thriller', type: 'genre' },
+    'psychological': { label: 'Thriller', type: 'genre' },
+    'crime': { label: 'Crime', type: 'genre' },
+    'funny': { label: 'Funny', type: 'mood' },
+    'comedy': { label: 'Comedy', type: 'genre' },
+    'feel.good': { label: 'Feel-good', type: 'mood' },
+    'uplifting': { label: 'Feel-good', type: 'mood' },
+    'emotional': { label: 'Emotional', type: 'mood' },
+    'moving': { label: 'Emotional', type: 'mood' },
+    'bittersweet': { label: 'Emotional', type: 'mood' },
+    'adventurous': { label: 'Adventurous', type: 'mood' },
+    'adventure': { label: 'Adventure', type: 'genre' },
+    'action': { label: 'Action', type: 'genre' },
+    'sci.fi': { label: 'Sci-Fi', type: 'genre' },
+    'space': { label: 'Sci-Fi', type: 'genre' },
+    'fantasy': { label: 'Fantasy', type: 'genre' },
+    'horror': { label: 'Horror', type: 'genre' },
+    'scary': { label: 'Horror', type: 'genre' },
+    'romance': { label: 'Romance', type: 'genre' },
+    'romantic': { label: 'Romantic', type: 'mood' },
+    'drama': { label: 'Drama', type: 'genre' },
+    'documentary': { label: 'Documentary', type: 'genre' },
+    'animation': { label: 'Animation', type: 'genre' },
+    'animated': { label: 'Animation', type: 'genre' },
+    'family': { label: 'Family', type: 'genre' },
+  };
+
+  // "not scary" / "without gore": the negated word must not become a chip.
+  const negated = new Set([...lower.matchAll(/\b(?:not|no|without)\s+(\w+)/g)].map((m) => m[1]));
+
+  for (const [keyword, config] of Object.entries(moodKeywords)) {
+    // "." in a keyword means "space or hyphen or nothing" (feel-good, feel good,
+    // sci-fi, sci fi); a trailing \w* lets "suspenseful" match "suspense".
+    const regex = new RegExp(`\\b${keyword.replace('.', '[\\s-]?')}\\w*\\b`, 'i');
+    const plain = keyword.replace('.', '');
+    if (negated.has(plain) || negated.has(config.label.toLowerCase())) continue;
+    if (regex.test(lower)) {
+      newChips.push({
+        id: `${config.type}-${chipId++}`,
+        label: config.label,
+        type: config.type,
+        removable: true,
+      });
+    }
+  }
+
+  // Runtime: "under 90", "short", "long", "2 hours"
+  const runtimeMatch = lower.match(/(?:under|less than)\s+(\d+)\s*(min|minute|hour)/) ||
+                       lower.match(/(?:over|more than)\s+(\d+)\s*(min|minute|hour)/) ||
+                       lower.match(/\b(\d+)\s*(hour|hr)\b/);
+  if (runtimeMatch) {
+    const num = parseInt(runtimeMatch[1], 10);
+    const unit = runtimeMatch[2] || 'min';
+    const mins = unit.startsWith('h') ? num * 60 : num;
+    if (mins <= 90) {
+      newChips.push({ id: `runtime-${chipId++}`, label: 'Under 90 min', type: 'runtime', removable: true });
+    } else if (mins <= 120) {
+      newChips.push({ id: `runtime-${chipId++}`, label: '90–120 min', type: 'runtime', removable: true });
+    } else {
+      newChips.push({ id: `runtime-${chipId++}`, label: 'Over 2 hours', type: 'runtime', removable: true });
+    }
+  } else if (/\bshort\b/.test(lower)) {
+    newChips.push({ id: `runtime-${chipId++}`, label: 'Under 90 min', type: 'runtime', removable: true });
+  } else if (/\blong\b/.test(lower) || /\bepic\b/.test(lower)) {
+    newChips.push({ id: `runtime-${chipId++}`, label: 'Over 2 hours', type: 'runtime', removable: true });
+  }
+
+  // Audience: "for family", "for kids", "date night", "with friends"
+  if (/\b(?:family|kids|children)\b/.test(lower)) {
+    newChips.push({ id: `audience-${chipId++}`, label: 'Family / kids', type: 'audience', removable: true });
+  } else if (/\b(?:date|partner|couple)\b/.test(lower)) {
+    newChips.push({ id: `audience-${chipId++}`, label: 'Partner', type: 'audience', removable: true });
+  } else if (/\b(?:friends|group|party)\b/.test(lower)) {
+    newChips.push({ id: `audience-${chipId++}`, label: 'Friends', type: 'audience', removable: true });
+  } else if (/\b(?:alone|solo|myself|just me)\b/.test(lower)) {
+    newChips.push({ id: `audience-${chipId++}`, label: 'Just me', type: 'audience', removable: true });
+  }
+
+  // "not scary", "not horror", "but not X"
+  const notMatches = lower.match(/(?:not|no|without)\s+(\w+)/g);
+  if (notMatches) {
+    notMatches.forEach((m) => {
+      const word = m.replace(/(?:not|no|without)\s+/, '').trim();
+      if (['scary', 'horror', 'gore', 'violence', 'sex', 'romance', 'comedy'].includes(word)) {
+        newChips.push({
+          id: `exclude-${chipId++}`,
+          label: `No ${word}`,
+          type: 'custom',
+          removable: true,
+        });
+      }
+    });
+  }
+
+  const seen = new Set<string>();
+  return newChips.filter((c) => {
+    const k = `${c.type}:${c.label}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+};
+
 /**
  * Natural language search with interpreted, editable chips.
  * Translates "movies like Interstellar" → [sci-fi, space, big ideas, emotional] chips.
@@ -35,6 +176,10 @@ export const NaturalSearch: React.FC<NaturalSearchProps> = ({
   const [searchError, setSearchError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const chipsRef = useRef<HTMLDivElement>(null);
+  // True once the user removes/clears/adds a chip by hand; until then the
+  // chips are always re-derived from the text on submit (the live preview is
+  // debounced, so a fast Enter could otherwise send stale or empty chips).
+  const chipsEditedRef = useRef(false);
 
   // Sync with props
   useEffect(() => {
@@ -42,6 +187,7 @@ export const NaturalSearch: React.FC<NaturalSearchProps> = ({
   }, [initialQuery]);
 
   useEffect(() => {
+    chipsEditedRef.current = false;
     setChips(initialChips);
     setShowChips(initialChips.length > 0);
   }, [initialChips]);
@@ -50,133 +196,6 @@ export const NaturalSearch: React.FC<NaturalSearchProps> = ({
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
-
-  // Parse natural language into chips (client-side heuristic + server validation)
-  const parseQueryToChips = (q: string): SearchChip[] => {
-    const lower = q.toLowerCase();
-    const newChips: SearchChip[] = [];
-    let chipId = 0;
-
-    // Reference title: "like X" or "similar to X"
-    const likeMatch = lower.match(/(?:like|similar to)\s+["']?([^"']+)["']?/);
-    if (likeMatch) {
-      newChips.push({
-        id: `ref-${chipId++}`,
-        label: `like "${likeMatch[1].trim()}"`,
-        type: 'reference',
-        removable: true,
-      });
-    }
-
-    // Year: "best of 2020", "from 2019", "2020s"
-    const yearMatch = lower.match(/(?:best of|from|in)\s+(19|20)\d{2}/) || lower.match(/\b(19|20)\d{2}s?\b/);
-    if (yearMatch) {
-      const year = yearMatch[0].match(/\d{4}/)?.[0] || yearMatch[0].match(/\d{2}/)?.[0];
-      if (year) {
-        newChips.push({
-          id: `year-${chipId++}`,
-          label: year.length === 2 ? `20${year}s` : year,
-          type: 'year',
-          removable: true,
-        });
-      }
-    }
-
-    // Mood/genre keywords
-    const moodKeywords: Record<string, { label: string; type: 'mood' | 'genre' | 'audience' }> = {
-      'mind.bending': { label: 'Mind-bending', type: 'mood' },
-      'suspense': { label: 'Suspenseful', type: 'mood' },
-      'thriller': { label: 'Thriller', type: 'genre' },
-      'psychological': { label: 'Psychological', type: 'genre' },
-      'crime': { label: 'Crime', type: 'genre' },
-      'funny': { label: 'Funny', type: 'mood' },
-      'comedy': { label: 'Comedy', type: 'genre' },
-      'feel.good': { label: 'Feel-good', type: 'mood' },
-      'uplifting': { label: 'Uplifting', type: 'mood' },
-      'emotional': { label: 'Emotional', type: 'mood' },
-      'moving': { label: 'Emotional', type: 'mood' },
-      'bittersweet': { label: 'Bittersweet', type: 'mood' },
-      'adventurous': { label: 'Adventurous', type: 'mood' },
-      'adventure': { label: 'Adventure', type: 'genre' },
-      'action': { label: 'Action', type: 'genre' },
-      'sci.fi': { label: 'Sci-Fi', type: 'genre' },
-      'space': { label: 'Space', type: 'genre' },
-      'fantasy': { label: 'Fantasy', type: 'genre' },
-      'horror': { label: 'Horror', type: 'genre' },
-      'scary': { label: 'Horror', type: 'genre' },
-      'romance': { label: 'Romance', type: 'genre' },
-      'romantic': { label: 'Romantic', type: 'mood' },
-      'drama': { label: 'Drama', type: 'genre' },
-      'documentary': { label: 'Documentary', type: 'genre' },
-      'animation': { label: 'Animation', type: 'genre' },
-      'animated': { label: 'Animation', type: 'genre' },
-      'family': { label: 'Family', type: 'genre' },
-      'kids': { label: 'Kids', type: 'audience' },
-      'children': { label: 'Kids', type: 'audience' },
-    };
-
-    for (const [keyword, config] of Object.entries(moodKeywords)) {
-      const regex = new RegExp(`\\b${keyword.replace('.', '\\.')}\\b`, 'i');
-      if (regex.test(lower)) {
-        newChips.push({
-          id: `${config.type}-${chipId++}`,
-          label: config.label,
-          type: config.type,
-          removable: true,
-        });
-      }
-    }
-
-    // Runtime: "under 90", "short", "long", "2 hours"
-    const runtimeMatch = lower.match(/(?:under|less than)\s+(\d+)\s*(min|minute|hour)/) ||
-                         lower.match(/(?:over|more than)\s+(\d+)\s*(min|minute|hour)/) ||
-                         lower.match(/\b(\d+)\s*(hour|hr)\b/);
-    if (runtimeMatch) {
-      const num = parseInt(runtimeMatch[1], 10);
-      const unit = runtimeMatch[2] || 'min';
-      const mins = unit.startsWith('h') ? num * 60 : num;
-      if (mins <= 90) {
-        newChips.push({ id: `runtime-${chipId++}`, label: 'Under 90 min', type: 'runtime', removable: true });
-      } else if (mins <= 120) {
-        newChips.push({ id: `runtime-${chipId++}`, label: '90–120 min', type: 'runtime', removable: true });
-      } else {
-        newChips.push({ id: `runtime-${chipId++}`, label: 'Over 2 hours', type: 'runtime', removable: true });
-      }
-    } else if (/\bshort\b/.test(lower)) {
-      newChips.push({ id: `runtime-${chipId++}`, label: 'Under 90 min', type: 'runtime', removable: true });
-    } else if (/\blong\b/.test(lower) || /\bepic\b/.test(lower)) {
-      newChips.push({ id: `runtime-${chipId++}`, label: 'Over 2 hours', type: 'runtime', removable: true });
-    }
-
-    // Audience: "for family", "for kids", "date night", "with friends"
-    if (/\b(?:family|kids|children)\b/.test(lower)) {
-      newChips.push({ id: `audience-${chipId++}`, label: 'Family / kids', type: 'audience', removable: true });
-    } else if (/\b(?:date|partner|couple)\b/.test(lower)) {
-      newChips.push({ id: `audience-${chipId++}`, label: 'Partner', type: 'audience', removable: true });
-    } else if (/\b(?:friends|group|party)\b/.test(lower)) {
-      newChips.push({ id: `audience-${chipId++}`, label: 'Friends', type: 'audience', removable: true });
-    } else if (/\b(?:alone|solo|myself|just me)\b/.test(lower)) {
-      newChips.push({ id: `audience-${chipId++}`, label: 'Just me', type: 'audience', removable: true });
-    }
-
-    // "not scary", "not horror", "but not X"
-    const notMatches = lower.match(/(?:not|no|without)\s+(\w+)/g);
-    if (notMatches) {
-      notMatches.forEach((m) => {
-        const word = m.replace(/(?:not|no|without)\s+/, '').trim();
-        if (['scary', 'horror', 'gore', 'violence', 'sex', 'romance', 'comedy'].includes(word)) {
-          newChips.push({
-            id: `exclude-${chipId++}`,
-            label: `No ${word}`,
-            type: 'custom',
-            removable: true,
-          });
-        }
-      });
-    }
-
-    return newChips;
-  };
 
   const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -201,20 +220,24 @@ export const NaturalSearch: React.FC<NaturalSearchProps> = ({
     }
     setSearchLoading(true);
     setSearchError('');
-    onSearch(query.trim(), chips);
+    clearTimeout(window.parseTimer);
+    onSearch(query.trim(), chipsEditedRef.current ? chips : parseQueryToChips(query.trim()));
   };
 
   const removeChip = (chipId: string) => {
+    chipsEditedRef.current = true;
     setChips((prev) => prev.filter((c) => c.id !== chipId));
   };
 
   const clearAllChips = () => {
+    chipsEditedRef.current = true;
     setChips([]);
     setShowChips(false);
   };
 
   const addCustomChip = (label: string) => {
     if (!label.trim()) return;
+    chipsEditedRef.current = true;
     setChips((prev) => [...prev, {
       id: `custom-${Date.now()}`,
       label: label.trim(),
@@ -236,7 +259,8 @@ export const NaturalSearch: React.FC<NaturalSearchProps> = ({
 
   return (
     <div className="w-full max-w-2xl mx-auto animate-slide-down" role="region" aria-label="Natural language search">
-      <form onSubmit={handleSubmit} className="relative">
+      <h1 className="sr-only">Describe what you want to watch</h1>
+      <form onSubmit={handleSubmit} className="relative" role="search">
         {/* Search Input */}
         <div className="flex items-center gap-2">
           <Search className="absolute left-4 text-[#8C8C8C] w-5 h-5 pointer-events-none" aria-hidden="true" />
@@ -250,6 +274,7 @@ export const NaturalSearch: React.FC<NaturalSearchProps> = ({
             maxLength={200}
             disabled={searchLoading || isLoading}
             autoComplete="off"
+            aria-label="Describe what you want to watch"
             aria-describedby="search-status"
           />
           {searchLoading && (
