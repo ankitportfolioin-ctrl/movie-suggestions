@@ -57,6 +57,22 @@ app.use(helmet({ contentSecurityPolicy: isProd ? undefined : false }));
 // Same-origin only: the client is served by this server, no CORS needed.
 app.use(express.json({ limit: '50kb' }));
 
+// JSON parse / body-size errors must be JSON responses, never the HTML
+// <pre>Bad Request</pre> page Express's default handler emits (that HTML is
+// what clients saw when a request carried malformed JSON).
+app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  const type = (err as { type?: string } | null)?.type;
+  if (type === 'entity.parse.failed') {
+    res.status(400).json({ error: 'Invalid request body' });
+    return;
+  }
+  if (type === 'entity.too.large') {
+    res.status(413).json({ error: 'Request body too large' });
+    return;
+  }
+  next(err);
+});
+
 // In-memory rate limiting: 30 requests per 10 minutes per IP
 interface RateLimitEntry {
   count: number;
