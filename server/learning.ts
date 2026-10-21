@@ -68,8 +68,11 @@ export interface ImpressionRow {
 }
 
 export function openLearningDb(filePath?: string): Database.Database {
-  const target =
+  let target =
     filePath ?? process.env.LEARNING_DB_PATH ?? path.resolve(process.cwd(), 'data', 'learning.db');
+  // Vercel: never write to the deployment filesystem. An in-memory DB keeps
+  // the API shape valid for callers that ignore the disable flag.
+  if (process.env.VERCEL && !filePath && !process.env.LEARNING_DB_PATH) target = ':memory:';
   if (target !== ':memory:') fs.mkdirSync(path.dirname(target), { recursive: true });
   const db = new Database(target);
   db.exec(`

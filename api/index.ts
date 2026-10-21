@@ -34,7 +34,10 @@ let learningModule: any = null;
 const LEARNING_ENABLED = process.env.LEARNING_ENABLED === 'true';
 
 async function loadLearningModule() {
-  if (!LEARNING_ENABLED) return null;
+  // Fully disabled on Vercel: better-sqlite3 is a native module the
+  // serverless bundle can't ship reliably, and the serverless filesystem
+  // is read-only outside /tmp — never attempt to load or write there.
+  if (!LEARNING_ENABLED || process.env.VERCEL) return null;
   if (!learningModule) {
     try {
       learningModule = await import('../server/learning.js');

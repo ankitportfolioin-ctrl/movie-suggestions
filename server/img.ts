@@ -5,6 +5,7 @@
  * GET /img/:size/:host/:path*, cached on disk, with long Cache-Control.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
@@ -18,7 +19,11 @@ export const IMG_HOSTS: Record<string, string> = {
   imdb: 'https://ia.media-imdb.com/images/M',
 };
 
-const CACHE_DIR = path.resolve(process.cwd(), 'data', 'img');
+// Vercel's filesystem is read-only outside /tmp — writing under process.cwd()
+// would fail every upstream fetch. os.tmpdir() is writable in serverless.
+const CACHE_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'movienight-img')
+  : path.resolve(process.cwd(), 'data', 'img');
 
 export function isValidImgSize(size: string): boolean {
   return IMG_SIZES.has(size);
