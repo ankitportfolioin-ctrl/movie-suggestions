@@ -49,7 +49,8 @@ async function loadLearningModule() {
   return learningModule;
 }
 
-dotenv.config();
+// Load .env secrets locally only: Vercel already injects its own env vars.
+if (!process.env.VERCEL) dotenv.config({ quiet: true });
 
 const app = express();
 
