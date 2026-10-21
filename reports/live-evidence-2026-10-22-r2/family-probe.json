@@ -1,0 +1,16 @@
+{
+  "sentAudience": "Family with kids",
+  "header": "Found 6 matches",
+  "cards": 6,
+  "allAges": false,
+  "cardAges": [
+    "My Neighbor Totoro: Rating not confirmed (poster=true)",
+    "Toy Story: Rating not confirmed (poster=true)",
+    "Soul: Rating not confirmed (poster=true)",
+    "Fantastic Mr. Fox: Rating not confirmed (poster=true)",
+    "WALL·E: Rating not confirmed (poster=true)",
+    "Paddington 2: Rating not confirmed (poster=true)"
+  ],
+  "respNotices": [],
+  "durationMs": 3370
+}

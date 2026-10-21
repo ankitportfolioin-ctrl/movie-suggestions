@@ -1,0 +1,296 @@
+{
+  "base": "https://movie-night-picker-one.vercel.app",
+  "apiCalls": {
+    "recommend": 10,
+    "search": 0,
+    "titleSearch": 0,
+    "blockedBeacons": 13,
+    "errorSuppressPool": 12
+  },
+  "ageStats": {
+    "total": 160,
+    "notConfirmed": 100,
+    "labels": {
+      "All ages": 40,
+      "7+": 20,
+      "Rating not confirmed": 100
+    }
+  },
+  "recommendTimings": [
+    {
+      "status": 200,
+      "ttfbMs": -1792612420867115,
+      "actionMs": 6299
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792612435124163,
+      "actionMs": 5031
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792612460132834,
+      "actionMs": 5891
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792612491724943,
+      "actionMs": 4366
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792612508853536,
+      "actionMs": 4270
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792612522816173
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792612535929256,
+      "actionMs": 5783
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792612548707923
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792612591666031,
+      "actionMs": 5155
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792612613706669
+    }
+  ],
+  "respFacts": [
+    {
+      "t": 1792612433076,
+      "audience": "Just me",
+      "notices": [],
+      "firstTypes": [
+        "Elemental[movie]",
+        "Shrek 2[movie]",
+        "Rugrats in Paris: The Movie[movie]",
+        "Lilo & Stitch[movie]",
+        "Kung Fu Panda[movie]"
+      ]
+    },
+    {
+      "t": 1792612444971,
+      "audience": "Just me",
+      "notices": [],
+      "firstTypes": [
+        "Mercy[movie]",
+        "Super 8[movie]",
+        "Caddo Lake[movie]",
+        "The Vast of Night[movie]",
+        "Reminiscence[movie]"
+      ]
+    },
+    {
+      "t": 1792612470452,
+      "audience": "Just me",
+      "notices": [],
+      "firstTypes": [
+        "Wish Dragon[movie]",
+        "The Lego Batman Movie[movie]",
+        "Another Cinderella Story[movie]",
+        "Ron's Gone Wrong[movie]",
+        "Scooby-Doo! Camp Scare[movie]"
+      ]
+    },
+    {
+      "t": 1792612496523,
+      "audience": "Just me",
+      "notices": [
+        "Using your reference titles as your similarity reference."
+      ],
+      "firstTypes": [
+        "My Neighbor Totoro[?]",
+        "Parasite[?]",
+        "The Good, the Bad and the Ugly[?]",
+        "Before Sunrise[?]",
+        "Edge of Tomorrow[?]"
+      ]
+    },
+    {
+      "t": 1792612510480,
+      "audience": "Just me",
+      "notices": [
+        "We couldn't match \"Incepton\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \"movies like ...\"."
+      ],
+      "firstTypes": [
+        "Hunt for the Wilderpeople[?]",
+        "Coherence[?]",
+        "Amélie[?]",
+        "The Fall[?]",
+        "Toy Story[?]"
+      ]
+    },
+    {
+      "t": 1792612524339,
+      "audience": "Just me",
+      "notices": [],
+      "firstTypes": [
+        "Soul[?]",
+        "(500) Days of Summer[?]",
+        "Fantastic Mr. Fox[?]",
+        "The Secret Life of Walter Mitty[?]",
+        "About Time[?]"
+      ]
+    },
+    {
+      "t": 1792612537354,
+      "audience": "Just me",
+      "notices": [
+        "We couldn't match \"asdfghjkl qwerty\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \"movies like ...\".",
+        "Including titles you've already seen to complete your three."
+      ],
+      "firstTypes": [
+        "My Neighbor Totoro[?]",
+        "Parasite[?]",
+        "The Good, the Bad and the Ugly[?]",
+        "Before Sunrise[?]",
+        "Edge of Tomorrow[?]"
+      ]
+    },
+    {
+      "t": 1792612553216,
+      "audience": "Just me",
+      "notices": [
+        "Using The Matrix as your similarity reference.",
+        "Including titles you've already seen to complete your three."
+      ],
+      "firstTypes": [
+        "My Neighbor Totoro[?]",
+        "Parasite[?]",
+        "The Good, the Bad and the Ugly[?]",
+        "Before Sunrise[?]",
+        "Edge of Tomorrow[?]"
+      ]
+    },
+    {
+      "t": 1792612601470,
+      "audience": "Just me",
+      "notices": [
+        "Using The Matrix as your similarity reference.",
+        "Only found 1 close match — loosen a filter for a full three.",
+        "Removed 1 title of the wrong kind — you asked for series.",
+        "Nothing left after enforcing your filters — try widening the runtime or genres."
+      ],
+      "firstTypes": []
+    },
+    {
+      "t": 1792612623838,
+      "audience": "Just me",
+      "notices": [],
+      "firstTypes": [
+        "Elemental[movie]",
+        "Shrek 2[movie]",
+        "Rugrats in Paris: The Movie[movie]",
+        "Lilo & Stitch[movie]",
+        "Kung Fu Panda[movie]"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "name": "S1 home loads (desktop 1280)",
+      "status": "pass",
+      "details": "heading OK=true, input OK=true, load=5173ms; consoleErrors=[]; pageErrors=[]; failedRequests=[]",
+      "screenshot": "s01-home-desktop.png"
+    },
+    {
+      "name": "S2 mood \"Mind-bending\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=6299ms; titles=[\"Elemental\",\"Shrek 2\",\"Rugrats in Paris: The Movie\",\"Lilo & Stitch\",\"Kung Fu Panda\"]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-mindbending.png"
+    },
+    {
+      "name": "S2 mood \"Feel-good\"",
+      "status": "warn",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=10; recommend=5031ms; titles=[\"Mercy\",\"Super 8\",\"Caddo Lake\",\"The Vast of Night\",\"Reminiscence\"]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-feelgood.png"
+    },
+    {
+      "name": "S2 mood \"Funny\"",
+      "status": "warn",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=10; recommend=5263ms; titles=[\"Wish Dragon\",\"The Lego Batman Movie\",\"Another Cinderella Story\",\"Ron's Gone Wrong\",\"Scooby-Doo! Camp Scare\"]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-funny.png"
+    },
+    {
+      "name": "S3 search \"Inception\" (inception)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=5891ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 10 matches\"; cards=10; respNotices=[\"Using your reference titles as your similarity reference.\"]; firstTypes=[\"My Neighbor Totoro[?]\",\"Parasite[?]\",\"The Good, the Bad and the Ugly[?]\",\"Before Sunrise[?]\",\"Edge of Tomorrow[?]\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"Rating not confirmed | HIDDEN GEM (low popularity with solid ratings, an under-the-radar pick) Fit 97/100 1988 1h\"",
+      "screenshot": "s03-search-inception.png"
+    },
+    {
+      "name": "S3 search \"Incepton\" (incepton-misspelled)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=4366ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 10 matches\"; cards=10; respNotices=[\"We couldn't match \\\"Incepton\\\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \\\"movies like ...\\\".\"]; firstTypes=[\"Hunt for the Wilderpeople[?]\",\"Coherence[?]\",\"Amélie[?]\",\"The Fall[?]\",\"Toy Story[?]\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"Rating not confirmed | HIDDEN GEM (low popularity with solid ratings, an under-the-radar pick) Fit 93/100 2016 1h\"",
+      "screenshot": "s03-search-incepton-misspelled.png"
+    },
+    {
+      "name": "S3 search \"best comedies\" (genre-comedies)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=4270ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 5 matches\"; cards=5; respNotices=[]; firstTypes=[\"Soul[?]\",\"(500) Days of Summer[?]\",\"Fantastic Mr. Fox[?]\",\"The Secret Life of Walter Mitty[?]\",\"About Time[?]\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"Rating not confirmed | Fit 99/100 2020 1h 40m 8.1 TMDB Rating not confirmed EN • Animation, Comedy, Drama Soul A \"",
+      "screenshot": "s03-search-genre-comedies.png"
+    },
+    {
+      "name": "S4 gibberish 'asdfghjkl qwerty' -> couldn't-match notice",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200; header=\"Found 10 matches\"; cards=10; cantMatchNotice=true; friendlyEmpty=true; respNotices=[\"We couldn't match \\\"asdfghjkl qwerty\\\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \\\"movies like ...\\\".\",\"Including titles you've already seen to complete your three.\"]; appError=false; appConsoleErrors=[]; pageErrors=[]",
+      "screenshot": "s04-empty-search.png"
+    },
+    {
+      "name": "S3 search \"movies like The Matrix\" (reference-matrix)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=5783ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 10 matches\"; cards=10; respNotices=[\"Using The Matrix as your similarity reference.\",\"Including titles you've already seen to complete your three.\"]; firstTypes=[\"My Neighbor Totoro[?]\",\"Parasite[?]\",\"The Good, the Bad and the Ugly[?]\",\"Before Sunrise[?]\",\"Edge of Tomorrow[?]\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"Rating not confirmed | HIDDEN GEM (low popularity with solid ratings, an under-the-radar pick) Fit 97/100 1988 1h\"",
+      "screenshot": "s03-search-reference-matrix.png"
+    },
+    {
+      "name": "S9 axe: home",
+      "status": "pass",
+      "details": "0 violations (clean)",
+      "screenshot": "s09-axe-home.png"
+    },
+    {
+      "name": "S6 filters: Type -> Series returns series",
+      "status": "warn",
+      "details": "sentTypes=[series]; before first=\"My Neighbor Totoro\"; after header=\"No perfect match\"; cards=0; cardTypesAllSeries=false; wrongKindNotice=true; respNotices=[\"Using The Matrix as your similarity reference.\",\"Only found 1 close match — loosen a filter for a full three.\",\"Removed 1 title of the wrong kind — you asked for series.\",\"Nothing left after enforcing your filters — try widening the runtime or genres.\"]; firstTypes=[]; cardAges=[]; apply=6792ms; status=200",
+      "screenshot": "s06-filter-series.png"
+    },
+    {
+      "name": "S9 axe: results (post-filter page)",
+      "status": "pass",
+      "details": "0 violations (clean)",
+      "screenshot": "s09-axe-results.png"
+    },
+    {
+      "name": "S7 audience \"Family with kids\"",
+      "status": "fail",
+      "details": "locator.click: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button:has-text(\"Family with kids\")').first()\u001b[22m\n",
+      "screenshot": "s07-family-fail.png"
+    },
+    {
+      "name": "Desktop console summary",
+      "status": "pass",
+      "details": "app consoleErrors=[]; warnings=0; pageErrors=[]; failedRequests=[]; probe-blocked beacons=11"
+    },
+    {
+      "name": "S10 mobile (390px): mood flow",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; brokenPosters=0; recommend=5155ms; appConsoleErrors=[]",
+      "screenshot": "s10-results-mobile.png"
+    },
+    {
+      "name": "Mobile home checks",
+      "status": "pass",
+      "details": "appConsoleErrors=[]; pageErrors=[]; failedRequests=[]",
+      "screenshot": "s10-home-mobile.png"
+    }
+  ]
+}
