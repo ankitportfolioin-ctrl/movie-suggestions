@@ -1,0 +1,27 @@
+[
+  {
+    "test": "direct API types=[series]",
+    "status": 200,
+    "keys": [
+      "movies",
+      "notices",
+      "impressionTokens"
+    ],
+    "count": 0,
+    "first": []
+  },
+  {
+    "test": "UI series filter",
+    "error": "no response fired"
+  },
+  {
+    "test": "UI series filter (neutral context)",
+    "status": null,
+    "sentTypes": [
+      "movie"
+    ],
+    "header": "Found 10 matches",
+    "cards": 10,
+    "firstText": "HIDDEN GEM (low popularity with solid ratings, an under-the-radar pick) Fit 97/100 1988 1h 26m 8.1 TMDB Rating not confi"
+  }
+]

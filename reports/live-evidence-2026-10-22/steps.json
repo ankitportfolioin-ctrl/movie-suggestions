@@ -1,0 +1,234 @@
+{
+  "base": "https://movie-night-picker-one.vercel.app",
+  "apiCalls": {
+    "recommend": 10,
+    "search": 0,
+    "titleSearch": 0,
+    "blockedBeacons": 13,
+    "errorSuppressPool": 12
+  },
+  "recommendTimings": [
+    {
+      "status": 200,
+      "ttfbMs": -1792609973817679,
+      "actionMs": 6824
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792609988979588,
+      "actionMs": 5093
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792610000696530,
+      "actionMs": 5030
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792610018462252,
+      "actionMs": 5887
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792610037894923,
+      "actionMs": 4346
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792610045129514,
+      "actionMs": 3832
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792610065049159
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792610075348806,
+      "actionMs": 4587
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792610087492560,
+      "actionMs": 6909
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792610100377545,
+      "actionMs": 2319
+    }
+  ],
+  "recommendBodies": [
+    {
+      "t": 1792609987143,
+      "note": "",
+      "types": [
+        "movie"
+      ],
+      "body": "{\"mood\":\"Relaxed\",\"genres\":[\"Surprise me\"],\"audience\":\"Just me\",\"maxRuntime\":\"Under 2 hours\",\"languages\":[\"Any\"],\"types\":[\"movie\"],\"preferences\":{\"highlyRated\":false,\"hiddenGems\":false,\"recent\":false,\"classics\":false,\"mature\":false},\"note\":\"\",\"excludeIds\":[],\"anonId\":\"eef2c1ff-eb79-482e-90a2-81a3a3950270\",\"taste\":{\"weights\":{},\"eventCount\":0},\"referenceIds\":[]}"
+    },
+    {
+      "t": 1792609998985,
+      "note": "",
+      "types": [
+        "movie"
+      ],
+      "body": "{\"mood\":\"Mind-bending\",\"genres\":[\"Surprise me\"],\"audience\":\"Just me\",\"maxRuntime\":\"Under 2 hours\",\"languages\":[\"Any\"],\"types\":[\"movie\"],\"preferences\":{\"highlyRated\":false,\"hiddenGems\":false,\"recent\":false,\"classics\":false,\"mature\":false},\"note\":\"\",\"excludeIds\":[976573,809,16340,11544,9502,438695,12448,15165,427564,22794],\"anonId\":\"eef2c1ff-eb79-482e-90a2-81a3a3950270\",\"taste\":{\"weights\":{},\"eventC"
+    },
+    {
+      "t": 1792610010568,
+      "note": "",
+      "types": [
+        "movie"
+      ],
+      "body": "{\"mood\":\"Feel-good\",\"genres\":[\"Surprise me\"],\"audience\":\"Just me\",\"maxRuntime\":\"Under 2 hours\",\"languages\":[\"Any\"],\"types\":[\"movie\"],\"preferences\":{\"highlyRated\":false,\"hiddenGems\":false,\"recent\":false,\"classics\":false,\"mature\":false},\"note\":\"\",\"excludeIds\":[976573,809,16340,11544,9502,438695,12448,15165,427564,22794,220289,1236153,37686,863873,565743,579047,10145,1933,2501,269795],\"anonId\":\"eef2c"
+    },
+    {
+      "t": 1792610023085,
+      "note": "Inception",
+      "types": [
+        "movie"
+      ],
+      "body": "{\"mood\":\"Surprise me\",\"genres\":[\"Surprise me\"],\"audience\":\"Just me\",\"maxRuntime\":\"Any length\",\"languages\":[\"Any\"],\"types\":[\"movie\"],\"preferences\":{\"highlyRated\":false,\"hiddenGems\":false,\"recent\":false,\"classics\":false,\"mature\":false},\"note\":\"Inception\",\"excludeIds\":[976573,809,16340,11544,9502,438695,12448,15165,427564,22794,220289,1236153,37686,863873,565743,579047,10145,1933,2501,269795,550205,3"
+    },
+    {
+      "t": 1792610039400,
+      "note": "Incepton",
+      "types": [
+        "movie"
+      ],
+      "body": "{\"mood\":\"Surprise me\",\"genres\":[\"Surprise me\"],\"audience\":\"Just me\",\"maxRuntime\":\"Any length\",\"languages\":[\"Any\"],\"types\":[\"movie\"],\"preferences\":{\"highlyRated\":false,\"hiddenGems\":false,\"recent\":false,\"classics\":false,\"mature\":false},\"note\":\"Incepton\",\"excludeIds\":[976573,809,16340,11544,9502,438695,12448,15165,427564,22794,220289,1236153,37686,863873,565743,579047,10145,1933,2501,269795,550205,32"
+    },
+    {
+      "t": 1792610052733,
+      "note": "suspenseful thriller under 90 minutes not scary",
+      "types": [
+        "movie"
+      ],
+      "body": "{\"mood\":\"Suspenseful\",\"genres\":[\"Thriller\"],\"audience\":\"Just me\",\"maxRuntime\":\"Under 90 min\",\"languages\":[\"Any\"],\"types\":[\"movie\"],\"preferences\":{\"highlyRated\":false,\"hiddenGems\":false,\"recent\":false,\"classics\":false,\"mature\":false},\"note\":\"suspenseful thriller under 90 minutes not scary\",\"excludeIds\":[976573,809,16340,11544,9502,438695,12448,15165,427564,22794,220289,1236153,37686,863873,565743,5"
+    },
+    {
+      "t": 1792610066646,
+      "note": "zxqwv blundering quixotic submarine chronicle",
+      "types": [
+        "movie"
+      ],
+      "body": "{\"mood\":\"Surprise me\",\"genres\":[\"Surprise me\"],\"audience\":\"Just me\",\"maxRuntime\":\"Any length\",\"languages\":[\"Any\"],\"types\":[\"movie\"],\"preferences\":{\"highlyRated\":false,\"hiddenGems\":false,\"recent\":false,\"classics\":false,\"mature\":false},\"note\":\"zxqwv blundering quixotic submarine chronicle\",\"excludeIds\":[976573,809,16340,11544,9502,438695,12448,15165,427564,22794,220289,1236153,37686,863873,565743,57"
+    },
+    {
+      "t": 1792610080027,
+      "note": "movies like The Matrix",
+      "types": [
+        "movie"
+      ],
+      "body": "{\"mood\":\"Surprise me\",\"genres\":[\"Surprise me\"],\"audience\":\"Just me\",\"maxRuntime\":\"Any length\",\"languages\":[\"Any\"],\"types\":[\"movie\"],\"preferences\":{\"highlyRated\":false,\"hiddenGems\":false,\"recent\":false,\"classics\":false,\"mature\":false},\"note\":\"movies like The Matrix\",\"excludeIds\":[976573,809,16340,11544,9502,438695,12448,15165,427564,22794,220289,1236153,37686,863873,565743,579047,10145,1933,2501,26"
+    },
+    {
+      "t": 1792610097528,
+      "note": "movies like The Matrix",
+      "types": [
+        "series"
+      ],
+      "body": "{\"mood\":\"Surprise me\",\"genres\":[\"Surprise me\"],\"audience\":\"Just me\",\"maxRuntime\":\"Any length\",\"languages\":[\"Any\"],\"types\":[\"series\"],\"preferences\":{\"highlyRated\":false,\"hiddenGems\":false,\"recent\":false,\"classics\":false,\"mature\":false},\"note\":\"movies like The Matrix\",\"excludeIds\":[976573,809,16340,11544,9502,438695,12448,15165,427564,22794,220289,1236153,37686,863873,565743,579047,10145,1933,2501,2"
+    },
+    {
+      "t": 1792610104846,
+      "note": "",
+      "types": [
+        "movie"
+      ],
+      "body": "{\"mood\":\"Relaxed\",\"genres\":[\"Surprise me\"],\"audience\":\"Just me\",\"maxRuntime\":\"Under 2 hours\",\"languages\":[\"Any\"],\"types\":[\"movie\"],\"preferences\":{\"highlyRated\":false,\"hiddenGems\":false,\"recent\":false,\"classics\":false,\"mature\":false},\"note\":\"\",\"excludeIds\":[],\"anonId\":\"a25eb154-e5e4-4fa8-b668-fa2b51d482a4\",\"taste\":{\"weights\":{},\"eventCount\":0},\"referenceIds\":[]}"
+    }
+  ],
+  "steps": [
+    {
+      "name": "S1 home loads (desktop 1280)",
+      "status": "pass",
+      "details": "heading OK=true, input OK=true, load=5033ms; consoleErrors=[]; pageErrors=[]; failedRequests=[]",
+      "screenshot": "s01-home-desktop.png"
+    },
+    {
+      "name": "S2 mood \"Mind-bending\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=6824ms; titles=[\"Elemental\",\"Shrek 2\",\"Rugrats in Paris: The Movie\",\"Lilo & Stitch\",\"Kung Fu Panda\"]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-mindbending.png"
+    },
+    {
+      "name": "S2 mood \"Feel-good\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=5093ms; titles=[\"Coherence\",\"Mercy\",\"Super 8\",\"Caddo Lake\",\"The Vast of Night\"]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-feelgood.png"
+    },
+    {
+      "name": "S2 mood \"Funny\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=5030ms; titles=[\"Wish Dragon\",\"The Lego Batman Movie\",\"Another Cinderella Story\",\"Ron's Gone Wrong\",\"Scooby-Doo! Camp Scare\"]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-funny.png"
+    },
+    {
+      "name": "S3 search \"Inception\" (inception)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=5887ms below10s=true; leg=single-Enter (search page did not appear); sentNote=\"Inception\"; refNotice=false; header=\"Found 10 matches\"; cards=10; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"HIDDEN GEM (low popularity with solid ratings, an under-the-radar pick) Fit 97/100 1988 1h 26m 8.1 T\"",
+      "screenshot": "s03-search-inception.png"
+    },
+    {
+      "name": "S3 search \"Incepton\" (incepton-misspelled)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=4346ms below10s=true; leg=single-Enter (search page did not appear); sentNote=\"Incepton\"; refNotice=false; header=\"Found 10 matches\"; cards=10; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"HIDDEN GEM (low popularity with solid ratings, an under-the-radar pick) Fit 93/100 2016 1h 41m 7.7 T\"",
+      "screenshot": "s03-search-incepton-misspelled.png"
+    },
+    {
+      "name": "S3 search \"suspenseful thriller under 90 minutes not scary\" (long-constraint-nonenglish-slot)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=3832ms below10s=true; leg=single-Enter (search page did not appear); sentNote=\"suspenseful thriller under 90 minutes not scary\"; refNotice=false; header=\"Found 10 matches\"; cards=10; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"Fit 99/100 2023 1h 27m 8.4 TMDB Movie Rating not confirmed EN • Thriller, Crime, Drama Stolen Baby: \"",
+      "screenshot": "s03-search-long-constraint-nonenglish-slot.png"
+    },
+    {
+      "name": "S4 gibberish -> friendly empty (not error)",
+      "status": "warn",
+      "details": "endpoint=/api/recommend status=200; header=\"Found 3 matches\"; cards=3; friendlyEmpty=false; appError=false; appConsoleErrors=[]; pageErrors=[]",
+      "screenshot": "s04-empty-search.png"
+    },
+    {
+      "name": "S3 search \"movies like The Matrix\" (reference-matrix)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=4587ms below10s=true; leg=single-Enter (search page did not appear); sentNote=\"movies like The Matrix\"; refNotice=false; header=\"Found 10 matches\"; cards=10; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"HIDDEN GEM (low popularity with solid ratings, an under-the-radar pick) Fit 97/100 1988 1h 26m 8.1 T\"",
+      "screenshot": "s03-search-reference-matrix.png"
+    },
+    {
+      "name": "S9 axe: home",
+      "status": "pass",
+      "details": "0 violations (clean)",
+      "screenshot": "s09-axe-home.png"
+    },
+    {
+      "name": "S6 filters: Type -> Series updates results (no stale)",
+      "status": "warn",
+      "details": "sentTypes=[\"series\"]; before header=\"Found 10 matches\" first=\"My Neighbor Totoro\"; after header=\"No perfect match\" first=\"undefined\"; cards=0; changed=true; anyMovieBadgeStill=false; apply=6909ms; status=200",
+      "screenshot": "s06-filter-series.png"
+    },
+    {
+      "name": "S9 axe: results (post-filter page)",
+      "status": "pass",
+      "details": "0 violations (clean)",
+      "screenshot": "s09-axe-results.png"
+    },
+    {
+      "name": "Desktop console summary",
+      "status": "pass",
+      "details": "app consoleErrors=[]; warnings=0; pageErrors=[]; failedRequests=[]; probe-blocked beacons=11"
+    },
+    {
+      "name": "S10 mobile (390px): mood flow",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; brokenPosters=0; recommend=2319ms; appConsoleErrors=[]",
+      "screenshot": "s10-results-mobile.png"
+    },
+    {
+      "name": "Mobile home checks",
+      "status": "pass",
+      "details": "appConsoleErrors=[]; pageErrors=[]; failedRequests=[]",
+      "screenshot": "s10-home-mobile.png"
+    }
+  ]
+}
