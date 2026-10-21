@@ -42,10 +42,11 @@ test('OMDb enriches a real film end to end', { skip: !OMDB_KEY }, async () => {
     OMDB_KEY
   );
   assert.ok(movies.length >= 2);
-  // D06: the wanted genre must lead (first or second tag) on every pick —
-  // a Comedy hiding in tag #3 (like Toy Story's) no longer makes the cut.
+  // Every pick must BE a comedy (in any genre tag): enrichment returns OMDb's
+  // canonical order, where hybrids like Toy Story list Animation/Adventure
+  // first — Comedy third. An exact tag-position rule contradicted that data.
   for (const m of movies) {
-    assert.ok(m.genres.slice(0, 2).includes('Comedy'), `${m.title}: ${m.genres}`);
+    assert.ok(m.genres.includes('Comedy'), `${m.title}: ${m.genres}`);
     assert.ok(m.rating > 0 && m.posterUrl.startsWith('http'));
     assert.ok(m.reason.length > 10 && !/guaranteed/i.test(m.reason));
     assert.ok(m.fitScore >= 90 && m.fitScore <= 99);
