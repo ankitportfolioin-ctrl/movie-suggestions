@@ -433,10 +433,12 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
 
     // Deadline race: `expired` resolves null at the deadline; if the flow
     // loses, answer with honest partial picks from the constrained pool.
-    const expired = new Promise<null>((resolve) =>
-      setTimeout(() => resolve(null), RECOMMEND_DEADLINE_MS),
-    );
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<null>((resolve) => {
+      deadlineTimer = setTimeout(() => resolve(null), RECOMMEND_DEADLINE_MS);
+    });
     let outcome = await Promise.race([flow(), expired]);
+    clearTimeout(deadlineTimer);
     if (outcome === null) {
       console.warn(`[recommend] deadline ${RECOMMEND_DEADLINE_MS}ms hit; returning partial results`);
       const requestedLangCodes: string[] = [];
@@ -470,7 +472,8 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
     }
 
     res.json({ movies: outcome.picks, notices: outcome.notices, impressionTokens: outcome.impressionTokens });
-  } catch {
+  } catch (err) {
+    console.error('[recommend] failed:', err instanceof Error ? err.message : String(err));
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
