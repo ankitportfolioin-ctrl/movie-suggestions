@@ -6,7 +6,24 @@
  * browser UUID, contextKey is a coarse quiz bucket, and event ingestion
  * requires an HMAC token issued with the recommendation response.
  */
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { createRequire } from 'node:module';
+
+// better-sqlite3 is an optional dependency: unaffected environments don't
+// have the native addon (no C toolchain / disabled on Vercel). Resolve it
+// lazily; learning features fail loudly with a clear message.
+const require_ = createRequire(import.meta.url);
+let DatabaseCtor: (new (path: string, opts?: unknown) => Database.Database) | null = null;
+function getDatabase(): typeof DatabaseCtor {
+  if (!DatabaseCtor) {
+    try {
+      DatabaseCtor = require_('better-sqlite3');
+    } catch {
+      throw new Error('better-sqlite3 is not installed — the SQLite learning layer is optional (disabled on Vercel)');
+    }
+  }
+  return DatabaseCtor!;
+}
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -74,7 +91,7 @@ export function openLearningDb(filePath?: string): Database.Database {
   // the API shape valid for callers that ignore the disable flag.
   if (process.env.VERCEL && !filePath && !process.env.LEARNING_DB_PATH) target = ':memory:';
   if (target !== ':memory:') fs.mkdirSync(path.dirname(target), { recursive: true });
-  const db = new Database(target);
+  const db = new (getDatabase()!)(target) as Database.Database;
   db.exec(`
     CREATE TABLE IF NOT EXISTS impressions (
       impressionId TEXT PRIMARY KEY,

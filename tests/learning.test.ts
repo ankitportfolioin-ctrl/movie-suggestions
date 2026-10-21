@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import {
   MAX_EVENTS_PER_ANON_PER_DAY,
   _resetSecretForTests,
@@ -17,6 +18,18 @@ import {
   verifyImpression,
   type BurstSlot,
 } from '../server/learning.js';
+
+// Skip the whole suite when the optional SQLite addon isn't installed (the
+// learning layer is disabled-on-Vercel and optional locally).
+const sqliteAvailable = ((): boolean => {
+  try {
+    createRequire(import.meta.url)('better-sqlite3');
+    return true;
+  } catch {
+    return false;
+  }
+})();
+const skip = sqliteAvailable ? false : 'better-sqlite3 (optional dependency) is not installed';
 
 function memDb() {
   process.env.LEARNING_HMAC_SECRET = 'test-secret-for-unit-tests-only';
@@ -38,7 +51,7 @@ const IMP = {
   variant: 'control',
 };
 
-test('token roundtrips and binds anonId', () => {
+test('token roundtrips and binds anonId', { skip }, () => {
   memDb();
   const t = signImpression(IMP.impressionId, IMP.movieId, IMP.anonId);
   const v = verifyImpression(t, IMP.anonId);
@@ -49,7 +62,7 @@ test('token roundtrips and binds anonId', () => {
   }
 });
 
-test('forged and expired tokens are rejected', () => {
+test('forged and expired tokens are rejected', { skip }, () => {
   memDb();
   const t = signImpression(IMP.impressionId, IMP.movieId, IMP.anonId);
   const forged = t.slice(0, -1) + (t.endsWith('0') ? '1' : '0');
@@ -63,7 +76,7 @@ test('forged and expired tokens are rejected', () => {
   if (!wrongAnon.ok) assert.equal(wrongAnon.reason, 'anon-mismatch');
 });
 
-test('event insert is idempotent by eventId', () => {
+test('event insert is idempotent by eventId', { skip }, () => {
   const db = memDb();
   recordImpressions(db, [IMP]);
   const evt = {
@@ -80,7 +93,7 @@ test('event insert is idempotent by eventId', () => {
   assert.equal(n, 1);
 });
 
-test('unknown impression is detectable', () => {
+test('unknown impression is detectable', { skip }, () => {
   const db = memDb();
   assert.equal(findImpression(db, 'nope'), null);
   recordImpressions(db, [IMP]);
@@ -88,7 +101,7 @@ test('unknown impression is detectable', () => {
   assert.ok(found && found.movieId === IMP.movieId && found.anonId === IMP.anonId);
 });
 
-test('D-07: deleteAnonData removes only this anonId\'s rows', () => {
+test('D-07: deleteAnonData removes only this anonId\'s rows', { skip }, () => {
   const db = memDb();
   recordImpressions(db, [IMP, { ...IMP, impressionId: 'imp-2', anonId: 'someone-else' }]);
   recordEvent(db, {
@@ -109,7 +122,7 @@ test('D-07: deleteAnonData removes only this anonId\'s rows', () => {
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM events WHERE anonId = ?').get('someone-else') as { n: number }).n, 1);
 });
 
-test('event body validation rejects junk', () => {
+test('event body validation rejects junk', { skip }, () => {
   assert.equal(validateEventBody(null).ok, false);
   assert.equal(validateEventBody({}).ok, false);
   const base = {
@@ -126,7 +139,7 @@ test('event body validation rejects junk', () => {
   assert.equal(validateEventBody({ ...base, token: 42 }).ok, false);
 });
 
-test('contextKey never contains free text', () => {
+test('contextKey never contains free text', { skip }, () => {
   const key = buildContextKey(
     {
       mood: 'Curious',
@@ -146,7 +159,7 @@ test('contextKey never contains free text', () => {
   assert.ok(key.includes('mood=Curious'));
 });
 
-test('daily per-anon cap trips at the limit', () => {
+test('daily per-anon cap trips at the limit', { skip }, () => {
   const db = memDb();
   const anon = 'anon-heavy';
   assert.equal(anonOverDailyCap(db, anon), false);
@@ -163,7 +176,7 @@ test('daily per-anon cap trips at the limit', () => {
   assert.equal(anonOverDailyCap(db, anon), true);
 });
 
-test('burst gate trips and resets', () => {
+test('burst gate trips and resets', { skip }, () => {
   const store = new Map<string, BurstSlot>();
   const now = Date.now();
   assert.equal(burstExceeded(store, 'k', 3, 60_000, now), false);
