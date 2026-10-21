@@ -14,6 +14,7 @@ import { MovieItem } from '../server/catalog.js';
 import { loadDbCandidates, loadReferenceAnchors, loadAnchorsByImdb, suggestTitles, rankGateMovies, ensureMinAge, diagnoseEmptyPool } from '../server/dbMovies.js';
 import type { DbFilters, DbItem } from '../server/dbMovies.js';
 import { validateRecommendBody } from '../server/validate.js';
+import { parseNote } from '../server/noteParser.js';
 import { registerAnalyticsRoutes } from '../server/analytics.js';
 import { enforceHardConstraints } from '../server/gate.js';
 import { runtimeCap } from '../server/omdb.js';
@@ -375,6 +376,29 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
 
       let picks = gated.movies as MoviePick[];
       const allNotices = [...notices, ...gated.relaxed];
+
+      // Free text we could not map to anything (gibberish, or a title that is
+      // not in the catalog) must not silently look like a targeted search.
+      const typed = (sanitizedParams.note || '').trim();
+      const isCollectionNote = /^(new this week|best of \d{4})$/i.test(typed); // set by the home collections
+      if (typed.length >= 3 && !isCollectionNote && (sanitizedParams.referenceIds?.length ?? 0) === 0) {
+        const n = parseNote(typed);
+        const understood =
+          n.genres.length > 0 || n.excludeGenres.length > 0 || n.moods.length > 0 ||
+          n.lovedTitles.length > 0 || n.hatedTitles.length > 0 || n.referenceTitles.length > 0 ||
+          n.languageHints.length > 0 || n.unverifiable.length > 0 || n.excludedPeople.length > 0 ||
+          n.likedPeople.length > 0 || n.unsupportedGenres.length > 0 || n.themeKeywords.length > 0 ||
+          Boolean(n.runtimeHint) || n.runtimeMinMinutes !== undefined || n.runtimeMaxMinutes !== undefined ||
+          n.yearMin !== undefined || n.yearMax !== undefined || Boolean(n.eraHint) ||
+          Boolean(n.wantsHighlyRated) || Boolean(n.wantsSeries) || Boolean(n.audienceSafe);
+        const quizIsDefault =
+          sanitizedParams.mood === 'Surprise me' && sanitizedParams.genres.every((g: string) => g === 'Surprise me');
+        if (!understood && quizIsDefault) {
+          allNotices.unshift(
+            `We couldn't match "${typed.slice(0, 60)}" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or "movies like ...".`,
+          );
+        }
+      }
 
       // 4. E11: serve all artwork through our /img proxy
       for (const m of picks as { posterUrl: string; providers: { logoUrl: string }[] }[]) {

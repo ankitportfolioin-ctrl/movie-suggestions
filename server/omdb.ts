@@ -30,6 +30,10 @@ export interface MoviePick {
   language: string;
   /** OMDb `Rated` certificate as served (may be missing). Used by the final gate. */
   certificate?: string;
+  /** Watch-level minimum age from the catalog. Source of truth for the age label and the gate. */
+  minAge?: number | null;
+  /** Catalog adult flag, read by the final gate. */
+  isMature?: boolean;
   /** OMDb `Type` field when known. Used by the final gate. */
   mediaType?: string;
   /** Which provider the displayed rating came from ("imdb" only after a verified OMDb merge). */
@@ -458,9 +462,12 @@ export async function selectCandidateMovies(
     }
   }
 
-  // Candidate pool: local catalog first (curated flags win on id clash),
-  // then live discovery titles.
-  const pool: MovieItem[] = [...FALLBACK_CATALOG];
+  // Candidate pool: the database candidates ARE the pool. The built-in demo
+  // catalog (30 movies) only seeds it when the database supplied nothing -
+  // otherwise those demo titles outrank real results (a Series search kept
+  // returning "My Neighbor Totoro", which the gate then removed as the wrong
+  // kind, leaving almost nothing).
+  const pool: MovieItem[] = extraCandidates.length > 0 ? [] : [...FALLBACK_CATALOG];
   const poolIds = new Set(pool.map((m) => m.id));
   for (const m of extraCandidates) {
     if (!poolIds.has(m.id)) {
@@ -976,7 +983,9 @@ export async function getRecommendationsWithOMDb(
         isHiddenGem: movie.isHiddenGem,
         fitScore,
         language: movie.language,
-        certificate: finalCertificate,
+        certificate: finalCertificate ?? (movie.certificate || undefined),
+        minAge: (movie as { minAge?: number | null }).minAge ?? null,
+        isMature: movie.isMature,
         mediaType: finalMediaType,
         ratingSource: finalRatingSource,
         actors: finalActors,
