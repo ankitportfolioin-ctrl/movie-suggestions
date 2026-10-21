@@ -1,0 +1,152 @@
+{
+  "base": "https://movie-night-picker-one.vercel.app",
+  "apiCalls": {
+    "recommend": 10,
+    "search": 0,
+    "titleSearch": 0,
+    "blockedBeacons": 13,
+    "errorSuppressPool": 12
+  },
+  "recommendTimings": [
+    {
+      "status": 200,
+      "ttfbMs": -1792594130298856,
+      "actionMs": 6678
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792594146518378,
+      "actionMs": 3745
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792594155409388,
+      "actionMs": 5222
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792594197385228,
+      "actionMs": 5007
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792594243591294,
+      "actionMs": 3550
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792594286863855,
+      "actionMs": 3548
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792594330214742
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792594372644920,
+      "actionMs": 3454
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792594388673929,
+      "actionMs": 5275
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792594397969582,
+      "actionMs": 3831
+    }
+  ],
+  "steps": [
+    {
+      "name": "S1 home loads (desktop 1280)",
+      "status": "pass",
+      "details": "heading OK=true, input OK=true, load=4377ms; consoleErrors=[]; pageErrors=[]; failedRequests=[]",
+      "screenshot": "s01-home-desktop.png"
+    },
+    {
+      "name": "S2 mood \"Mind-bending\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=6678ms; titles=[\"Elemental\",\"Shrek 2\",\"Rugrats in Paris: The Movie\",\"Lilo & Stitch\",\"Kung Fu Panda\"]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-mindbending.png"
+    },
+    {
+      "name": "S2 mood \"Feel-good\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=3745ms; titles=[\"Coherence\",\"Mercy\",\"Super 8\",\"Caddo Lake\",\"The Vast of Night\"]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-feelgood.png"
+    },
+    {
+      "name": "S2 mood \"Funny\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=5222ms; titles=[\"Wish Dragon\",\"The Lego Batman Movie\",\"Another Cinderella Story\",\"Ron's Gone Wrong\",\"Scooby-Doo! Camp Scare\"]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-funny.png"
+    },
+    {
+      "name": "S3 search \"Inception\" (inception)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=5007ms below10s=true; leg=two-leg (first Enter opens dedicated search page, no API call); header=\"Found 10 matches\"; cards=10; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"HIDDEN GEM (low popularity with solid ratings, an under-the-radar pick) Fit 96/100 1999 1h 29m 7.7 T\"",
+      "screenshot": "s03-search-inception.png"
+    },
+    {
+      "name": "S3 search \"Incepton\" (incepton-misspelled)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=3550ms below10s=true; leg=two-leg (first Enter opens dedicated search page, no API call); header=\"Found 10 matches\"; cards=10; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"HIDDEN GEM (low popularity with solid ratings, an under-the-radar pick) Fit 97/100 1988 1h 26m 8.1 T\"",
+      "screenshot": "s03-search-incepton-misspelled.png"
+    },
+    {
+      "name": "S3 search \"天気の子\" (tenki-no-ko-nonenglish)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=3548ms below10s=true; leg=two-leg (first Enter opens dedicated search page, no API call); header=\"Found 10 matches\"; cards=10; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"HIDDEN GEM (low popularity with solid ratings, an under-the-radar pick) Fit 93/100 2016 1h 41m 7.7 T\"",
+      "screenshot": "s03-search-tenki-no-ko-nonenglish.png"
+    },
+    {
+      "name": "S4 gibberish -> friendly empty (not error)",
+      "status": "warn",
+      "details": "endpoint=/api/recommend status=200; header=\"Found 1 matches\"; cards=1; friendlyEmpty=false; appError=false; appConsoleErrors=[]; pageErrors=[]",
+      "screenshot": "s04-empty-search.png"
+    },
+    {
+      "name": "S3 search \"movies like The Matrix\" (reference-matrix)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=3454ms below10s=true; leg=two-leg (first Enter opens dedicated search page, no API call); header=\"Found 10 matches\"; cards=10; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"HIDDEN GEM (low popularity with solid ratings, an under-the-radar pick) Fit 97/100 1988 1h 26m 8.1 T\"",
+      "screenshot": "s03-search-reference-matrix.png"
+    },
+    {
+      "name": "S9 axe: home",
+      "status": "pass",
+      "details": "0 violations (clean)",
+      "screenshot": "s09-axe-home.png"
+    },
+    {
+      "name": "S6 filters: Type -> Series updates results (no stale)",
+      "status": "warn",
+      "details": "before header=\"Found 10 matches\" first=\"My Neighbor Totoro\"; after header=\"Found 10 matches\" first=\"My Neighbor Totoro\"; cards=10; changed=false; anyMovieBadgeStill=false; apply=5275ms; status=200",
+      "screenshot": "s06-filter-series.png"
+    },
+    {
+      "name": "S9 axe: results (post-filter page)",
+      "status": "pass",
+      "details": "0 violations (clean)",
+      "screenshot": "s09-axe-results.png"
+    },
+    {
+      "name": "Desktop console summary",
+      "status": "pass",
+      "details": "app consoleErrors=[]; warnings=0; pageErrors=[]; failedRequests=[]; probe-blocked beacons=11"
+    },
+    {
+      "name": "S10 mobile (390px): mood flow",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; brokenPosters=0; recommend=3831ms; appConsoleErrors=[]",
+      "screenshot": "s10-results-mobile.png"
+    },
+    {
+      "name": "Mobile home checks",
+      "status": "pass",
+      "details": "appConsoleErrors=[]; pageErrors=[]; failedRequests=[]",
+      "screenshot": "s10-home-mobile.png"
+    }
+  ]
+}
