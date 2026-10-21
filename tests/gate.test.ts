@@ -69,20 +69,31 @@ test('certificate wins over a contradicting catalog flag', () => {
   assert.equal(r.movies.length, 1);
 });
 
-test('family allows only G/PG/TV-G/TV-Y/TV-Y7/TV-PG/U with Family/Animation genres; unknown excluded', () => {
+test('family: safe certs + Family/Animation genre pass; adult certs fail', () => {
   const mk = (certificate: string | undefined, id: number, isMature = false) =>
     movie({ id, certificate, isMature, genres: ['Family'] });
   const fam = { ...base(), audience: 'Family with kids' };
   for (const c of ['G', 'PG', 'TV-G', 'TV-Y', 'TV-Y7', 'TV-PG', 'U']) {
     assert.equal(enforceHardConstraints([mk(c, 1)], fam).movies.length, 1, c);
   }
-  for (const c of ['PG-13', 'R', 'TV-MA', 'TV-14', '', 'Not Rated']) {
+  for (const c of ['PG-13', 'R', 'TV-MA', 'TV-14']) {
     assert.equal(enforceHardConstraints([mk(c, 1)], fam).movies.length, 0, String(c));
   }
-  // Unknown minAge without a Family/Animation genre fails closed, even with a safe cert.
+  // Known safe cert but no Family/Animation genre still fails.
   assert.equal(enforceHardConstraints([movie({ id: 9, certificate: 'G', genres: ['Comedy'] })], fam).movies.length, 0);
-  // Horror/Crime/Thriller never passes Family on unknown minAge.
+  // Horror/Crime/Thriller/War never passes Family.
   assert.equal(enforceHardConstraints([movie({ id: 10, certificate: 'G', genres: ['Animation', 'Horror'] })], fam).movies.length, 0);
+});
+
+test('family with NO rating data at all: genre rule is the last signal (DB-only pipeline)', () => {
+  const fam = { ...base(), audience: 'Family with kids' };
+  // Unknown age + unknown cert + Family genre: kept — same rule the SQL
+  // family filter applies (minAge null + Family/Animation + no bad genre).
+  assert.equal(enforceHardConstraints([movie({ id: 1, genres: ['Family'] })], fam).movies.length, 1);
+  assert.equal(enforceHardConstraints([movie({ id: 2, genres: ['Animation'] })], fam).movies.length, 1);
+  // Without a kids' genre it fails closed.
+  assert.equal(enforceHardConstraints([movie({ id: 3, genres: ['Comedy'] })], fam).movies.length, 0);
+  assert.equal(enforceHardConstraints([movie({ id: 4, genres: ['Family', 'War'] })], fam).movies.length, 0);
 });
 
 test('family allows minAge <= 6, drops minAge 12+', () => {

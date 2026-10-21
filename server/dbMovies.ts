@@ -279,6 +279,46 @@ export async function loadDbCandidates(f: DbFilters): Promise<{ items: DbItem[];
   }
 }
 
+/**
+ * Reference anchors ("like Arrival") resolved from the local database by the
+ * IMDb ids the search chips provide — no OMDb lookup needed. Anchors
+ * bypass candidate filters so a 16+ reference still anchors similarity.
+ * [] when the DB cannot answer — callers disclose the miss.
+ */
+export async function loadAnchorsByImdb(imdbIds: string[]): Promise<DbItem[]> {
+  const ids = imdbIds.filter((id) => /^tt\d+$/.test(id));
+  if (ids.length === 0 || !process.env.DATABASE_URL) return [];
+  try {
+    const { rows } = await getDbPool().query(
+      `SELECT ${DB_COLS} FROM movies WHERE lower(imdbid) = ANY($1) LIMIT 20`,
+      [ids.map((i) => i.toLowerCase())],
+    );
+    return rows.map(toDbItem);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Local title autocomplete over the full database ("Interst" → Interstellar).
+ * Prefix match first, then substring, then popularity. Never returns rows
+ * without a poster or IMDb id (both the chip UI and the reference pipeline
+ * depend on them).
+ */
+export async function suggestTitles(q: string, limit = 10): Promise<DbItem[]> {
+  const t = q.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (t.length < 2 || !process.env.DATABASE_URL) throw new Error('DB unavailable');
+  const { rows } = await getDbPool().query(
+    `SELECT ${DB_COLS} FROM movies
+      WHERE (adult IS NOT TRUE) AND (posterpath IS NOT NULL) AND (imdbid LIKE 'tt%')
+        AND (lower(title) LIKE $1 OR lower(title) = $2)
+      ORDER BY (lower(title) = $2)::int DESC, popularity DESC NULLS LAST
+      LIMIT $3`,
+    [`%${t}%`, t, limit],
+  );
+  return rows.map(toDbItem);
+}
+
 export interface EmptyPoolCounts {
   genres: number; languages: number; runtime: number;
   year: number; rating: number; maturity: number;

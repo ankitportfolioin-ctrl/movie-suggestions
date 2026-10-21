@@ -11,15 +11,12 @@ import {
   type MoviePick,
 } from '../server/omdb.js';
 import { MovieItem } from '../server/catalog.js';
-import { loadDbCandidates, loadReferenceAnchors, rankGateMovies, ensureMinAge, diagnoseEmptyPool } from '../server/dbMovies.js';
+import { loadDbCandidates, loadReferenceAnchors, loadAnchorsByImdb, suggestTitles, rankGateMovies, ensureMinAge, diagnoseEmptyPool } from '../server/dbMovies.js';
 import type { DbFilters, DbItem } from '../server/dbMovies.js';
-import { discoverCandidates, enrichRuntimes } from '../server/discovery.js';
 import { validateRecommendBody } from '../server/validate.js';
 import { registerAnalyticsRoutes } from '../server/analytics.js';
 import { enforceHardConstraints } from '../server/gate.js';
 import { runtimeCap } from '../server/omdb.js';
-import { enhanceWithGemini } from '../server/ai.js';
-import { attachLiveProviders } from '../server/watchmode.js';
 import {
   FALLBACK_PNG,
   contentTypeFor,
@@ -114,7 +111,6 @@ async function initLearning() {
 }
 
 // Configuration Constants
-export const AI_ENABLED = true;
 
 // Health Check
 app.get('/api/health', (_req: Request, res: Response) => {
@@ -130,8 +126,31 @@ const TITLE_SEARCH_TTL = 60 * 60 * 1000; // 1 hour
 
 // Exact Title Search Endpoint (logic in server/titleSearch.ts: provider
 // outage is a retryable 502, never a masked empty result).
+// Local-first: the 20k-title database answers autocomplete; the legacy
+// provider path only runs when the DB is unreachable.
 app.get('/api/search-title', rateLimiter, async (req: Request, res: Response) => {
   try {
+    try {
+      const items = await suggestTitles(String(req.query.q || ''), 10);
+      res.status(200).json({
+        results: items.map((m) => ({
+          id: m.id,
+          title: m.title,
+          year: m.year,
+          mediaType: m.type === 'series' ? 'tv' : 'movie',
+          genres: m.genres,
+          runtime: m.runtime,
+          rating: m.rating,
+          overview: m.overview,
+          posterUrl: toLocalImg(m.posterUrl) || m.posterUrl,
+          language: m.language,
+        })),
+        source: 'db',
+      });
+      return;
+    } catch {
+      // DB unreachable — fall through to the legacy provider path
+    }
     const { searchTitles } = await import('../server/titleSearch.js');
     const { status, body } = await searchTitles(req.query.q, {
       tmdbKey: process.env.TMDB_API_KEY?.trim(),
@@ -144,11 +163,10 @@ app.get('/api/search-title', rateLimiter, async (req: Request, res: Response) =>
 });
 
 // Title Search Endpoint (for reference movie chips; core in server/titleSearch.ts).
-// OMDb search so every suggestion carries a real IMDb id the reference
-// pipeline can resolve to a plot; outage stays a retryable error.
+// Local-first: chips come from the database (real imdbIds + posters), with
+// the legacy OMDb path only when the DB is unreachable.
 app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) => {
   try {
-    const { searchSuggestions } = await import('../server/titleSearch.js');
     const safeQuery = String(req.query.q || '').replace(/<[^>]*>/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
 
     const now = Date.now();
@@ -158,6 +176,22 @@ app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) =>
       return;
     }
 
+    try {
+      const items = await suggestTitles(safeQuery, 5);
+      const results = items.map((m) => ({
+        imdbId: m.imdbId,
+        title: m.title,
+        year: m.year,
+        posterUrl: toLocalImg(m.posterUrl) || m.posterUrl,
+      }));
+      titleSearchCache.set(safeQuery, { data: results, expiresAt: now + TITLE_SEARCH_TTL });
+      res.json({ results });
+      return;
+    } catch {
+      // DB unreachable — fall through to the legacy OMDb path
+    }
+
+    const { searchSuggestions } = await import('../server/titleSearch.js');
     const { status, body } = await searchSuggestions(safeQuery, {
       omdbKey: process.env.OMDB_API_KEY?.trim(),
     });
@@ -235,42 +269,11 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
     }
     const sanitizedParams = validation.params;
 
-    // 2. Live discovery: widen the candidate pool via TMDB when configured.
-    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
-    let extraCandidates: MovieItem[] = [];
-    if (tmdbApiKey) {
-      try {
-        const found = await discoverCandidates(
-          {
-            genres: sanitizedParams.genres,
-            languages: sanitizedParams.languages,
-            maxRuntime: sanitizedParams.maxRuntime,
-            highlyRated: Boolean(sanitizedParams.preferences?.highlyRated),
-            recent: Boolean(sanitizedParams.preferences?.recent),
-            classics: Boolean(sanitizedParams.preferences?.classics),
-            family: sanitizedParams.audience === 'Family with kids',
-            mature: Boolean(sanitizedParams.preferences?.mature),
-            excludeIds: sanitizedParams.excludeIds || [],
-          },
-          tmdbApiKey
-        );
-        if (found && found.length > 0) {
-          const runtimes = await enrichRuntimes(found, tmdbApiKey);
-          for (const m of found) {
-            const details = runtimes.get(m.id);
-            if (details) {
-              if (details.runtime > 0) m.runtime = details.runtime;
-              if (details.genres.length > 0) m.genres = details.genres;
-            }
-          }
-          extraCandidates = found;
-        }
-      } catch {
-        extraCandidates = [];
-      }
-    }
-
-    // 2b. Database candidates join the pool (SQL-filtered by the shared pipeline).
+    // 2. Candidate pool: the local database is the sole source. The 20k
+    // title DB is queried with the shared SQL pipeline (genré/runtime/
+    // language filters); no live TMDB discovery, so requests are fast and
+    // results are always ours.
+    const extraCandidates: MovieItem[] = [];
     try {
       const currentYear = new Date().getFullYear();
       const langs = sanitizedParams.languages.includes('Any')
@@ -291,20 +294,31 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
         matureAllowed: sanitizedParams.audience !== 'Family with kids' &&
           Boolean(sanitizedParams.preferences?.mature),
         excludeIds: (sanitizedParams.excludeIds || []).map(Number).filter(Number.isFinite),
-        limit: 500,
+        limit: 2000,
       });
       extraCandidates.push(...dbItems);
     } catch {
       // loader falls back internally; never break recommend
     }
 
-    // 3. Recommend (filter → rank → diversify) + enrich via OMDb API
-    const omdbApiKey = process.env.OMDB_API_KEY?.trim();
+    // 2b. Reference anchors ("movies like X") resolve locally from the DB —
+    // their overviews anchor theme similarity without any external API.
+    let referenceOverviews: string[] = [];
+    if ((sanitizedParams.referenceIds?.length ?? 0) > 0) {
+      try {
+        const anchors = await loadAnchorsByImdb(sanitizedParams.referenceIds ?? []);
+        referenceOverviews = anchors.map((a) => a.overview).filter((o) => o.length > 0);
+      } catch {
+        referenceOverviews = [];
+      }
+    }
+
+    // 3. Recommend (filter → rank → diversify) over the DB pool; no OMDb.
     const {
       movies: recommended,
       notices,
       effective,
-    } = await getRecommendationsWithOMDb(sanitizedParams, omdbApiKey, extraCandidates);
+    } = await getRecommendationsWithOMDb(sanitizedParams, undefined, extraCandidates, referenceOverviews);
 
     // 3b. Final gate: enforce the REQUESTED constraints on enriched values
     const requestedLangCodes: string[] = [];
@@ -333,27 +347,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
     let picks = gated.movies;
     const allNotices = [...notices, ...gated.relaxed];
 
-    // 3. Optional server-side AI reasoning (new LLM picker)
-    if (AI_ENABLED && process.env.GEMINI_API_KEY && picks.length > 0) {
-      picks = await enhanceWithGemini(
-        picks,
-        sanitizedParams.mood,
-        sanitizedParams.audience,
-        sanitizedParams.note,
-        recommended, // full candidates before gating
-        { genres: sanitizedParams.genres, preferences: sanitizedParams.preferences, referenceIds: sanitizedParams.referenceIds },
-        [] // saved titles - could be fetched from DB if needed
-      );
-    }
-
-    // 4. Live "where to watch" availability via Watchmode
-    const watchmodeKey = process.env.WATCHMODE_API_KEY?.trim();
-    if (watchmodeKey && picks.length > 0) {
-      const region = (process.env.WATCHMODE_REGION || 'IN').trim().toUpperCase();
-      picks = await attachLiveProviders(picks, watchmodeKey, region);
-    }
-
-    // 5. E11: serve all artwork through our /img proxy
+    // 4. E11: serve all artwork through our /img proxy
     for (const m of picks as { posterUrl: string; providers: { logoUrl: string }[] }[]) {
       const local = toLocalImg(m.posterUrl);
       if (local) m.posterUrl = local;
@@ -363,7 +357,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       }
     }
 
-    // 6. Learning (Step 1): one signed impression per shown pick.
+    // 5. Learning (Step 1): one signed impression per shown pick.
     let impressionTokens: { movieId: number; impressionId: string; token: string }[] = [];
     await initLearning();
     if (learningDb) {

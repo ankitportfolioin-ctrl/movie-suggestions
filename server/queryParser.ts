@@ -1,12 +1,11 @@
 /**
- * Natural-language query parser with LLM + deterministic fallback.
+ * Natural-language query parser (deterministic).
  *
  * Converts free-text queries like "I'm tired, want an action movie, and I like The Godfather"
- * into the validated ParsedPreferences structure. Uses Gemini when configured,
- * otherwise deterministic keyword rules.
+ * into the validated ParsedPreferences structure using keyword rules and
+ * the existing noteParser — no LLM involved.
  */
 
-import { GoogleGenAI, Type } from '@google/genai';
 import { parseNote, NoteSignals } from './noteParser.js';
 import {
   ParsedPreferences,
@@ -26,100 +25,6 @@ import {
   WatchEffortLevel,
 } from './preferences.js';
 import { FALLBACK_CATALOG } from './catalog.js';
-
-// LLM output schema for structured JSON parsing
-const PARSE_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    mediaType: { type: Type.STRING, enum: ['movie', 'tv'] },
-    mood: { type: Type.ARRAY, items: { type: Type.STRING } },
-    genres: { type: Type.ARRAY, items: { type: Type.STRING } },
-    likedTitles: { type: Type.ARRAY, items: { type: Type.STRING } },
-    dislikedTitles: { type: Type.ARRAY, items: { type: Type.STRING } },
-    mustInclude: { type: Type.ARRAY, items: { type: Type.STRING } },
-    excludeGenres: { type: Type.ARRAY, items: { type: Type.STRING } },
-    excludeContent: { type: Type.ARRAY, items: { type: Type.STRING } },
-    language: { type: Type.STRING, nullable: true },
-    region: { type: Type.STRING, nullable: true },
-    maxRuntimeMinutes: { type: Type.INTEGER, nullable: true },
-    releasePeriod: { type: Type.STRING, nullable: true },
-    intensity: { type: Type.STRING, nullable: true },
-    watchEffort: { type: Type.STRING, nullable: true },
-    clarificationNeeded: { type: Type.BOOLEAN },
-    clarificationQuestion: { type: Type.STRING, nullable: true },
-  },
-  required: ['mediaType', 'mood', 'genres', 'likedTitles', 'dislikedTitles', 'mustInclude', 'excludeGenres', 'excludeContent', 'language', 'region', 'maxRuntimeMinutes', 'releasePeriod', 'intensity', 'watchEffort', 'clarificationNeeded', 'clarificationQuestion'],
-} as const;
-
-const PARSE_SYSTEM_PROMPT = `You are a movie/TV preference parser. Convert the user's natural language query into a structured preference object.
-
-RULES:
-- Output ONLY valid JSON matching the schema.
-- Use ONLY the controlled values listed below. Unknown values → null/empty array.
-- "likedTitles" and "dislikedTitles" are FREE-TEXT title strings the user mentioned (e.g., "The Godfather", "Breaking Bad"). Do NOT resolve to IDs here — that happens later.
-- "excludeContent" captures unverifiable descriptors like "gore", "jump scares", "slow pacing" — things we cannot filter by metadata.
-- "clarificationNeeded": true if the query has conflicting or ambiguous preferences (e.g., "tired but intense action").
-- "clarificationQuestion": a concise follow-up question when clarificationNeeded is true.
-- Media type defaults to "movie" unless the query explicitly mentions TV/shows/series.
-
-CONTROLLED VALUES:
-mood: ${VALID_MOODS.join(', ')}
-genres: ${VALID_GENRES.join(', ')}
-language: ${VALID_LANGUAGES.join(', ')}
-releasePeriod: ${VALID_ERAS.join(', ')}
-intensity: ${VALID_INTENSITIES.join(', ')}
-watchEffort: ${VALID_WATCH_EFFORTS.join(', ')}
-
-EXAMPLES:
-Query: "I'm tired, want an action movie, and I like The Godfather"
-Output: {"mediaType":"movie","mood":["tired","low_effort"],"genres":["Action"],"likedTitles":["The Godfather"],"dislikedTitles":[],"mustInclude":[],"excludeGenres":[],"excludeContent":[],"language":null,"region":null,"maxRuntimeMinutes":null,"releasePeriod":null,"intensity":null,"watchEffort":"low","clarificationNeeded":false,"clarificationQuestion":null}
-
-Query: "something like Breaking Bad but less violent"
-Output: {"mediaType":"tv","mood":[],"genres":["Crime","Drama","Thriller"],"likedTitles":["Breaking Bad"],"dislikedTitles":[],"mustInclude":[],"excludeGenres":[],"excludeContent":["violence"],"language":null,"region":null,"maxRuntimeMinutes":null,"releasePeriod":null,"intensity":"low","watchEffort":null,"clarificationNeeded":false,"clarificationQuestion":null}
-
-Query: "tired but want intense action"
-Output: {"mediaType":"movie","mood":["tired","low_effort"],"genres":["Action"],"likedTitles":[],"dislikedTitles":[],"mustInclude":[],"excludeGenres":[],"excludeContent":[],"language":null,"region":null,"maxRuntimeMinutes":null,"releasePeriod":null,"intensity":"high","watchEffort":"low","clarificationNeeded":true,"clarificationQuestion":"When you say tired, do you want easy-to-follow action or something intense?"}`;
-
-/**
- * Parse a natural-language query using Gemini (if API key available).
- * Returns null on any failure so caller can fall back to deterministic parser.
- */
-async function parseWithLLM(query: string): Promise<ParsedPreferences | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  try {
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: { headers: { 'User-Agent': 'MovieNightPicker/1.0' } },
-    });
-
-    const response = await Promise.race([
-      ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: query,
-        config: {
-          temperature: 0.1,
-          systemInstruction: PARSE_SYSTEM_PROMPT,
-          responseMimeType: 'application/json',
-          responseSchema: PARSE_SCHEMA,
-        },
-      }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), 3000)),
-    ]);
-
-    const text = response.text?.trim();
-    if (!text) return null;
-
-    const parsed = JSON.parse(text);
-    // Add original query for debugging
-    parsed.originalQuery = query.slice(0, 500);
-    // likedTitles/dislikedTitles are free-text strings; resolution happens later
-    return validatePreferences(parsed);
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Deterministic fallback parser using keyword dictionaries and the existing noteParser.
@@ -366,9 +271,7 @@ export async function parseUserQuery(
   text: string,
   structuredInputs?: ParsedPreferences['structuredInputs']
 ): Promise<ParsedPreferences> {
-  // Try LLM first
-  const llmResult = await parseWithLLM(text);
-  let parsed = llmResult || parseDeterministic(text);
+  let parsed = parseDeterministic(text);
 
   // Merge structured inputs (quiz answers) - they take precedence
   if (structuredInputs) {

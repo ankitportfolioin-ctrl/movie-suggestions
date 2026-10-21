@@ -36,6 +36,16 @@ export const NaturalSearch: React.FC<NaturalSearchProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const chipsRef = useRef<HTMLDivElement>(null);
 
+  // Sync with props
+  useEffect(() => {
+    setQuery(initialQuery);
+  }, [initialQuery]);
+
+  useEffect(() => {
+    setChips(initialChips);
+    setShowChips(initialChips.length > 0);
+  }, [initialChips]);
+
   // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();

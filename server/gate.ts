@@ -167,11 +167,20 @@ export function enforceHardConstraints<T extends GateMovie>(
           removedMaturity += 1;
           return false;
         }
-      } else if (cert === '' || !FAMILY_CERTS.has(cert) || !isKidGenre(m.genres)) {
-        // Unknown age fails closed: family-safe certificate AND the
-        // Family/Animation genre rule, never Horror/Crime/Thriller.
-        removedMaturity += 1;
-        return false;
+      } else if (cert !== '') {
+        // Known certificate: must be family-safe AND a kids' genre.
+        if (!FAMILY_CERTS.has(cert) || !isKidGenre(m.genres)) {
+          removedMaturity += 1;
+          return false;
+        }
+      } else {
+        // Unknown age AND certificate (no external rating source): the
+        // genres rule is the remaining signal — the same rule the DB's
+        // SQL family filter applies. Never Horror/Crime/Thriller/War.
+        if (!isKidGenre(m.genres)) {
+          removedMaturity += 1;
+          return false;
+        }
       }
     } else if (!constraints.matureAllowed) {
       if (age !== null) {

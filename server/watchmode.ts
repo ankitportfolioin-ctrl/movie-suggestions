@@ -66,7 +66,7 @@ async function fetchJson(url: string): Promise<any | null> {
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'MovieNightPicker/1.0' },
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
     return await res.json();

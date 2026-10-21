@@ -150,6 +150,7 @@ export default function App() {
   const [showNaturalSearch, setShowNaturalSearch] = useState(false);
   const [naturalSearchQuery, setNaturalSearchQuery] = useState('');
   const [naturalSearchChips, setNaturalSearchChips] = useState<SearchChip[]>([]);
+  const [recommendationStartTime, setRecommendationStartTime] = useState<number | null>(null);
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
     types: [],
     moods: [],
@@ -359,13 +360,14 @@ export default function App() {
     setErrorDetail('');
     setShowSaved(false);
     setResetStatus('');
+    setRecommendationStartTime(Date.now());
 
     try {
       const res = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(45000),
       });
 
       if (!res.ok) {
@@ -428,7 +430,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(45000),
       });
 
       if (!res.ok) {
@@ -664,7 +666,8 @@ export default function App() {
       fetchRecommendations(request);
       setViewMode('results');
     } else {
-      // For natural language, open NaturalSearch with the query
+      // For natural language, open NaturalSearch with the query pre-filled
+      setNaturalSearchQuery(query);
       setShowNaturalSearch(true);
       setViewMode('natural-search');
     }

@@ -107,16 +107,23 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
     'Almost there…',
   ];
   const [messageIndex, setMessageIndex] = useState(0);
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
 
   useEffect(() => {
     if (!isLoading) {
       setMessageIndex(0);
+      setShowTimeoutWarning(false);
       return;
     }
     const interval = window.setInterval(() => {
       setMessageIndex((i) => (i + 1) % loadingMessages.length);
     }, 2500);
-    return () => window.clearInterval(interval);
+    // Show timeout warning after 30 seconds
+    const timeoutId = window.setTimeout(() => setShowTimeoutWarning(true), 30000);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeoutId);
+    };
   }, [isLoading]);
 
   // Tasteful loading animation with stable status
@@ -130,7 +137,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           </div>
         </div>
         <p role="status" aria-live="polite" className="sr-only">
-          Finding your picks. This can take up to 20 seconds.
+          Finding your picks. This can take up to 45 seconds.
         </p>
         <h2 className="font-heading text-2xl font-bold text-[#F5F5F5] mt-8 tracking-wide" aria-hidden="true">
           Finding your picks…
@@ -138,6 +145,18 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
         <p className="text-sm text-[#8C8C8C] mt-2 h-6 transition-all" aria-hidden="true">
           {loadingMessages[messageIndex]}
         </p>
+        {showTimeoutWarning && (
+          <div className="mt-4 p-3 rounded-[12px] bg-[#E63946]/20 border border-[#E63946]/50 text-sm text-[#FF7A2F] max-w-md">
+            <p className="font-medium">Taking longer than expected…</p>
+            <p className="text-xs mt-1 opacity-80">The search is still running. You can wait a bit more or retry.</p>
+            <button
+              onClick={onRetry}
+              className="mt-2 px-3 py-1.5 rounded-[8px] bg-[#E63946]/30 border border-[#E63946]/50 text-[#FF7A2F] hover:bg-[#E63946]/50 text-xs font-medium transition-all cursor-pointer"
+            >
+              Retry now
+            </button>
+          </div>
+        )}
       </div>
     );
   }

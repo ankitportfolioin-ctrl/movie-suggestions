@@ -92,7 +92,7 @@ function setBounded<T>(map: Map<string, CacheEntry<T>>, key: string, entry: Cach
   map.set(key, entry);
 }
 
-async function fetchJson(url: string, timeoutMs = 3000): Promise<any | null> {
+async function fetchJson(url: string, timeoutMs = 8000): Promise<any | null> {
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'MovieNightPicker/1.0' },

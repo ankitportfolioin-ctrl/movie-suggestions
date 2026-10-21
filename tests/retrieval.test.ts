@@ -53,8 +53,7 @@ test('OMDb enriches a real film end to end', { skip: !OMDB_KEY }, async () => {
   assert.ok(Array.isArray(notices));
 });
 
-// Live-TMDB tests are explicit opt-in (TMDB_LIVE_TESTS=1): recorded evidence
-// 2026-10-19 — with the real key from .env, searchTitles timed out at the
+// Live-TMDB tests are explicit opt-in (TMDB_LIVE_TESTS=1): recorded evidence// 2026-10-19 — with the real key from .env, searchTitles timed out at the
 // module's internal 3s bound from this network, and discoverCandidates is
 // additionally gated by ENABLE_TMDB (default off = local 4,748-title catalog).
 // They are blocked here, not failed and not passed.
@@ -75,4 +74,28 @@ test('TMDB discovery returns deduplicated candidates', { skip: !TMDB_LIVE }, asy
   assert.ok(out && out.length > 0);
   const ids = out!.map((m) => m.id);
   assert.equal(new Set(ids).size, ids.length);
+});
+
+// DB-only pipeline (no OMDb/TMDB serving path): anchors resolve locally.
+test('DB anchor resolves without any API key and seeds similarity', { skip: !process.env.DATABASE_URL }, async () => {
+  const { loadAnchorsByImdb } = await import('../server/dbMovies.js');
+  const anchors = await loadAnchorsByImdb(['tt0816692']); // Interstellar
+  assert.ok(anchors.length > 0, 'expected Interstellar in the DB');
+  assert.ok(/interstell/i.test(anchors[0].title));
+  const { movies, notices } = await getRecommendationsWithOMDb(
+    baseParams({ mood: 'Adventurous', genres: ['Sci-Fi'], referenceIds: ['tt0816692'] }),
+    undefined, [], anchors.map((a) => a.overview).filter(Boolean)
+  );
+  assert.ok(movies.length > 0);
+  assert.ok(notices.some((n) => /similarity reference/i.test(n)), JSON.stringify(notices));
+});
+
+test('missing anchors are disclosed honestly (no silent fake similarity)', { skip: !process.env.DATABASE_URL }, async () => {
+  const { getRecommendationsWithOMDb } = await import('../server/omdb.js');
+  const { movies, notices } = await getRecommendationsWithOMDb(
+    baseParams({ mood: 'Happy', genres: ['Comedy'], referenceIds: ['tt99999999'] }),
+    undefined, [], []
+  );
+  assert.ok(movies.length > 0);
+  assert.ok(notices.some((n) => /similarity matching|other filters/i.test(n)), JSON.stringify(notices));
 });

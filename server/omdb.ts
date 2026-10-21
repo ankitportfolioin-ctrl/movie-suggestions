@@ -335,11 +335,14 @@ function applyHardFilters(
     if (classics && movie.year >= 2000) return false;
 
     if (c.requireQuizGenres) {
+      // Empty accepted set = no stated preference ('Surprise me' mood /
+      // genres with no note genres): no bias, any genre qualifies.
       const accepted = [...quizGenres, ...noteGenres];
-      if (!movie.genres.some((g) => accepted.includes(g))) return false;
+      if (accepted.length > 0 && !movie.genres.some((g) => accepted.includes(g))) return false;
     } else {
-      // Relaxed rung: fall back to mood affinity (never unfiltered).
-      if (!movie.genres.some((g) => moodGenreList.includes(g))) return false;
+      // Relaxed rung: fall back to mood affinity (never unfiltered);
+      // an empty mood-genre list (Neutral / 'Surprise me') has no bias.
+      if (moodGenreList.length > 0 && !movie.genres.some((g) => moodGenreList.includes(g))) return false;
     }
     return true;
   });
@@ -672,7 +675,7 @@ export async function fetchFromOMDb(
       : `https://www.omdbapi.com/?apikey=${apiKey}&t=${encodeURIComponent(movie.title)}&y=${movie.year}&plot=short`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'MovieNightPicker/1.0' },
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
 
@@ -841,19 +844,24 @@ export function personExcluded(
 export async function getRecommendationsWithOMDb(
   params: RecommendParams,
   omdbApiKey?: string,
-  extraCandidates: MovieItem[] = []
+  extraCandidates: MovieItem[] = [],
+  dbReferenceOverviews: string[] = []
 ): Promise<RecommendationResult> {
-  // Fetch reference movie overviews for theme similarity (if referenceIds provided)
-  let referenceOverviews: string[] = [];
+  // Fetch reference movie overviews for theme similarity. DB anchors are
+  // the primary source; OMDb only supplements them when a key is provided.
+  const referenceOverviews: string[] = [...dbReferenceOverviews];
   if (omdbApiKey && params.referenceIds && params.referenceIds.length > 0) {
     const referenceResults = await Promise.all(
       params.referenceIds.map((imdbId) => fetchFromOMDb({ imdbId }, omdbApiKey))
     );
-    referenceOverviews = referenceResults
-      .filter((r): r is any => r && r.Response === 'True' && typeof r.Plot === 'string' && r.Plot !== 'N/A')
-      .map((r) => r.Plot);
+    referenceOverviews.push(
+      ...referenceResults
+        .filter((r): r is any => r && r.Response === 'True' && typeof r.Plot === 'string' && r.Plot !== 'N/A')
+        .map((r) => r.Plot),
+    );
+    const omdLoaded = referenceOverviews.length - dbReferenceOverviews.length;
     if (referenceOverviews.length < params.referenceIds.length) {
-      const missingCount = params.referenceIds.length - referenceOverviews.length;
+      const missingCount = params.referenceIds.length - omdLoaded;
       console.warn(`[reference] Could not load ${missingCount} of ${params.referenceIds.length} reference movie(s)`);
     }
   }

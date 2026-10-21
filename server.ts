@@ -10,14 +10,11 @@ import {
   LANGUAGE_CODES,
 } from './server/omdb.js';
 import { MovieItem } from './server/catalog.js';
-import { loadDbCandidates, loadReferenceAnchors, rankGateMovies, ensureMinAge, diagnoseEmptyPool } from './server/dbMovies.js';
+import { loadDbCandidates, loadReferenceAnchors, loadAnchorsByImdb, suggestTitles, rankGateMovies, ensureMinAge, diagnoseEmptyPool } from './server/dbMovies.js';
 import type { DbFilters, DbItem } from './server/dbMovies.js';
-import { discoverCandidates, enrichRuntimes } from './server/discovery.js';
 import { validateRecommendBody } from './server/validate.js';
 import { enforceHardConstraints } from './server/gate.js';
 import { runtimeCap } from './server/omdb.js';
-import { enhanceWithGemini } from './server/ai.js';
-import { attachLiveProviders } from './server/watchmode.js';
 import { registerAnalyticsRoutes } from './server/analytics.js';
 import {
   FALLBACK_PNG,
@@ -63,7 +60,6 @@ const learningDb = LEARNING_ENABLED ? openLearningDb() : null;
 const eventBursts = new Map<string, BurstSlot>();
 
 // Configuration Constants
-export const AI_ENABLED = true;
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -126,8 +122,31 @@ app.get('/healthz', (_req: Request, res: Response) => {
 
 // Exact Title Search Endpoint (logic in server/titleSearch.ts: provider
 // outage is a retryable 502, never a masked empty result).
+// Local-first: the 20k-title database answers autocomplete; the legacy
+// provider path only runs when the DB is unreachable.
 app.get('/api/search-title', rateLimiter, async (req: Request, res: Response) => {
   try {
+    try {
+      const items = await suggestTitles(String(req.query.q || ''), 10);
+      res.status(200).json({
+        results: items.map((m) => ({
+          id: m.id,
+          title: m.title,
+          year: m.year,
+          mediaType: m.type === 'series' ? 'tv' : 'movie',
+          genres: m.genres,
+          runtime: m.runtime,
+          rating: m.rating,
+          overview: m.overview,
+          posterUrl: toLocalImg(m.posterUrl) || m.posterUrl,
+          language: m.language,
+        })),
+        source: 'db',
+      });
+      return;
+    } catch {
+      // DB unreachable — fall through to the legacy provider path
+    }
     const { searchTitles } = await import('./server/titleSearch.js');
     const { status, body } = await searchTitles(req.query.q, {
       tmdbKey: process.env.TMDB_API_KEY?.trim(),
@@ -140,20 +159,35 @@ app.get('/api/search-title', rateLimiter, async (req: Request, res: Response) =>
 });
 
 // Reference-movie suggestions for the quiz ("Movies you liked").
-// OMDb search: every chip carries a real IMDb id the reference pipeline can
-// resolve; provider outage is a retryable 502, never a masked empty result.
+// Local-first: chips come from the database (real imdbIds + posters); the
+// legacy OMDb path only runs when the DB is unreachable. Provider outage
+// remains a retryable 502, never a masked empty result.
 const suggestionCache = new Map<string, { data: unknown[]; expiresAt: number }>();
 const SUGGESTION_TTL = 60 * 60 * 1000; // 1 hour
 
 app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) => {
   try {
-    const { searchSuggestions } = await import('./server/titleSearch.js');
     const safeQuery = String(req.query.q || '').replace(/<[^>]*>/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
     const cached = suggestionCache.get(safeQuery);
     if (cached && cached.expiresAt > Date.now()) {
       res.json({ results: cached.data });
       return;
     }
+    try {
+      const items = await suggestTitles(safeQuery, 5);
+      const results = items.map((m) => ({
+        imdbId: m.imdbId,
+        title: m.title,
+        year: m.year,
+        posterUrl: toLocalImg(m.posterUrl) || m.posterUrl,
+      }));
+      suggestionCache.set(safeQuery, { data: results, expiresAt: Date.now() + SUGGESTION_TTL });
+      res.json({ results });
+      return;
+    } catch {
+      // DB unreachable — fall through to the legacy OMDb path
+    }
+    const { searchSuggestions } = await import('./server/titleSearch.js');
     const { status, body } = await searchSuggestions(safeQuery, {
       omdbKey: process.env.OMDB_API_KEY?.trim(),
     });
@@ -236,55 +270,10 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
     }
     const sanitizedParams = validation.params;
 
-    // 2. Live discovery: widen the candidate pool via TMDB when configured.
-    // Absent key or any failure â†’ local catalog only (never an error).
-    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
-    let extraCandidates: MovieItem[] = [];
-    if (tmdbApiKey) {
-      try {
-        const found = await discoverCandidates(
-          {
-            genres: sanitizedParams.genres,
-            languages: sanitizedParams.languages,
-            maxRuntime: sanitizedParams.maxRuntime,
-            highlyRated: Boolean(sanitizedParams.preferences?.highlyRated),
-            recent: Boolean(sanitizedParams.preferences?.recent),
-            classics: Boolean(sanitizedParams.preferences?.classics),
-            family: sanitizedParams.audience === 'Family with kids',
-            mature: Boolean(sanitizedParams.preferences?.mature),
-            excludeIds: sanitizedParams.excludeIds || [],
-          },
-          tmdbApiKey
-        );
-        if (found && found.length > 0) {
-          const runtimes = await enrichRuntimes(found, tmdbApiKey);
-          for (const m of found) {
-            const details = runtimes.get(m.id);
-            if (details) {
-              if (details.runtime > 0) m.runtime = details.runtime;
-              if (details.genres.length > 0) m.genres = details.genres;
-            }
-          }
-          extraCandidates = found;
-
-          // Generate semantic embeddings for new TMDB movies (idempotent, async).
-          // Gated on SEMANTIC_ENABLED so serverless never spawns python or writes files.
-          // shortcut: fire-and-forget, no retry; upgrade to a queue/worker if generation must be guaranteed.
-          if (process.env.SEMANTIC_ENABLED === 'true') {
-            try {
-              const { generateEmbeddingsForMovies } = await import('./server/embeddings.js');
-              generateEmbeddingsForMovies(found).catch(() => {});
-            } catch {
-              // embeddings module unavailable â€” silent no-op
-            }
-          }
-        }
-      } catch {
-        extraCandidates = [];
-      }
-    }
-
-    // 2b. Database candidates join the pool (SQL-filtered by the shared pipeline).
+    // 2. Candidate pool: the local database is the sole source. No live
+    // TMDB discovery, no OMDb enrichment — requests stay fast and results
+    // are always ours.
+    const extraCandidates: MovieItem[] = [];
     try {
       const currentYear = new Date().getFullYear();
       const langs = sanitizedParams.languages.includes('Any')
@@ -305,20 +294,30 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
         matureAllowed: sanitizedParams.audience !== 'Family with kids' &&
           Boolean(sanitizedParams.preferences?.mature),
         excludeIds: (sanitizedParams.excludeIds || []).map(Number).filter(Number.isFinite),
-        limit: 500,
+        limit: 2000,
       });
       extraCandidates.push(...dbItems);
     } catch {
       // loader falls back internally; never break recommend
     }
 
-    // 3. Recommend (filter â†’ rank â†’ diversify) + enrich via OMDb API
-    const omdbApiKey = process.env.OMDB_API_KEY?.trim();
+    // 2b. Reference anchors ("movies like X") resolve locally from the DB.
+    let referenceOverviews: string[] = [];
+    if ((sanitizedParams.referenceIds?.length ?? 0) > 0) {
+      try {
+        const anchors = await loadAnchorsByImdb(sanitizedParams.referenceIds ?? []);
+        referenceOverviews = anchors.map((a) => a.overview).filter((o) => o.length > 0);
+      } catch {
+        referenceOverviews = [];
+      }
+    }
+
+    // 3. Recommend (filter → rank → diversify) over the DB pool
     const {
       movies: recommended,
       notices,
       effective,
-    } = await getRecommendationsWithOMDb(sanitizedParams, omdbApiKey, extraCandidates);
+    } = await getRecommendationsWithOMDb(sanitizedParams, undefined, extraCandidates, referenceOverviews);
 
     // 3b. Final gate: enforce the REQUESTED constraints on enriched values
     // so no ladder rung, fallback, or live-data overwrite can leak a
@@ -349,25 +348,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
     let picks = gated.movies;
     const allNotices = [...notices, ...gated.relaxed];
 
-    // 3. Optional server-side AI reasoning
-    if (AI_ENABLED && process.env.GEMINI_API_KEY && picks.length > 0) {
-      picks = await enhanceWithGemini(
-        picks,
-        sanitizedParams.mood,
-        sanitizedParams.audience,
-        sanitizedParams.note
-      );
-    }
-
-    // 4. Live "where to watch" availability via Watchmode (falls back
-    // to catalog providers when the key is missing or a lookup fails).
-    const watchmodeKey = process.env.WATCHMODE_API_KEY?.trim();
-    if (watchmodeKey && picks.length > 0) {
-      const region = (process.env.WATCHMODE_REGION || 'IN').trim().toUpperCase();
-      picks = await attachLiveProviders(picks, watchmodeKey, region);
-    }
-
-    // 5. E11: serve all artwork through our /img proxy so the browser
+    // 4. E11: serve all artwork through our /img proxy so the browser
     // never requests image.tmdb.org (or any third-party host) directly.
     for (const m of picks as { posterUrl: string; providers: { logoUrl: string }[] }[]) {
       const local = toLocalImg(m.posterUrl);
