@@ -15,7 +15,15 @@ export function isDbConfigured(): boolean {
 export function getPool(): Pool {
   if (!pool) {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
-    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    // D15: same capped waits as the dbMovies pool — a dead serverless
+    // connection otherwise hangs on the OS TCP timeout (~20s).
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 3,
+      connectionTimeoutMillis: 5000,
+      statement_timeout: 5000,
+      query_timeout: 5000,
+    });
   }
   return pool;
 }
