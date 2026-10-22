@@ -300,7 +300,10 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       excludeGenres: [] as string[],
       languages: langs,
       runtimeMin: null as number | null,
-      runtimeMax: runtimeCap(sanitizedParams.maxRuntime),
+      // "Any length" is Infinity, which Postgres rejects (invalid input syntax
+      // for type integer) - that silently dropped every default search to the
+      // built-in demo catalog. No cap means no clause.
+      runtimeMax: Number.isFinite(runtimeCap(sanitizedParams.maxRuntime)) ? runtimeCap(sanitizedParams.maxRuntime) : null,
       yearMin: sanitizedParams.preferences?.recent ? currentYear - 5 : null,
       yearMax: sanitizedParams.preferences?.classics ? 1999 : null,
       ratingFloor: sanitizedParams.preferences?.highlyRated ? 7.0 : null,

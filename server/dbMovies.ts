@@ -90,7 +90,8 @@ export function buildWhereClause(f: DbFilters): { text: string; params: unknown[
   if (f.excludeGenres.length > 0) clauses.push(`NOT (genres && ${next(expandGenres(f.excludeGenres))})`);
   if (f.languages.length > 0) clauses.push(`originalLanguage = ANY(${next(f.languages)})`);
   if (f.runtimeMin !== null) clauses.push(`runtime > ${next(f.runtimeMin)}`);
-  if (f.runtimeMax !== null) clauses.push(`runtime <= ${next(f.runtimeMax)}`);
+  // Infinity ("no cap") is not a valid integer parameter: treat it as no clause.
+  if (f.runtimeMax !== null && Number.isFinite(f.runtimeMax)) clauses.push(`runtime <= ${next(f.runtimeMax)}`);
   if (f.yearMin !== null) clauses.push(`year >= ${next(f.yearMin)}`);
   if (f.yearMax !== null) clauses.push(`year <= ${next(f.yearMax)}`);
   if (f.ratingFloor !== null) clauses.push(`rating >= ${next(f.ratingFloor)}`);
@@ -262,8 +263,10 @@ export async function loadDbCandidates(f: DbFilters): Promise<{ items: DbItem[];
   if (process.env.DATABASE_URL) {
     try {
       return { items: await queryDbCandidates(f), source: 'db' };
-    } catch {
-      // fall through to files below
+    } catch (err) {
+      // Falls through to the demo-data fallbacks below, so make it LOUD: a
+      // silent catch here hid a broken query in production for days.
+      console.error('[dbMovies] candidate query FAILED, serving fallback data:', err instanceof Error ? err.message : String(err));
     }
   }
   try {
