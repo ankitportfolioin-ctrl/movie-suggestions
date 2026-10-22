@@ -584,9 +584,11 @@ export default function App() {
         'adventurous': 'Adventurous',
         'surprise': 'Surprise me',
       };
-      setWizardState((prev) => ({ ...prev, mood: moodMap[moodId] || 'Surprise me', genres: ['Surprise me'] }));
-      const request = buildRecommendRequest(wizardState);
-      fetchRecommendations(request);
+      // Build from the NEW state, not the stale closure (the old code sent
+      // whatever mood was previously selected, i.e. "Relaxed" on first click).
+      const next = { ...wizardState, mood: moodMap[moodId] || 'Surprise me', genres: ['Surprise me'] };
+      setWizardState(next);
+      fetchRecommendations(buildRecommendRequest(next));
       setViewMode('results');
     } else {
       // Show mood collections - handled by HomePage
@@ -594,9 +596,9 @@ export default function App() {
   }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 
   const handlePopularNow = useCallback(() => {
-    setWizardState((prev) => ({ ...prev, mood: 'Surprise me', genres: ['Surprise me'], preferences: { ...prev.preferences, recent: true } }));
-    const request = buildRecommendRequest(wizardState);
-    fetchRecommendations(request);
+    const next = { ...wizardState, mood: 'Surprise me', genres: ['Surprise me'], preferences: { ...wizardState.preferences, recent: true } };
+    setWizardState(next);
+    fetchRecommendations(buildRecommendRequest(next));
     setViewMode('results');
   }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 

@@ -48,7 +48,7 @@ test('media types are case-insensitive and "any" expands to every kind', () => {
   const t = (types: unknown) => {
     const r = validateRecommendBody({ ...good, types });
     assert.equal(r.ok, true);
-    return r.ok ? r.params.types : [];
+    return r.ok ? (r.params.types ?? []) : [];
   };
   assert.deepEqual(t(['Series']), ['series']);
   assert.deepEqual(t(['Movie']), ['movie']);
