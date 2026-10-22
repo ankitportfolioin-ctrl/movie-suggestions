@@ -1,0 +1,511 @@
+{
+  "base": "https://movie-night-picker-one.vercel.app",
+  "apiCalls": {
+    "recommend": 15,
+    "search": 0,
+    "titleSearch": 0,
+    "blockedBeacons": 18,
+    "errorSuppressPool": 17
+  },
+  "ageStats": {
+    "total": 220,
+    "notConfirmed": 41,
+    "labels": {
+      "7+": 117,
+      "All ages": 62,
+      "Rating not confirmed": 41
+    }
+  },
+  "recommendTimings": [
+    {
+      "status": 200,
+      "ttfbMs": -1792655899195442,
+      "actionMs": 5837
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792655912527477,
+      "actionMs": 5114
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792655924421006,
+      "actionMs": 5033
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792655935795443,
+      "actionMs": 5364
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792655948116663,
+      "actionMs": 5039
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792655959785368,
+      "actionMs": 4739
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792655971912075,
+      "actionMs": 2997
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792655986513439,
+      "actionMs": 5591
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792656004841997,
+      "actionMs": 5482
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792656020331111
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792656035085182,
+      "actionMs": 5715
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792656050713179
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792656062934045,
+      "actionMs": 24434
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792656056518598,
+      "actionMs": 5037
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792656108003917
+    }
+  ],
+  "respFacts": [
+    {
+      "t": 1792655910655,
+      "audience": "Just me",
+      "mood": "Mind-bending",
+      "recent": false,
+      "notices": [],
+      "firstTypes": [
+        "Mercy[movie] age=12",
+        "Super 8[movie] age=12",
+        "Caddo Lake[movie] age=12",
+        "The Vast of Night[movie] age=12",
+        "Reminiscence[movie] age=12",
+        "The Forgotten[movie] age=12",
+        "The Others[movie] age=12",
+        "The Bourne Identity[movie] age=12",
+        "2:22[movie] age=12",
+        "War of the Worlds: The Attack[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792655922559,
+      "audience": "Just me",
+      "mood": "Suspenseful",
+      "recent": false,
+      "notices": [],
+      "firstTypes": [
+        "Sherlock: The Abominable Bride[movie] age=12",
+        "Red Riding Hood[movie] age=12",
+        "Crooked House[movie] age=12",
+        "The Fast and the Furious: Tokyo Drift[movie] age=12",
+        "Signs[movie] age=12",
+        "High Crimes[movie] age=12",
+        "The Last Kiss[movie] age=0",
+        "To Steal from a Thief[movie] age=12",
+        "The Girl in the River[movie]",
+        "Enola Holmes 3[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792655934247,
+      "audience": "Just me",
+      "mood": "Funny",
+      "recent": false,
+      "notices": [],
+      "firstTypes": [
+        "Isle of Dogs[movie] age=6",
+        "To All the Boys I've Loved Before[movie] age=12",
+        "Gifted[movie] age=12",
+        "How the Grinch Stole Christmas[movie] age=6",
+        "Legally Blonde[movie] age=12",
+        "Mayday[movie] age=12",
+        "St. Vincent[movie] age=12",
+        "Pitch Perfect 2[movie] age=12",
+        "Napoleon Dynamite[movie] age=6",
+        "Zoolander[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792655946295,
+      "audience": "Just me",
+      "mood": "Feel-good",
+      "recent": false,
+      "notices": [],
+      "firstTypes": [
+        "Elemental[movie] age=6",
+        "Shrek 2[movie] age=0",
+        "Rugrats in Paris: The Movie[movie] age=0",
+        "Lilo & Stitch[movie] age=0",
+        "Kung Fu Panda[movie] age=6",
+        "Sing 2[movie] age=0",
+        "The Hunchback of Notre Dame II[movie] age=0",
+        "Barbie as The Princess & the Pauper[movie] age=0",
+        "Scooby-Doo! Shaggy's Showdown[movie] age=6",
+        "Cloudy with a Chance of Meatballs[movie] age=0"
+      ]
+    },
+    {
+      "t": 1792655957976,
+      "audience": "Just me",
+      "mood": "Emotional",
+      "recent": false,
+      "notices": [],
+      "firstTypes": [
+        "The Last Song[movie] age=6",
+        "The Ultimate Gift[movie] age=6",
+        "A Princess for Christmas[movie] age=6",
+        "Miss Potter[movie] age=6",
+        "Hachi: A Dog's Tale[movie] age=0",
+        "Save the Last Dance[movie] age=12",
+        "In the Mood for Love[movie] age=12",
+        "Flipped[movie] age=6",
+        "Wonder[movie] age=6",
+        "Midnight Sun[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792655969846,
+      "audience": "Just me",
+      "mood": "Adventurous",
+      "recent": false,
+      "notices": [],
+      "firstTypes": [
+        "Final Fantasy VII: Advent Children[movie] age=12",
+        "Pixels[movie] age=12",
+        "Race to Witch Mountain[movie] age=12",
+        "Wonder Woman[movie] age=12",
+        "Godzilla vs. Kong[movie] age=12",
+        "Pokémon Detective Pikachu[movie] age=6",
+        "Ant-Man[movie] age=12",
+        "Godzilla x Kong: The New Empire[movie] age=12",
+        "Ant-Man and the Wasp[movie] age=12",
+        "Thor[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792655981278,
+      "audience": "Just me",
+      "mood": "Surprise me",
+      "recent": true,
+      "notices": [],
+      "firstTypes": [
+        "The Way to the Heart[movie] age=12",
+        "Swapped[movie] age=6",
+        "The Cigarette Surfboard[movie]",
+        "BTS THE COMEBACK LIVE | ARIRANG[movie] age=12",
+        "Gabriel's Rapture: Part II[movie]",
+        "Girl in the Basement[movie] age=12",
+        "Dragon Ball Super: Super Hero[movie] age=12",
+        "Missing Child Videotape[movie] age=6",
+        "Rubius X[movie]",
+        "Wedding Registry[movie]"
+      ]
+    },
+    {
+      "t": 1792655990910,
+      "audience": "Just me",
+      "mood": "Surprise me",
+      "recent": true,
+      "notices": [
+        "Using your reference titles as your similarity reference."
+      ],
+      "firstTypes": [
+        "Michael[movie] age=12",
+        "Project Hail Mary[movie] age=12",
+        "Cruella[movie] age=12",
+        "Harry Potter 20th Anniversary: Return to Hogwarts[movie] age=12",
+        "New Gods: Nezha Reborn[movie] age=12",
+        "Pressure[movie] age=12",
+        "Gabriel's Redemption: Part III[movie]",
+        "Dollhouse[movie] age=12",
+        "Big World[movie]",
+        "TAYLOR SWIFT | THE ERAS TOUR[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792656009147,
+      "audience": "Just me",
+      "mood": "Surprise me",
+      "recent": true,
+      "notices": [
+        "We couldn't match \"Incepton\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \"movies like ...\"."
+      ],
+      "firstTypes": [
+        "Spider-Man: Brand New Day[movie] age=12",
+        "Luca[movie] age=6",
+        "BTS: Permission to Dance on Stage - LA[movie] age=6",
+        "The Silent Service: The Battle of Arctic Ocean[movie]",
+        "Gabriel's Redemption: Part II[movie]",
+        "Fall 2: Deadpoint[movie] age=12",
+        "Mystery 101: Deadly History[movie] age=6",
+        "Radical[movie] age=12",
+        "The Secret of Dr. Grinberg[movie] age=6",
+        "Reinvented Mom[movie]"
+      ]
+    },
+    {
+      "t": 1792656024245,
+      "audience": "Just me",
+      "mood": "Surprise me",
+      "recent": true,
+      "notices": [],
+      "firstTypes": [
+        "The Super Mario Galaxy Movie[movie] age=6",
+        "Accidental Partners[movie] age=12",
+        "Friends: The Reunion[movie] age=12",
+        "Glass Onion: A Knives Out Mystery[movie] age=12",
+        "Rental Family[movie] age=12",
+        "Divine Intervention[movie] age=12",
+        "El gerente[movie]",
+        "My Best Friend[movie] age=12",
+        "Crazy About Her[movie] age=6",
+        "Exchanged[movie]"
+      ]
+    },
+    {
+      "t": 1792656039519,
+      "audience": "Just me",
+      "mood": "Surprise me",
+      "recent": true,
+      "notices": [
+        "We couldn't match \"asdfghjkl qwerty\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \"movies like ...\"."
+      ],
+      "firstTypes": [
+        "Spider-Man: Across the Spider-Verse[movie] age=6",
+        "Purple Hearts[movie] age=12",
+        "Stray Kids: The dominATE Experience[movie] age=6",
+        "When I'm Young[movie] age=12",
+        "Death on the Nile[movie] age=12",
+        "Perfect Days[movie] age=6",
+        "Ghosts and the Afterlife[movie]",
+        "An Evening with Dua Lipa[movie]",
+        "Familia a la deriva[movie]",
+        "Dune: Part Two[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792656055357,
+      "audience": "Just me",
+      "mood": "Surprise me",
+      "recent": true,
+      "notices": [
+        "Using The Matrix as your similarity reference."
+      ],
+      "firstTypes": [
+        "Spider-Man: Across the Spider-Verse[movie] age=6",
+        "Purple Hearts[movie] age=12",
+        "Stray Kids: The dominATE Experience[movie] age=6",
+        "When I'm Young[movie] age=12",
+        "Death on the Nile[movie] age=12",
+        "King Richard[movie] age=12",
+        "Elephant Mother[movie] age=6",
+        "An Evening with Dua Lipa[movie]",
+        "Familia a la deriva[movie]",
+        "Dune: Part Two[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792656072715,
+      "audience": "Just me",
+      "mood": "Surprise me",
+      "recent": true,
+      "notices": [
+        "Using The Matrix as your similarity reference."
+      ],
+      "firstTypes": [
+        "Dragon Ball Super: Beerus[series] age=12",
+        "The Loyal Pin[series]",
+        "Prehistoric Planet[series] age=6",
+        "Somewhere Somehow[series]",
+        "The Boyfriend[series] age=12",
+        "Guardián de mi vida[series]",
+        "Synanthrope[series] age=12",
+        "The Punishment[series]",
+        "Una Familia Complicada[series] age=6",
+        "The Assembly[series]"
+      ]
+    },
+    {
+      "t": 1792656105341,
+      "audience": "Family with kids",
+      "mood": "Feel-good",
+      "recent": false,
+      "notices": [],
+      "firstTypes": [
+        "Lady and the Tramp[movie] age=0",
+        "Summer Days with Coo[movie] age=0",
+        "Toy Story 3[movie] age=0",
+        "The 1st 13th Annual Fancy Anvil Awards Show Program Special: Live in Stereo[movie] age=6",
+        "The Lego Batman Movie[movie] age=0",
+        "Ron's Gone Wrong[movie] age=6",
+        "GOAT[movie] age=6",
+        "Angel's Friends - Between Dream and Reality[movie]",
+        "The Parent Trap[movie] age=0",
+        "What a Father![movie]"
+      ]
+    },
+    {
+      "t": 1792656117889,
+      "audience": "Just me",
+      "mood": "Suspenseful",
+      "recent": false,
+      "notices": [],
+      "firstTypes": [
+        "The Others[movie] age=12",
+        "Sherlock: The Abominable Bride[movie] age=12",
+        "Mercy[movie] age=12",
+        "Red Riding Hood[movie] age=12",
+        "Crooked House[movie] age=12",
+        "The Bourne Identity[movie] age=12",
+        "High Crimes[movie] age=12",
+        "The Last Kiss[movie] age=0",
+        "The Girl in the River[movie]",
+        "Enola Holmes 3[movie] age=12"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "name": "S1 home loads (desktop 1280)",
+      "status": "pass",
+      "details": "heading OK=true, input OK=true, load=5437ms; consoleErrors=[]; pageErrors=[]; failedRequests=[]",
+      "screenshot": "s01-home-desktop.png"
+    },
+    {
+      "name": "S2 mood tile \"Mind-bending\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; bodyMood=\"Mind-bending\" moodMatchesTile=true; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=5837ms; titles10=[\"Mercy\",\"Super 8\",\"Caddo Lake\",\"The Vast of Night\",\"Reminiscence\",\"The Forgotten\",\"The Others\",\"The Bourne Identity\",\"2:22\",\"War of the Worlds: The Attack\"]; respNotices=[]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-mindbending.png"
+    },
+    {
+      "name": "S2 mood tile \"Suspenseful\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; bodyMood=\"Suspenseful\" moodMatchesTile=true; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=5114ms; titles10=[\"Sherlock: The Abominable Bride\",\"Red Riding Hood\",\"Crooked House\",\"The Fast and the Furious: Tokyo Drift\",\"Signs\",\"High Crimes\",\"The Last Kiss\",\"To Steal from a Thief\",\"The Girl in the River\",\"Enola Holmes 3\"]; respNotices=[]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-suspenseful.png"
+    },
+    {
+      "name": "S2 mood tile \"Funny\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; bodyMood=\"Funny\" moodMatchesTile=true; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=5033ms; titles10=[\"Isle of Dogs\",\"To All the Boys I've Loved Before\",\"Gifted\",\"How the Grinch Stole Christmas\",\"Legally Blonde\",\"Mayday\",\"St. Vincent\",\"Pitch Perfect 2\",\"Napoleon Dynamite\",\"Zoolander\"]; respNotices=[]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-funny.png"
+    },
+    {
+      "name": "S2 mood tile \"Feel-good\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; bodyMood=\"Feel-good\" moodMatchesTile=true; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=5364ms; titles10=[\"Elemental\",\"Shrek 2\",\"Rugrats in Paris: The Movie\",\"Lilo & Stitch\",\"Kung Fu Panda\",\"Sing 2\",\"The Hunchback of Notre Dame II\",\"Barbie as The Princess & the Pauper\",\"Scooby-Doo! Shaggy's Showdown\",\"Cloudy with a Chance of Meatballs\"]; respNotices=[]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-feelgood.png"
+    },
+    {
+      "name": "S2 mood tile \"Emotional\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; bodyMood=\"Emotional\" moodMatchesTile=true; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=5039ms; titles10=[\"The Last Song\",\"The Ultimate Gift\",\"A Princess for Christmas\",\"Miss Potter\",\"Hachi: A Dog's Tale\",\"Save the Last Dance\",\"In the Mood for Love\",\"Flipped\",\"Wonder\",\"Midnight Sun\"]; respNotices=[]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-emotional.png"
+    },
+    {
+      "name": "S2 mood tile \"Adventurous\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; bodyMood=\"Adventurous\" moodMatchesTile=true; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=5134ms; titles10=[\"Final Fantasy VII: Advent Children\",\"Pixels\",\"Race to Witch Mountain\",\"Wonder Woman\",\"Godzilla vs. Kong\",\"Pokémon Detective Pikachu\",\"Ant-Man\",\"Godzilla x Kong: The New Empire\",\"Ant-Man and the Wasp\",\"Thor\"]; respNotices=[]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-adventurous.png"
+    },
+    {
+      "name": "S2b \"Popular now\" (mood Surprise me, recent)",
+      "status": "pass",
+      "details": "status=200; bodyMood=\"Surprise me\"; recent=true; cards=10; recommend=4739ms; titles5=[\"The Way to the Heart\",\"Swapped\",\"The Cigarette Surfboard\",\"BTS THE COMEBACK LIVE | ARIRANG\",\"Gabriel's Rapture: Part II\"]; respNotices=[]",
+      "screenshot": "s02b-popular-now.png"
+    },
+    {
+      "name": "S3 search \"Inception\" (inception)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=2997ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 10 matches\"; cards=10; respNotices=[\"Using your reference titles as your similarity reference.\"]; firstTypes=[\"Michael[movie] age=12\",\"Project Hail Mary[movie] age=12\",\"Cruella[movie] age=12\",\"Harry Potter 20th Anniversary: Return to Hogwarts[movie] age=12\",\"New Gods: Nezha Reborn[movie] age=12\",\"Pressure[movie] age=12\",\"Gabriel's Redemption: Part III[movie]\",\"Dollhouse[movie] age=12\",\"Big World[movie]\",\"TAYLOR SWIFT | THE ERAS TOUR[movie] age=12\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"7+ | Fit 99/100 2026 2h 8m 8.6 TMDB Movie 7+ EN • Music, Drama Michael The story of Michael Jac\"",
+      "screenshot": "s03-search-inception.png"
+    },
+    {
+      "name": "S3 search \"Incepton\" (incepton-misspelled)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=5591ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 10 matches\"; cards=10; respNotices=[\"We couldn't match \\\"Incepton\\\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \\\"movies like ...\\\".\"]; firstTypes=[\"Spider-Man: Brand New Day[movie] age=12\",\"Luca[movie] age=6\",\"BTS: Permission to Dance on Stage - LA[movie] age=6\",\"The Silent Service: The Battle of Arctic Ocean[movie]\",\"Gabriel's Redemption: Part II[movie]\",\"Fall 2: Deadpoint[movie] age=12\",\"Mystery 101: Deadly History[movie] age=6\",\"Radical[movie] age=12\",\"The Secret of Dr. Grinberg[movie] age=6\",\"Reinvented Mom[movie]\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"7+ | Fit 99/100 2026 2h 25m 8.5 TMDB Movie 7+ EN • Sci-Fi, Action, Adventure Spider-Man: Brand \"",
+      "screenshot": "s03-search-incepton-misspelled.png"
+    },
+    {
+      "name": "S3 search \"best comedies\" (genre-comedies)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=5482ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 10 matches\"; cards=10; respNotices=[]; firstTypes=[\"The Super Mario Galaxy Movie[movie] age=6\",\"Accidental Partners[movie] age=12\",\"Friends: The Reunion[movie] age=12\",\"Glass Onion: A Knives Out Mystery[movie] age=12\",\"Rental Family[movie] age=12\",\"Divine Intervention[movie] age=12\",\"El gerente[movie]\",\"My Best Friend[movie] age=12\",\"Crazy About Her[movie] age=6\",\"Exchanged[movie]\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"All ages | Fit 99/100 2026 1h 38m 8.2 TMDB Movie All ages EN • Family, Comedy, Adventure The Super Ma\"",
+      "screenshot": "s03-search-genre-comedies.png"
+    },
+    {
+      "name": "S4 gibberish 'asdfghjkl qwerty' -> couldn't-match notice",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200; header=\"Found 10 matches\"; cards=10; cantMatchNotice=true; friendlyEmpty=true; respNotices=[\"We couldn't match \\\"asdfghjkl qwerty\\\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \\\"movies like ...\\\".\"]; appError=false; appConsoleErrors=[]; pageErrors=[]",
+      "screenshot": "s04-empty-search.png"
+    },
+    {
+      "name": "S3 search \"movies like The Matrix\" (reference-matrix)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=5715ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 10 matches\"; cards=10; respNotices=[\"Using The Matrix as your similarity reference.\"]; firstTypes=[\"Spider-Man: Across the Spider-Verse[movie] age=6\",\"Purple Hearts[movie] age=12\",\"Stray Kids: The dominATE Experience[movie] age=6\",\"When I'm Young[movie] age=12\",\"Death on the Nile[movie] age=12\",\"King Richard[movie] age=12\",\"Elephant Mother[movie] age=6\",\"An Evening with Dua Lipa[movie]\",\"Familia a la deriva[movie]\",\"Dune: Part Two[movie] age=12\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"All ages | Fit 99/100 2023 2h 20m 8.4 TMDB Movie All ages EN • Animation, Action, Adventure Spider-Ma\"",
+      "screenshot": "s03-search-reference-matrix.png"
+    },
+    {
+      "name": "S9 axe: home",
+      "status": "pass",
+      "details": "0 violations (clean)",
+      "screenshot": "s09-axe-home.png"
+    },
+    {
+      "name": "S6 filters: Type -> Series returns series",
+      "status": "warn",
+      "details": "sentTypes=[series]; before first=\"Spider-Man: Across the Spider-Verse\"; after header=\"Found 10 matches\"; cards=10; cardTypesAllSeries=false; wrongKindNotice=false; respNotices=[\"Using The Matrix as your similarity reference.\"]; firstTypes=[\"Dragon Ball Super: Beerus[series] age=12\",\"The Loyal Pin[series]\",\"Prehistoric Planet[series] age=6\",\"Somewhere Somehow[series]\",\"The Boyfriend[series] age=12\",\"Guardián de mi vida[series]\",\"Synanthrope[series] age=12\",\"The Punishment[series]\",\"Una Familia Complicada[series] age=6\",\"The Assembly[series]\"]; cardAges=[\"7+\",\"Rating not confirmed\",\"All ages\",\"Rating not confirmed\",\"7+\",\"Rating not confirmed\",\"7+\",\"Rating not confirmed\",\"All ages\",\"Rating not confirmed\"]; apply=6779ms; status=200",
+      "screenshot": "s06-filter-series.png"
+    },
+    {
+      "name": "S9 axe: results (post-filter page)",
+      "status": "pass",
+      "details": "0 violations (clean)",
+      "screenshot": "s09-axe-results.png"
+    },
+    {
+      "name": "S7 audience \"Family with kids\" -> all-ages picks",
+      "status": "warn",
+      "details": "status=200; bodyAudience=\"Family with kids\"; cards=10; allAges=false; cardAges=[\"All ages\",\"All ages\",\"All ages\",\"All ages\",\"All ages\",\"All ages\",\"All ages\",\"Rating not confirmed\",\"All ages\",\"Rating not confirmed\"]; recommend=24434ms below10s=false; respNotices=[]",
+      "screenshot": "s07-family-kids.png"
+    },
+    {
+      "name": "Desktop console summary",
+      "status": "pass",
+      "details": "app consoleErrors=[]; warnings=0; pageErrors=[]; failedRequests=[]; probe-blocked beacons=16"
+    },
+    {
+      "name": "S10 mobile (390px): mood flow",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; brokenPosters=0; recommend=5037ms; appConsoleErrors=[]",
+      "screenshot": "s10-results-mobile.png"
+    },
+    {
+      "name": "Mobile home checks",
+      "status": "pass",
+      "details": "appConsoleErrors=[]; pageErrors=[]; failedRequests=[]",
+      "screenshot": "s10-home-mobile.png"
+    }
+  ]
+}
