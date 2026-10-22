@@ -1,0 +1,56 @@
+[
+  {
+    "label": "series pool",
+    "status": 200,
+    "count": 10,
+    "notices": [],
+    "titles": [
+      "Anne with an E[series] age=12",
+      "The Office[series] age=12",
+      "Naruto Shippūden[series] age=12",
+      "Cosmos[series] age=6",
+      "Run BTS![series] age=?",
+      "The Heart Is Never Wrong[series] age=6",
+      "Malcolm in the Middle[series] age=6",
+      "The Loyal Pin[series] age=?",
+      "The Other Me[series] age=?",
+      "Planet Earth[series] age=6"
+    ]
+  },
+  {
+    "label": "any-length mind-bending",
+    "status": 200,
+    "count": 10,
+    "notices": [],
+    "titles": [
+      "Super 8[movie] age=12",
+      "Mercy[movie] age=12",
+      "Transcendence[movie] age=12",
+      "Reminiscence[movie] age=12",
+      "The Forgotten[movie] age=12",
+      "The Others[movie] age=12",
+      "The Bourne Identity[movie] age=12",
+      "The Vast of Night[movie] age=12",
+      "2:22[movie] age=12",
+      "Jurassic World[movie] age=12"
+    ]
+  },
+  {
+    "label": "any-length funny",
+    "status": 200,
+    "count": 10,
+    "notices": [],
+    "titles": [
+      "Isle of Dogs[movie] age=6",
+      "To All the Boys I've Loved Before[movie] age=12",
+      "The Intern[movie] age=12",
+      "Marley & Me[movie] age=6",
+      "Mayday[movie] age=12",
+      "Jojo Rabbit[movie] age=12",
+      "Pitch Perfect 2[movie] age=12",
+      "Legally Blonde[movie] age=12",
+      "Bruce Almighty[movie] age=12",
+      "St. Vincent[movie] age=12"
+    ]
+  }
+]

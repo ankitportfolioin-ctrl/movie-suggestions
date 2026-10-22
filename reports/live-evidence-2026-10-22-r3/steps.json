@@ -1,0 +1,369 @@
+{
+  "base": "https://movie-night-picker-one.vercel.app",
+  "apiCalls": {
+    "recommend": 11,
+    "search": 0,
+    "titleSearch": 0,
+    "blockedBeacons": 14,
+    "errorSuppressPool": 13
+  },
+  "ageStats": {
+    "total": 180,
+    "notConfirmed": 5,
+    "labels": {
+      "All ages": 81,
+      "7+": 94,
+      "Rating not confirmed": 5
+    }
+  },
+  "recommendTimings": [
+    {
+      "status": 200,
+      "ttfbMs": -1792651335386067,
+      "actionMs": 4912
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792651349713382,
+      "actionMs": 5196
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792651361367351,
+      "actionMs": 6103
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792651418277631,
+      "actionMs": 5860
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792651434138455,
+      "actionMs": 5577
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792651449894254
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792651465087133,
+      "actionMs": 6010
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792651480225972
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792651492753692,
+      "actionMs": 5276
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792651506345471,
+      "actionMs": 3799
+    },
+    {
+      "status": 200,
+      "ttfbMs": -1792651520649179
+    }
+  ],
+  "respFacts": [
+    {
+      "t": 1792651344987,
+      "audience": "Just me",
+      "notices": [],
+      "firstTypes": [
+        "Elemental[movie] age=6",
+        "Shrek 2[movie] age=0",
+        "Rugrats in Paris: The Movie[movie] age=0",
+        "Lilo & Stitch[movie] age=0",
+        "Kung Fu Panda[movie] age=6",
+        "Sing 2[movie] age=0",
+        "The Hunchback of Notre Dame II[movie] age=0",
+        "Barbie as The Princess & the Pauper[movie] age=0",
+        "Scooby-Doo! Shaggy's Showdown[movie] age=6",
+        "Cloudy with a Chance of Meatballs[movie] age=0"
+      ]
+    },
+    {
+      "t": 1792651359864,
+      "audience": "Just me",
+      "notices": [],
+      "firstTypes": [
+        "Mercy[movie] age=12",
+        "Super 8[movie] age=12",
+        "Caddo Lake[movie] age=12",
+        "The Vast of Night[movie] age=12",
+        "Reminiscence[movie] age=12",
+        "The Forgotten[movie] age=12",
+        "The Others[movie] age=12",
+        "The Bourne Identity[movie] age=12",
+        "2:22[movie] age=12",
+        "War of the Worlds: The Attack[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792651410615,
+      "audience": "Just me",
+      "notices": [],
+      "firstTypes": [
+        "Wish Dragon[movie] age=6",
+        "The Lego Batman Movie[movie] age=0",
+        "Another Cinderella Story[movie] age=6",
+        "Ron's Gone Wrong[movie] age=6",
+        "Scooby-Doo! Camp Scare[movie] age=6",
+        "Leo[movie] age=6",
+        "Lady and the Tramp[movie] age=0",
+        "The Boss Baby[movie] age=6",
+        "The Princess Diaries[movie] age=0",
+        "The Peanuts Movie[movie] age=0"
+      ]
+    },
+    {
+      "t": 1792651423449,
+      "audience": "Just me",
+      "notices": [
+        "Using your reference titles as your similarity reference."
+      ],
+      "firstTypes": [
+        "Pride & Prejudice[movie] age=12",
+        "Harry Potter and the Deathly Hallows: Part 2[movie] age=12",
+        "Edge of Tomorrow[movie] age=12",
+        "Marley & Me[movie] age=6",
+        "Harry Potter 20th Anniversary: Return to Hogwarts[movie] age=12",
+        "Pressure[movie] age=12",
+        "Million Dollar Baby[movie] age=12",
+        "The Intern[movie] age=12",
+        "Enola Holmes[movie] age=12",
+        "The Greatest Night in Pop[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792651438923,
+      "audience": "Just me",
+      "notices": [
+        "We couldn't match \"Incepton\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \"movies like ...\"."
+      ],
+      "firstTypes": [
+        "Wonder[movie] age=6",
+        "Guardians of the Galaxy[movie] age=12",
+        "To All the Boys I've Loved Before[movie] age=12",
+        "Now You See Me 2[movie] age=12",
+        "The Year Earth Changed[movie] age=6",
+        "Lion[movie] age=12",
+        "Lawrence of Arabia[movie] age=12",
+        "Song of the Sea[movie] age=6",
+        "The Last Kiss[movie] age=0",
+        "Pitch Perfect 2[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792651454145,
+      "audience": "Just me",
+      "notices": [],
+      "firstTypes": [
+        "Jojo Rabbit[movie] age=12",
+        "Isle of Dogs[movie] age=6",
+        "The Kissing Booth 2[movie] age=12",
+        "The School of Rock[movie] age=6",
+        "Mayday[movie] age=12",
+        "Glass Onion: A Knives Out Mystery[movie] age=12",
+        "St. Vincent[movie] age=12",
+        "Gifted[movie] age=12",
+        "Hocus Pocus 2[movie] age=12",
+        "Grease[movie] age=6"
+      ]
+    },
+    {
+      "t": 1792651469461,
+      "audience": "Just me",
+      "notices": [
+        "We couldn't match \"asdfghjkl qwerty\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \"movies like ...\"."
+      ],
+      "firstTypes": [
+        "Ford v Ferrari[movie] age=12",
+        "Finding Nemo[movie] age=0",
+        "Midnight in Paris[movie] age=12",
+        "Girl in the Basement[movie] age=12",
+        "Earth: One Amazing Day[movie] age=6",
+        "Bohemian Rhapsody[movie] age=12",
+        "Cowboys & Aliens[movie] age=12",
+        "Legally Blonde[movie] age=12",
+        "Being James Bond[movie] age=12",
+        "The Pursuit of Happyness[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792651485542,
+      "audience": "Just me",
+      "notices": [
+        "Using The Matrix as your similarity reference."
+      ],
+      "firstTypes": [
+        "Love, Simon[movie] age=12",
+        "Return of the Jedi[movie] age=12",
+        "The Book of Life[movie] age=6",
+        "My Octopus Teacher[movie] age=0",
+        "Ocean's Thirteen[movie] age=6",
+        "The Greatest Showman[movie] age=12",
+        "Dunkirk[movie] age=12",
+        "Perfect Strangers[movie] age=12",
+        "Marty, Life Is Short[movie] age=12",
+        "Hidalgo[movie] age=12"
+      ]
+    },
+    {
+      "t": 1792651503207,
+      "audience": "Just me",
+      "notices": [
+        "Using The Matrix as your similarity reference."
+      ],
+      "firstTypes": [
+        "Anne with an E[series] age=12",
+        "The Office[series] age=12",
+        "Dragon Ball Super: Beerus[series] age=12",
+        "Cosmos[series] age=6",
+        "Run BTS![series]",
+        "The Heart Is Never Wrong[series] age=6",
+        "Malcolm in the Middle[series] age=6",
+        "The Loyal Pin[series]",
+        "The Other Me[series]",
+        "Planet Earth[series] age=6"
+      ]
+    },
+    {
+      "t": 1792651516871,
+      "audience": "Family with kids",
+      "notices": [],
+      "firstTypes": [
+        "Lady and the Tramp[movie] age=0",
+        "Summer Days with Coo[movie] age=0",
+        "Toy Story 3[movie] age=0",
+        "The 1st 13th Annual Fancy Anvil Awards Show Program Special: Live in Stereo[movie] age=6",
+        "Angel's Friends - Between Dream and Reality[movie]",
+        "Teasing Master Takagi-san: The Movie[movie] age=0",
+        "The Parent Trap[movie] age=0",
+        "What a Father![movie]",
+        "Sing[movie] age=0",
+        "Kung Fu Panda 2[movie] age=6"
+      ]
+    },
+    {
+      "t": 1792651528025,
+      "audience": "Just me",
+      "notices": [],
+      "firstTypes": [
+        "Elemental[movie] age=6",
+        "Shrek 2[movie] age=0",
+        "Rugrats in Paris: The Movie[movie] age=0",
+        "Lilo & Stitch[movie] age=0",
+        "Kung Fu Panda[movie] age=6",
+        "Sing 2[movie] age=0",
+        "The Hunchback of Notre Dame II[movie] age=0",
+        "Barbie as The Princess & the Pauper[movie] age=0",
+        "Scooby-Doo! Shaggy's Showdown[movie] age=6",
+        "Cloudy with a Chance of Meatballs[movie] age=0"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "name": "S1 home loads (desktop 1280)",
+      "status": "pass",
+      "details": "heading OK=true, input OK=true, load=4570ms; consoleErrors=[]; pageErrors=[]; failedRequests=[]",
+      "screenshot": "s01-home-desktop.png"
+    },
+    {
+      "name": "S2 mood \"Mind-bending\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=4912ms; titles10=[\"Elemental\",\"Shrek 2\",\"Rugrats in Paris: The Movie\",\"Lilo & Stitch\",\"Kung Fu Panda\",\"Sing 2\",\"The Hunchback of Notre Dame II\",\"Barbie as The Princess & the Pauper\",\"Scooby-Doo! Shaggy's Showdown\",\"Cloudy with a Chance of Meatballs\"]; respNotices=[]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-mindbending.png"
+    },
+    {
+      "name": "S2 mood \"Feel-good\"",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=5196ms; titles10=[\"Mercy\",\"Super 8\",\"Caddo Lake\",\"The Vast of Night\",\"Reminiscence\",\"The Forgotten\",\"The Others\",\"The Bourne Identity\",\"2:22\",\"War of the Worlds: The Attack\"]; respNotices=[]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-feelgood.png"
+    },
+    {
+      "name": "S2 mood \"Funny\"",
+      "status": "warn",
+      "details": "header=\"Found 10 matches\"; cards=10; meta(year+runtime)=true; brokenPosters(after settle)=0; recommend=24743ms; titles10=[\"Wish Dragon\",\"The Lego Batman Movie\",\"Another Cinderella Story\",\"Ron's Gone Wrong\",\"Scooby-Doo! Camp Scare\",\"Leo\",\"Lady and the Tramp\",\"The Boss Baby\",\"The Princess Diaries\",\"The Peanuts Movie\"]; respNotices=[]; consoleErrsSoFar=0",
+      "screenshot": "s02-mood-funny.png"
+    },
+    {
+      "name": "S3 search \"Inception\" (inception)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=6103ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 10 matches\"; cards=10; respNotices=[\"Using your reference titles as your similarity reference.\"]; firstTypes=[\"Pride & Prejudice[movie] age=12\",\"Harry Potter and the Deathly Hallows: Part 2[movie] age=12\",\"Edge of Tomorrow[movie] age=12\",\"Marley & Me[movie] age=6\",\"Harry Potter 20th Anniversary: Return to Hogwarts[movie] age=12\",\"Pressure[movie] age=12\",\"Million Dollar Baby[movie] age=12\",\"The Intern[movie] age=12\",\"Enola Holmes[movie] age=12\",\"The Greatest Night in Pop[movie] age=12\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"7+ | Fit 99/100 2005 2h 8m 8.1 TMDB Movie 7+ EN • Drama, Romance Pride & Prejudice A story of l\"",
+      "screenshot": "s03-search-inception.png"
+    },
+    {
+      "name": "S3 search \"Incepton\" (incepton-misspelled)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=5860ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 10 matches\"; cards=10; respNotices=[\"We couldn't match \\\"Incepton\\\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \\\"movies like ...\\\".\"]; firstTypes=[\"Wonder[movie] age=6\",\"Guardians of the Galaxy[movie] age=12\",\"To All the Boys I've Loved Before[movie] age=12\",\"Now You See Me 2[movie] age=12\",\"The Year Earth Changed[movie] age=6\",\"Lion[movie] age=12\",\"Lawrence of Arabia[movie] age=12\",\"Song of the Sea[movie] age=6\",\"The Last Kiss[movie] age=0\",\"Pitch Perfect 2[movie] age=12\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"All ages | Fit 99/100 2017 1h 53m 8.1 TMDB Movie All ages EN • Family, Drama Wonder The story of Augu\"",
+      "screenshot": "s03-search-incepton-misspelled.png"
+    },
+    {
+      "name": "S3 search \"best comedies\" (genre-comedies)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=5577ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 10 matches\"; cards=10; respNotices=[]; firstTypes=[\"Jojo Rabbit[movie] age=12\",\"Isle of Dogs[movie] age=6\",\"The Kissing Booth 2[movie] age=12\",\"The School of Rock[movie] age=6\",\"Mayday[movie] age=12\",\"Glass Onion: A Knives Out Mystery[movie] age=12\",\"St. Vincent[movie] age=12\",\"Gifted[movie] age=12\",\"Hocus Pocus 2[movie] age=12\",\"Grease[movie] age=6\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"7+ | Fit 99/100 2019 1h 48m 8.0 TMDB Movie 7+ EN • Comedy, War, Drama Jojo Rabbit Jojo, a lonel\"",
+      "screenshot": "s03-search-genre-comedies.png"
+    },
+    {
+      "name": "S4 gibberish 'asdfghjkl qwerty' -> couldn't-match notice",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200; header=\"Found 10 matches\"; cards=10; cantMatchNotice=true; friendlyEmpty=true; respNotices=[\"We couldn't match \\\"asdfghjkl qwerty\\\" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or \\\"movies like ...\\\".\"]; appError=false; appConsoleErrors=[]; pageErrors=[]",
+      "screenshot": "s04-empty-search.png"
+    },
+    {
+      "name": "S3 search \"movies like The Matrix\" (reference-matrix)",
+      "status": "pass",
+      "details": "endpoint=/api/recommend status=200 latency=6010ms below10s=true; leg=single-Enter (search page did not appear); header=\"Found 10 matches\"; cards=10; respNotices=[\"Using The Matrix as your similarity reference.\"]; firstTypes=[\"Love, Simon[movie] age=12\",\"Return of the Jedi[movie] age=12\",\"The Book of Life[movie] age=6\",\"My Octopus Teacher[movie] age=0\",\"Ocean's Thirteen[movie] age=6\",\"The Greatest Showman[movie] age=12\",\"Dunkirk[movie] age=12\",\"Perfect Strangers[movie] age=12\",\"Marty, Life Is Short[movie] age=12\",\"Hidalgo[movie] age=12\"]; brokenPosters=0; friendlyEmpty=false; appError=false; first=\"7+ | Fit 99/100 2018 1h 50m 8.0 TMDB Movie 7+ EN • Comedy, Drama, Romance Love, Simon Everyone \"",
+      "screenshot": "s03-search-reference-matrix.png"
+    },
+    {
+      "name": "S9 axe: home",
+      "status": "pass",
+      "details": "0 violations (clean)",
+      "screenshot": "s09-axe-home.png"
+    },
+    {
+      "name": "S6 filters: Type -> Series returns series",
+      "status": "warn",
+      "details": "sentTypes=[series]; before first=\"Love, Simon\"; after header=\"Found 10 matches\"; cards=10; cardTypesAllSeries=false; wrongKindNotice=false; respNotices=[\"Using The Matrix as your similarity reference.\"]; firstTypes=[\"Anne with an E[series] age=12\",\"The Office[series] age=12\",\"Dragon Ball Super: Beerus[series] age=12\",\"Cosmos[series] age=6\",\"Run BTS![series]\",\"The Heart Is Never Wrong[series] age=6\",\"Malcolm in the Middle[series] age=6\",\"The Loyal Pin[series]\",\"The Other Me[series]\",\"Planet Earth[series] age=6\"]; cardAges=[\"7+\",\"7+\",\"7+\",\"All ages\",\"Rating not confirmed\",\"All ages\",\"All ages\",\"Rating not confirmed\",\"Rating not confirmed\",\"All ages\"]; apply=7130ms; status=200",
+      "screenshot": "s06-filter-series.png"
+    },
+    {
+      "name": "S9 axe: results (post-filter page)",
+      "status": "pass",
+      "details": "0 violations (clean)",
+      "screenshot": "s09-axe-results.png"
+    },
+    {
+      "name": "S7 audience \"Family with kids\" -> all-ages picks",
+      "status": "warn",
+      "details": "status=200; bodyAudience=\"Family with kids\"; cards=10; allAges=false; cardAges=[\"All ages\",\"All ages\",\"All ages\",\"All ages\",\"Rating not confirmed\",\"All ages\",\"All ages\",\"Rating not confirmed\",\"All ages\",\"All ages\"]; recommend=5276ms below10s=true; respNotices=[]",
+      "screenshot": "s07-family-kids.png"
+    },
+    {
+      "name": "Desktop console summary",
+      "status": "pass",
+      "details": "app consoleErrors=[]; warnings=0; pageErrors=[]; failedRequests=[]; probe-blocked beacons=12"
+    },
+    {
+      "name": "S10 mobile (390px): mood flow",
+      "status": "pass",
+      "details": "header=\"Found 10 matches\"; cards=10; brokenPosters=0; recommend=3799ms; appConsoleErrors=[]",
+      "screenshot": "s10-results-mobile.png"
+    },
+    {
+      "name": "Mobile home checks",
+      "status": "pass",
+      "details": "appConsoleErrors=[]; pageErrors=[]; failedRequests=[]",
+      "screenshot": "s10-home-mobile.png"
+    }
+  ]
+}
