@@ -19,6 +19,7 @@ import { registerAnalyticsRoutes } from '../server/analytics.js';
 import { enforceHardConstraints } from '../server/gate.js';
 import { runtimeCap } from '../server/omdb.js';
 import { allowRequest } from '../server/rateLimit.js';
+import { getTitle, similarTitles, renderTitlePage, renderNotFoundPage, renderSitemap, robotsTxt, sitemapIds, isImdbId } from '../server/titlePages.js';
 import {
   FALLBACK_PNG,
   contentTypeFor,
@@ -207,6 +208,56 @@ app.get('/api/title-search', rateLimiter, async (req: Request, res: Response) =>
     res.json({ results });
   } catch {
     res.status(502).json({ error: 'Title search is temporarily unavailable. Please try again.', retryable: true });
+  }
+});
+
+// ---- Crawlable pages: SEO + shareable links (deterministic, no AI) ----
+const siteBase = (req: Request): string =>
+  (process.env.SITE_URL || `https://${req.headers.host || 'localhost'}`).replace(/\/$/, '');
+
+app.get('/robots.txt', (req: Request, res: Response) => {
+  res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(robotsTxt(siteBase(req)));
+});
+
+app.get('/sitemap.xml', async (req: Request, res: Response) => {
+  try {
+    const ids = await sitemapIds();
+    res.type('application/xml').set('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=604800')
+      .send(renderSitemap(ids, siteBase(req)));
+  } catch (err) {
+    console.error('[sitemap] failed:', err instanceof Error ? err.message : String(err));
+    res.status(503).type('text/plain').send('Sitemap temporarily unavailable');
+  }
+});
+
+app.get('/title/:imdbId', rateLimiter, async (req: Request, res: Response) => {
+  const id = String(req.params.imdbId || '');
+  if (!isImdbId(id)) { res.status(404).type('html').send(renderNotFoundPage()); return; }
+  try {
+    const title = await getTitle(id);
+    if (!title) { res.status(404).type('html').send(renderNotFoundPage()); return; }
+    const similar = await similarTitles(id, 12).catch(() => []);
+    res.type('html').set('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400')
+      .send(renderTitlePage(title, similar, siteBase(req)));
+  } catch (err) {
+    console.error('[title-page] failed:', err instanceof Error ? err.message : String(err));
+    res.status(503).type('text/plain').send('This page is temporarily unavailable. Please try again.');
+  }
+});
+
+// "More like this" JSON (same deterministic scorer as the title page).
+app.get('/api/similar/:imdbId', rateLimiter, async (req: Request, res: Response) => {
+  const id = String(req.params.imdbId || '');
+  if (!isImdbId(id)) { res.status(400).json({ error: 'Invalid title id' }); return; }
+  try {
+    const results = (await similarTitles(id, 12)).map((s) => ({
+      imdbId: s.imdbId, title: s.title, year: s.year, type: s.type, rating: s.rating,
+      posterUrl: s.posterPath ? `/img/w342/tmdb${s.posterPath}` : '',
+    }));
+    res.set('Cache-Control', 'public, s-maxage=3600').json({ results });
+  } catch (err) {
+    console.error('[similar] failed:', err instanceof Error ? err.message : String(err));
+    res.status(502).json({ error: 'Similar titles are temporarily unavailable.', retryable: true });
   }
 });
 

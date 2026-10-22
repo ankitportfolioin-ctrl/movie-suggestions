@@ -26,6 +26,8 @@ export interface Movie {
   certificate?: string;
   /** Watch-level minimum age from the catalog (TMDB-derived). Source of truth for the card's age label. */
   minAge?: number | null;
+  /** IMDb id when known: powers the shareable /title/:id page link. */
+  imdbId?: string;
   /** "Rating not confirmed" when a NULL minAge survived OMDb backfill. */
   ratingNote?: string;
   /** Provider-reported content type: "movie" or "series". */

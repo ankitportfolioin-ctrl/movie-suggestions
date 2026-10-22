@@ -161,7 +161,11 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
 
           {/* Title */}
           <h2 className="font-heading text-xl font-semibold text-white mb-2 tracking-tight line-clamp-1 group-hover:text-[#FF7A2F] transition-colors duration-200">
-            {movie.title}
+            {movie.imdbId ? (
+              <a href={`/title/${movie.imdbId}`} target="_blank" rel="noopener" className="hover:underline" aria-label={`${movie.title} - details and similar titles`}>
+                {movie.title}
+              </a>
+            ) : movie.title}
           </h2>
 
           {/* 2-Line Concise Synopsis */}

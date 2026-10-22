@@ -32,6 +32,8 @@ export interface MoviePick {
   certificate?: string;
   /** Watch-level minimum age from the catalog. Source of truth for the age label and the gate. */
   minAge?: number | null;
+  /** IMDb id when the catalog has one (links to the crawlable /title/:id page). */
+  imdbId?: string;
   /** Catalog adult flag, read by the final gate. */
   isMature?: boolean;
   /** OMDb `Type` field when known. Used by the final gate. */
@@ -986,6 +988,7 @@ export async function getRecommendationsWithOMDb(
         certificate: finalCertificate ?? (movie.certificate || undefined),
         minAge: (movie as { minAge?: number | null }).minAge ?? null,
         isMature: movie.isMature,
+        imdbId: /^tt\d+$/.test(movie.imdbId || '') ? movie.imdbId : undefined,
         mediaType: finalMediaType,
         ratingSource: finalRatingSource,
         actors: finalActors,

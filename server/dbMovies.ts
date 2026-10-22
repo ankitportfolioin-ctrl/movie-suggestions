@@ -319,7 +319,30 @@ export async function suggestTitles(q: string, limit = 10): Promise<DbItem[]> {
       LIMIT $3`,
     [`%${t}%`, t, limit],
   );
-  return rows.map(toDbItem);
+  const out = rows.map(toDbItem);
+  // Typo tolerance (pg_trgm, deterministic - no AI): when substring matching
+  // finds too little, add the closest-spelled titles ("incepton" -> Inception).
+  // Best-effort: if the extension/index is missing the exact results stand.
+  if (out.length < limit && t.length >= 4) {
+    try {
+      const have = new Set(out.map((m) => m.imdbId));
+      const fuzzy = await getDbPool().query(
+        `SELECT ${DB_COLS} FROM movies
+          WHERE (adult IS NOT TRUE) AND (posterpath IS NOT NULL) AND (imdbid LIKE 'tt%')
+            AND lower(title) % $1
+          ORDER BY similarity(lower(title), $1) DESC, popularity DESC NULLS LAST
+          LIMIT $2`,
+        [t, limit],
+      );
+      for (const r of fuzzy.rows.map(toDbItem)) {
+        if (out.length >= limit) break;
+        if (!have.has(r.imdbId)) { out.push(r); have.add(r.imdbId); }
+      }
+    } catch (err) {
+      console.warn('[dbMovies] fuzzy title match unavailable:', err instanceof Error ? err.message : String(err));
+    }
+  }
+  return out;
 }
 
 export interface EmptyPoolCounts {

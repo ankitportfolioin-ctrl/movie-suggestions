@@ -14,6 +14,7 @@
     "ingest:tmdb": "node scripts/ingest-tmdb.mjs",
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:migrate:rate-limit": "tsx scripts/db-migrate-rate-limit.ts",
+    "db:migrate:discovery": "tsx scripts/db-migrate-discovery.ts",
     "db:load": "tsx scripts/load-movies-json.ts",
     "vercel-build": "vite build && node -e \"import('fs').then(fs => fs.cpSync('server', 'api/server', { recursive: true }))\""
   },

@@ -13,6 +13,18 @@
       "destination": "/api/index.ts"
     },
     {
+      "source": "/title/(.*)",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "/api/index.ts"
+    },
+    {
       "source": "/healthz",
       "destination": "/api/index.ts"
     },
