@@ -44,3 +44,10 @@ test('helpers', () => {
   assert.equal(ageLabel({ minAge: 6 }), 'All ages');
   assert.equal(ageLabel({ minAge: 16 }), '16+');
 });
+
+import { truncateAtWord } from '../server/titlePages.js';
+test('descriptions are cut at a word boundary with an ellipsis', () => {
+  const out = truncateAtWord('word '.repeat(80), 200);
+  assert.ok(out.length <= 200 && out.endsWith('…') && !out.endsWith(' …'));
+  assert.equal(truncateAtWord('short text', 200), 'short text');
+});

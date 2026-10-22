@@ -153,13 +153,20 @@ export function ageLabel(t: Pick<TitleRow, 'minAge'>): string {
   return `${t.minAge}+`;
 }
 
+/** Cut at a word boundary (search snippets read badly when they stop mid-word). */
+export function truncateAtWord(text: string, max: number): string {
+  const t = text.replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max - 1);
+  const sp = cut.lastIndexOf(' ');
+  return `${(sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,;:.\-"']+$/, '')}…`;
+}
+
 export function renderTitlePage(t: TitleRow, similar: SimilarRow[], base: string): string {
   const url = `${base}/title/${t.imdbId}`;
   const kind = t.type === 'series' ? 'TV series' : t.type === 'short' ? 'short film' : 'movie';
   const heading = `${t.title}${t.year ? ` (${t.year})` : ''}`;
-  const desc = (t.overview || `${t.title} is a ${t.genres.join(', ').toLowerCase() || kind}.`)
-    .replace(/\s+/g, ' ')
-    .slice(0, 200);
+  const desc = truncateAtWord(t.overview || `${t.title} is a ${t.genres.join(', ').toLowerCase() || kind}.`, 200);
   const poster = posterUrl(t.posterPath, base, 'w500');
   const facts = [
     t.type === 'series' ? (t.seasons ? `${t.seasons} season${t.seasons === 1 ? '' : 's'}` : 'TV series') : t.runtime ? `${t.runtime} min` : '',
