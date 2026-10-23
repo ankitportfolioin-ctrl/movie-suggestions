@@ -89,9 +89,14 @@ async function fetchWithTimeout(url: string, headers: Record<string, string>, ms
   const timer = setTimeout(() => ctl.abort(), ms);
   try {
     const res = await fetch(url, { headers, signal: ctl.signal });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Status only - never log the URL (it can carry the api_key).
+      console.warn(`[tmdb] details request failed: HTTP ${res.status}`);
+      return null;
+    }
     return await res.json();
-  } catch {
+  } catch (err) {
+    console.warn(`[tmdb] details request error: ${err instanceof Error ? err.name : 'unknown'}`);
     return null;
   } finally {
     clearTimeout(timer);
@@ -102,7 +107,8 @@ export async function getTitleExtras(
   tmdbId: number, kind: 'movie' | 'tv', regionIn?: string | null, timeoutMs = 3000,
 ): Promise<TitleExtras | null> {
   const key = process.env.TMDB_API_KEY?.trim();
-  if (!key || !Number.isInteger(tmdbId) || tmdbId <= 0) return null;
+  if (!key) { console.warn('[tmdb] TMDB_API_KEY is not set; skipping details'); return null; }
+  if (!Number.isInteger(tmdbId) || tmdbId <= 0) return null;
   const region = resolveRegion(regionIn);
   const ck = `${kind}:${tmdbId}:${region}`;
   const hit = cache.get(ck);
