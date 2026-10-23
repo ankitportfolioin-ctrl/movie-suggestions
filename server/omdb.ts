@@ -989,7 +989,7 @@ export async function getRecommendationsWithOMDb(
         minAge: (movie as { minAge?: number | null }).minAge ?? null,
         isMature: movie.isMature,
         imdbId: /^tt\d+$/.test(movie.imdbId || '') ? movie.imdbId : undefined,
-        mediaType: finalMediaType,
+        mediaType: finalMediaType ?? ((movie as { type?: string }).type === 'series' ? 'series' : undefined),
         ratingSource: finalRatingSource,
         actors: finalActors,
         director: finalDirector,

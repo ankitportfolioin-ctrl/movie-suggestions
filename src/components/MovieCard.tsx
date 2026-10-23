@@ -52,6 +52,10 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
   // D-03: only title-specific provider pages are offered — never a search
   // fallback. No verified link means the control is plainly unavailable.
   const providerLink = movie.providers?.find((p) => p.url)?.url;
+  // Shareable, crawlable detail page: IMDb id when known, else "s"+TMDB id for series.
+  const titleHref = movie.imdbId && /^tt\d+$/.test(movie.imdbId)
+    ? `/title/${movie.imdbId}`
+    : movie.type === 'series' || movie.mediaType === 'series' ? `/title/s${movie.id}` : null;
   // Catalog kind wins; OMDb's mediaType is the fallback (older rows).
   const kindLabel = movie.type === 'series' ? 'Series'
     : movie.type === 'short' ? 'Short film'
@@ -161,8 +165,8 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
 
           {/* Title */}
           <h2 className="font-heading text-xl font-semibold text-white mb-2 tracking-tight line-clamp-1 group-hover:text-[#FF7A2F] transition-colors duration-200">
-            {movie.imdbId ? (
-              <a href={`/title/${movie.imdbId}`} target="_blank" rel="noopener" className="hover:underline" aria-label={`${movie.title} - details and similar titles`}>
+            {titleHref ? (
+              <a href={titleHref} target="_blank" rel="noopener" className="hover:underline" aria-label={`${movie.title} - details and similar titles`}>
                 {movie.title}
               </a>
             ) : movie.title}
@@ -223,7 +227,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie, saved, dismissed, o
             </div>
           ) : (
             <p className="text-xs text-[#8C8C8C] italic">
-              Not streaming in your country.
+              Streaming info isn't available for this title yet.
             </p>
           )}
         </div>

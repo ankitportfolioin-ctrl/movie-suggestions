@@ -20,6 +20,10 @@ export function getPool(): Pool {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 3,
+      // Neon closes idle sockets and scales to zero; recycle idle clients quickly and
+      // keep TCP alive so a reused serverless connection is never silently dead.
+      idleTimeoutMillis: 10_000,
+      keepAlive: true,
       connectionTimeoutMillis: 5000,
       statement_timeout: 5000,
       query_timeout: 5000,

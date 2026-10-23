@@ -17,6 +17,14 @@
       "destination": "/api/index.ts"
     },
     {
+      "source": "/privacy",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/terms",
+      "destination": "/api/index.ts"
+    },
+    {
       "source": "/sitemap.xml",
       "destination": "/api/index.ts"
     },

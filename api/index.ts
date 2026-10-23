@@ -19,7 +19,9 @@ import { registerAnalyticsRoutes } from '../server/analytics.js';
 import { enforceHardConstraints } from '../server/gate.js';
 import { runtimeCap } from '../server/omdb.js';
 import { allowRequest } from '../server/rateLimit.js';
-import { getTitle, similarTitles, renderTitlePage, renderNotFoundPage, renderSitemap, robotsTxt, sitemapIds, isImdbId } from '../server/titlePages.js';
+import { attachProviders, getTitleExtras, resolveRegion } from '../server/tmdbDetails.js';
+import { getTitle, similarTitles, renderTitlePage, renderNotFoundPage, renderSitemap, robotsTxt, sitemapIds, isTitleId, titleIdFor } from '../server/titlePages.js';
+import { renderPrivacyPage, renderTermsPage } from '../server/legalPages.js';
 import {
   FALLBACK_PNG,
   contentTypeFor,
@@ -230,30 +232,45 @@ app.get('/sitemap.xml', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/title/:imdbId', rateLimiter, async (req: Request, res: Response) => {
-  const id = String(req.params.imdbId || '');
-  if (!isImdbId(id)) { res.status(404).type('html').send(renderNotFoundPage()); return; }
+app.get('/title/:id', rateLimiter, async (req: Request, res: Response) => {
+  const id = String(req.params.id || '');
+  if (!isTitleId(id)) { res.status(404).type('html').send(renderNotFoundPage()); return; }
   try {
     const title = await getTitle(id);
     if (!title) { res.status(404).type('html').send(renderNotFoundPage()); return; }
-    const similar = await similarTitles(id, 12).catch(() => []);
+    const kind = title.type === 'series' ? 'tv' : 'movie';
+    const region = resolveRegion(typeof req.query.region === 'string' ? req.query.region : undefined);
+    const [similar, extras] = await Promise.all([
+      similarTitles(id, 12).catch(() => []),
+      getTitleExtras(title.tmdbId, kind, region, 3000).catch(() => null),
+    ]);
     res.type('html').set('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400')
-      .send(renderTitlePage(title, similar, siteBase(req)));
+      .send(renderTitlePage(title, similar, siteBase(req), extras));
   } catch (err) {
     console.error('[title-page] failed:', err instanceof Error ? err.message : String(err));
     res.status(503).type('text/plain').send('This page is temporarily unavailable. Please try again.');
   }
 });
 
+app.get('/privacy', (_req: Request, res: Response) => {
+  res.type('html').set('Cache-Control', 'public, max-age=3600').send(renderPrivacyPage());
+});
+app.get('/terms', (_req: Request, res: Response) => {
+  res.type('html').set('Cache-Control', 'public, max-age=3600').send(renderTermsPage());
+});
+
 // "More like this" JSON (same deterministic scorer as the title page).
-app.get('/api/similar/:imdbId', rateLimiter, async (req: Request, res: Response) => {
-  const id = String(req.params.imdbId || '');
-  if (!isImdbId(id)) { res.status(400).json({ error: 'Invalid title id' }); return; }
+app.get('/api/similar/:id', rateLimiter, async (req: Request, res: Response) => {
+  const id = String(req.params.id || '');
+  if (!isTitleId(id)) { res.status(400).json({ error: 'Invalid title id' }); return; }
   try {
-    const results = (await similarTitles(id, 12)).map((s) => ({
-      imdbId: s.imdbId, title: s.title, year: s.year, type: s.type, rating: s.rating,
-      posterUrl: s.posterPath ? `/img/w342/tmdb${s.posterPath}` : '',
-    }));
+    const results = (await similarTitles(id, 12)).flatMap((s) => {
+      const sid = titleIdFor(s);
+      return sid ? [{
+        id: sid, imdbId: s.imdbId, title: s.title, year: s.year, type: s.type, rating: s.rating,
+        posterUrl: s.posterPath ? `/img/w342/tmdb${s.posterPath}` : '',
+      }] : [];
+    });
     res.set('Cache-Control', 'public, s-maxage=3600').json({ results });
   } catch (err) {
     console.error('[similar] failed:', err instanceof Error ? err.message : String(err));
@@ -318,7 +335,10 @@ app.get('/img/:size/:host/*', async (req: Request, res: Response) => {
 // Vercel hard-kills the function at 30s a" hanging stage otherwise becomes
 // a client-side timeout with nothing to show. (No TMDB/OMDb/Watchmode/
 // Gemini stages remain in this pipeline; stages are DB + anchors + ranking.)
-const RECOMMEND_DEADLINE_MS = 22000;
+// Normal searches take 3-6s. If the flow stalls (cold database, slow upstream),
+// answer with honest partial picks after 12s instead of leaving the user
+// staring at a spinner for 22s+.
+const RECOMMEND_DEADLINE_MS = 12000;
 const STAGE_WARN_MS = 5000;
 
 app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
@@ -333,8 +353,10 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
     // Stage timing: every allocator records its duration to the log (warn
     // past STAGE_WARN_MS) so slow stages are visible from serverless logs.
     let stageStart = Date.now();
+    const stageTimings: string[] = [];
     const logStage = (name: string) => {
       const ms = Date.now() - stageStart;
+      stageTimings.push(`${name.replace(/[^a-z0-9-]/gi, '_')};dur=${ms}`);
       const line = `[recommend] stage ${name}: ${ms}ms`;
       if (ms > STAGE_WARN_MS) console.warn(line); else console.log(line);
       stageStart = Date.now();
@@ -430,6 +452,27 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
 
       let picks = gated.movies as MoviePick[];
       const allNotices = [...notices, ...gated.relaxed];
+
+      // 3c. Fill NULL ages from OMDb for the final picks only (3.5s cap, parallel,
+      // written back to the DB so each title is looked up at most once ever).
+      try {
+        const aged = await ensureMinAge(
+          picks as unknown as DbItem[],
+          sanitizedParams.audience,
+          sanitizedParams.audience !== 'Family with kids' && Boolean(sanitizedParams.preferences?.mature),
+          sanitizedParams.types ?? ['movie'],
+          sanitizedParams.maxRuntime === 'Miniseries (1 season)' ? 1 : null,
+        );
+        picks = aged.movies as unknown as MoviePick[];
+        allNotices.push(...aged.notices);
+      } catch (err) {
+        console.warn('[recommend] age backfill skipped:', err instanceof Error ? err.message : String(err));
+      }
+      logStage('age-backfill');
+
+      // 3d. Where to watch (TMDB/JustWatch), parallel under a 2.5s shared budget.
+      await attachProviders(picks, undefined, 2500).catch(() => undefined);
+      logStage('providers');
 
       // Free text we could not map to anything (gibberish, or a title that is
       // not in the catalog) must not silently look like a targeted search.
@@ -549,6 +592,9 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       };
     }
 
+    // Server-Timing exposes per-stage durations to the browser's devtools / test
+    // probes, so a slow request can be attributed without the 1-hour log window.
+    if (stageTimings.length) res.setHeader('Server-Timing', stageTimings.join(', '));
     res.json({ movies: outcome.picks, notices: outcome.notices, impressionTokens: outcome.impressionTokens });
   } catch (err) {
     console.error('[recommend] failed:', err instanceof Error ? err.message : String(err));

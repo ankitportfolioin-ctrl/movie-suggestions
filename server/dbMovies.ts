@@ -33,6 +33,10 @@ export function getDbPool(): Pool {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 3,
+      // Neon closes idle sockets and scales to zero; recycle idle clients quickly and
+      // keep TCP alive so a reused serverless connection is never silently dead.
+      idleTimeoutMillis: 10_000,
+      keepAlive: true,
       connectionTimeoutMillis: 5000,
       statement_timeout: 5000,
       query_timeout: 5000,
@@ -262,7 +266,14 @@ function jsonToItem(r: Record<string, unknown>): DbItem {
 export async function loadDbCandidates(f: DbFilters): Promise<{ items: DbItem[]; source: string }> {
   if (process.env.DATABASE_URL) {
     try {
-      return { items: await queryDbCandidates(f), source: 'db' };
+      try {
+        return { items: await queryDbCandidates(f), source: 'db' };
+      } catch (first) {
+        // One retry: the usual failure is a reused serverless connection that
+        // Neon already closed (idle / scale-to-zero); a fresh client succeeds.
+        console.warn('[dbMovies] candidate query failed, retrying once:', first instanceof Error ? first.message : String(first));
+        return { items: await queryDbCandidates(f), source: 'db' };
+      }
     } catch (err) {
       // Falls through to the demo-data fallbacks below, so make it LOUD: a
       // silent catch here hid a broken query in production for days.
@@ -454,6 +465,7 @@ export async function ensureMinAge<T extends DbItem>(
       lookups.set(imdbId, data);
     }));
   }
+  const writebacks: Promise<void>[] = [];
   for (const pick of picks) {
     if (typeof pick.minAge === 'number' || !pick.imdbId || !key) {
       if (pick.minAge === null || pick.minAge === undefined) {
@@ -468,13 +480,16 @@ export async function ensureMinAge<T extends DbItem>(
       continue;
     }
     const cert = data.Rated.trim();
-    try {
-      await getDbPool().query('UPDATE movies SET certificate = $1, minAge = $2 WHERE tmdbId = $3',
-        [cert, age, pick.tmdbId]);
-    } catch { /* cache write must never fail the request */ }
+    // Cache write-back is fire-and-forget: the user's answer must never wait on it.
+    writebacks.push(
+      getDbPool().query('UPDATE movies SET certificate = $1, minAge = $2 WHERE tmdbId = $3',
+        [cert, age, pick.tmdbId]).then(() => undefined, () => undefined),
+    );
     const aged = { ...pick, certificate: cert, minAge: age };
     if (enforceHardConstraints([aged], gate).movies.length === 1) movies.push(aged);
     else notices.push(`Removed "${pick.title}" after its rating came back as ${cert}.`);
   }
+  // Give the cache writes a brief chance to land (serverless may freeze after the response), never longer.
+  await Promise.race([Promise.all(writebacks), new Promise((r) => setTimeout(r, 800))]);
   return { movies, notices };
 }
