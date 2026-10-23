@@ -145,3 +145,20 @@ export async function attachProviders<T extends { id: number; mediaType?: string
     new Promise<void>((r) => setTimeout(r, budgetMs)),
   ]);
 }
+
+/** Non-secret connectivity probe for /api/health/tmdb: key presence/kind + HTTP status of one cheap call. */
+export async function tmdbHealth(): Promise<{ configured: boolean; keyKind?: 'v3' | 'v4'; status?: number | string }> {
+  const key = process.env.TMDB_API_KEY?.trim();
+  if (!key) return { configured: false };
+  const bearer = key.length > 60 || key.startsWith('eyJ');
+  const url = `https://api.themoviedb.org/3/movie/603${bearer ? '' : `?api_key=${encodeURIComponent(key)}`}`;
+  try {
+    const res = await fetch(url, {
+      headers: bearer ? { Authorization: `Bearer ${key}` } : {},
+      signal: AbortSignal.timeout(4000),
+    });
+    return { configured: true, keyKind: bearer ? 'v4' : 'v3', status: res.status };
+  } catch (err) {
+    return { configured: true, keyKind: bearer ? 'v4' : 'v3', status: err instanceof Error ? err.name : 'error' };
+  }
+}

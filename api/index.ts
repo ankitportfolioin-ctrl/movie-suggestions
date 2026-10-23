@@ -19,7 +19,7 @@ import { registerAnalyticsRoutes } from '../server/analytics.js';
 import { enforceHardConstraints } from '../server/gate.js';
 import { runtimeCap } from '../server/omdb.js';
 import { allowRequest } from '../server/rateLimit.js';
-import { attachProviders, getTitleExtras, resolveRegion } from '../server/tmdbDetails.js';
+import { attachProviders, getTitleExtras, resolveRegion, tmdbHealth } from '../server/tmdbDetails.js';
 import { getTitle, similarTitles, renderTitlePage, renderNotFoundPage, renderSitemap, robotsTxt, sitemapIds, isTitleId, titleIdFor } from '../server/titlePages.js';
 import { renderPrivacyPage, renderTermsPage } from '../server/legalPages.js';
 import {
@@ -121,6 +121,9 @@ async function initLearning() {
 // Health Check
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ ok: true });
+});
+app.get('/api/health/tmdb', rateLimiter, async (_req: Request, res: Response) => {
+  res.set('Cache-Control', 'no-store').json(await tmdbHealth());
 });
 app.get('/healthz', (_req: Request, res: Response) => {
   res.json({ ok: true });
