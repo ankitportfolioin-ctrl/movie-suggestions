@@ -32,6 +32,7 @@ import {
   getTastePayload,
 } from './taste';
 import { trackEvent } from './analytics';
+import { typesToLabel, labelToTypes, normalizeAudience } from './quickFilters';
 
 const INITIAL_STATE: WizardState = {
   step: 0,
@@ -723,7 +724,7 @@ export default function App() {
     }
   }, [wizardState, buildRecommendRequest, fetchRecommendations, handleNaturalSearch]);
 
-  const handleFilterChange = useCallback((filters: Partial<ActiveFilters>) => {
+  const handleFilterChange = useCallback((filters: Partial<ActiveFilters> & { genres?: string[] }) => {
     setActiveFilters(prev => ({ ...prev, ...filters }));
     // Translate to wizard state and refetch
     const newWizardState = { ...wizardState };
@@ -731,9 +732,11 @@ export default function App() {
     if (filters.moods) newWizardState.mood = filters.moods[0] ?? 'Surprise me';
     if (filters.audiences) newWizardState.audience = filters.audiences[0] ?? 'Just me';
     if (filters.runtimes) newWizardState.maxRuntime = filters.runtimes[0] ?? 'Any length';
+    if (filters.genres) newWizardState.genres = filters.genres.length ? filters.genres : ['Surprise me'];
     setWizardState(newWizardState);
-    const request = buildRecommendRequest(newWizardState);
-    fetchRecommendations(request);
+    // A changed filter is a NEW search: do not exclude what the old one showed.
+    setSeenMovieIds([]);
+    fetchRecommendations({ ...buildRecommendRequest(newWizardState), excludeIds: [] });
   }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 
   const buildActiveFilterChips = useCallback(() => {
@@ -892,6 +895,13 @@ export default function App() {
             activeFilters={buildActiveFilterChips()}
             filterOptions={filterOptions}
             onFilterChange={handleFilterChange}
+            selected={{
+              types: typesToLabel(wizardState.types),
+              moods: wizardState.mood,
+              audiences: normalizeAudience(wizardState.audience),
+              runtimes: wizardState.maxRuntime,
+              genres: wizardState.genres.filter((g) => g !== 'Surprise me'),
+            }}
           />
         ) : (
           <HomePage
@@ -901,6 +911,8 @@ export default function App() {
             onMoviesSeries={handleMoviesSeries}
             onCollectionClick={handleCollectionClick}
             onSearchSubmit={handleSearchSubmit}
+            kind={typesToLabel(wizardState.types)}
+            onKindChange={(k: string) => setWizardState((prev) => ({ ...prev, types: labelToTypes(k) }))}
             isLoading={isLoading}
           />
         )}

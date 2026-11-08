@@ -17,6 +17,7 @@ import {
   ChevronUp,
   MoreHorizontal,
 } from 'lucide-react';
+import { TYPE_OPTIONS, MOOD_OPTIONS_QUICK, AUDIENCE_OPTIONS, RUNTIME_OPTIONS, GENRE_OPTIONS, toggleGenre } from '../quickFilters';
 
 interface FilterChip {
   key: string;
@@ -61,7 +62,18 @@ interface ResultsViewProps {
     audiences: string[];
     runtimes: string[];
     providers: string[];
+    genres: string[];
   }>) => void;
+  /** What is currently applied, so the one-tap bar can highlight it. */
+  selected?: { types: string; moods: string; audiences: string; runtimes: string; genres: string[] };
+}
+
+interface QuickRow {
+  key: 'types' | 'moods' | 'genres' | 'audiences' | 'runtimes';
+  label: string;
+  options: readonly string[];
+  isActive: (o: string) => boolean;
+  pick: (o: string) => void;
 }
 
 const QUICK_FILTER_GROUPS = [
@@ -95,6 +107,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   activeFilters = [],
   filterOptions = {},
   onFilterChange,
+  selected,
 }) => {
   const [showFilters, setShowFilters] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -231,7 +244,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   };
 
   const clearAllFilters = () => {
-    onFilterChange?.({ types: [], moods: [], audiences: [], runtimes: [], providers: [] } as any);
+    onFilterChange?.({ types: [], moods: [], audiences: [], runtimes: [], providers: [], genres: [] } as any);
     // Don't call onBackToFilters - let the parent handle refetch
   };
 
@@ -275,6 +288,20 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
     }
   };
 
+  const sel = selected ?? { types: 'Movie', moods: 'Surprise me', audiences: 'Just me', runtimes: 'Any length', genres: [] };
+  const quickRows: QuickRow[] = [
+    { key: 'types', label: 'Show me', options: TYPE_OPTIONS, isActive: (o) => sel.types === o, pick: (o) => onFilterChange?.({ types: [o] }) },
+    { key: 'moods', label: 'Mood', options: MOOD_OPTIONS_QUICK, isActive: (o) => sel.moods === o, pick: (o) => onFilterChange?.({ moods: [o] }) },
+    { key: 'genres', label: 'Genre', options: GENRE_OPTIONS, isActive: (o) => sel.genres.includes(o), pick: (o) => onFilterChange?.({ genres: toggleGenre(sel.genres, o) }) },
+    { key: 'audiences', label: 'Watching', options: AUDIENCE_OPTIONS, isActive: (o) => sel.audiences === o, pick: (o) => onFilterChange?.({ audiences: [o] }) },
+    {
+      key: 'runtimes', label: 'Length',
+      options: sel.types === 'Series' ? [...RUNTIME_OPTIONS, 'Miniseries (1 season)'] : RUNTIME_OPTIONS,
+      isActive: (o) => sel.runtimes === o,
+      pick: (o) => onFilterChange?.({ runtimes: [o] }),
+    },
+  ];
+
   const toggleFilterGroup = (groupKey: string) => {
     setExpandedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
   };
@@ -304,119 +331,41 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                 onClick={clearAllFilters}
                 className="px-3 py-2 rounded-[10px] bg-[#141414] border border-[#232323] hover:border-[#E63946] text-[#FF7A2F] hover:text-white text-sm font-medium transition-all duration-200 cursor-pointer"
               >
-                Clear all filters
+                Reset filters
               </button>
             )}
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-[12px] bg-[#141414] border border-[#232323] hover:border-[#FF7A2F] text-[#F5F5F5] font-medium text-sm transition-all duration-200 cursor-pointer"
-              aria-expanded={showFilters}
-            >
-              <Filter className="w-4 h-4" />
-              <span>Filters</span>
-              {hasActiveFilters && (
-                <span className="px-2 py-0.5 rounded-full bg-[#FF7A2F]/20 text-[#FF7A2F] text-xs font-bold">
-                  {activeFilters.length}
-                </span>
-              )}
-              <span className={showFilters ? 'rotate-180' : ''} style={{ transition: 'transform 0.2s' }}>
-                <ChevronDown className="w-4 h-4" />
-              </span>
-            </button>
           </div>
         </div>
 
-        {/* Active Filter Chips */}
-        {hasActiveFilters && (
-          <div className="flex flex-wrap gap-2 mb-6" role="group" aria-label="Active filters">
-            {activeFilters.map((filter) => (
-              <span
-                key={`${filter.key}-${filter.value}`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#1c1b1b] border border-[#FF7A2F]/40 text-xs text-[#F5F5F5]"
-              >
-                <span className="font-medium">{filter.label}</span>
-                <span className="text-[#8C8C8C]">:</span>
-                <span>{filter.value}</span>
-                <button
-                  type="button"
-                  onClick={() => removeFilter(filter.key, filter.value)}
-                  className="ml-1 p-0.5 hover:text-[#E63946] transition-colors"
-                  aria-label={`Remove ${filter.label} filter`}
-                >
-                  <X size={12} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Collapsible Filters Panel */}
-        {showFilters && (
-          <div className="animate-slide-down mb-6 p-4 rounded-[16px] bg-[#141414] border border-[#232323]" role="region" aria-label="Filter options">
-            <div className="space-y-6">
-              {QUICK_FILTER_GROUPS.map((group) => {
-                const options = filterOptions[group.key as keyof typeof filterOptions] || [];
-                if (options.length === 0) return null;
-
-                const isExpanded = expandedGroups[group.key];
-                return (
-                  <div key={group.key} className="border-t border-[#232323] pt-4 first:border-0 first:pt-0">
+        {/* One-tap refine bar: always visible, every tap re-runs the search */}
+        <div className="mb-6 space-y-2.5" role="region" aria-label="Refine your picks">
+          {quickRows.map((row) => (
+            <div key={row.key} className="flex items-center gap-3">
+              <span className="w-[4.5rem] shrink-0 text-[11px] uppercase tracking-wider text-[#8C8C8C]">{row.label}</span>
+              <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label={row.label}>
+                {row.options.map((option) => {
+                  const active = row.isActive(option);
+                  return (
                     <button
+                      key={option}
                       type="button"
-                      onClick={() => toggleFilterGroup(group.key)}
-                      className="w-full flex items-center justify-between text-left"
-                      aria-expanded={isExpanded}
+                      disabled={isLoading}
+                      onClick={() => row.pick(option)}
+                      aria-pressed={active}
+                      className={`shrink-0 px-3 py-1.5 rounded-full border text-sm font-medium transition-all duration-200 cursor-pointer disabled:opacity-60 ${
+                        active
+                          ? 'bg-[#FF7A2F]/15 border-[#FF7A2F] text-white'
+                          : 'bg-[#141414] border-[#232323] text-[#8C8C8C] hover:border-[#353534] hover:text-white'
+                      }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <group.icon className="w-5 h-5 text-[#FF7A2F]" />
-                        <span className="font-heading font-semibold text-white">{group.label}</span>
-                      </div>
-                      <span className={isExpanded ? 'rotate-180' : ''} style={{ transition: 'transform 0.2s' }}>
-                        <ChevronDown className="w-4 h-4 text-[#8C8C8C]" />
-                      </span>
+                      {option === 'Any' ? 'Movies & Series' : option}
                     </button>
-                    {isExpanded && (
-                      <div className="mt-3 flex flex-wrap gap-2 animate-slide-down">
-                        {options.map((option) => {
-                          const isActive = activeFilters.some(
-                            (f) => f.key === group.key && f.value === option
-                          );
-                          return (
-                            <button
-                              key={option}
-                              type="button"
-                              onClick={() => onFilterChange?.({ [group.key]: [option] } as any)}
-                              className={`px-3 py-1.5 rounded-full border text-sm font-medium transition-all duration-200 cursor-pointer ${
-                                isActive
-                                  ? 'bg-[#1c1b1b] border-[#FF7A2F] text-white shadow-[0_0_10px_rgba(255,122,47,0.15)]'
-                                  : 'bg-[#141414] border-[#232323] text-[#8C8C8C] hover:border-[#353534] hover:text-white'
-                              }`}
-                              aria-pressed={isActive}
-                            >
-                              {option}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {/* More filters link */}
-              <div className="border-t border-[#232323] pt-4">
-                <button
-                  type="button"
-                  onClick={onBackToFilters}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[12px] bg-transparent border border-[#232323] hover:border-[#383838] text-[#8C8C8C] hover:text-[#F5F5F5] font-medium text-sm transition-all duration-200 cursor-pointer"
-                >
-                  <MoreHorizontal className="w-4 h-4" />
-                  <span>More filters (year, rating, language, provider, sort…)</span>
-                </button>
+                  );
+                })}
               </div>
             </div>
-          </div>
-        )}
+          ))}
+        </div>
       </div>
 
       {/* Partial-result notices */}

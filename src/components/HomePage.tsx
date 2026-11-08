@@ -20,7 +20,6 @@ import {
   Send,
 } from 'lucide-react';
 import { MoodSelector, MOOD_OPTIONS } from './MoodSelector';
-import { FineTuneDrawer, INITIAL_WIZARD_STATE } from './FineTuneDrawer';
 import { WizardState, ReferenceMovie } from '../types';
 
 /** Four intent shortcuts shown on the homepage. */
@@ -90,9 +89,12 @@ interface HomePageProps {
   onPickForMe: () => void;
   onBrowseMood: (moodId?: string) => void;
   onPopularNow: () => void;
-  onMoviesSeries: () => void;
+  onMoviesSeries?: () => void;
   onCollectionClick: (collection: string) => void;
   onSearchSubmit: (query: string, mode: 'title' | 'natural') => void;
+  /** Selected kind chip label: 'Movie' | 'Series' | 'Any'. */
+  kind?: string;
+  onKindChange?: (kind: string) => void;
   isLoading?: boolean;
 }
 
@@ -103,6 +105,8 @@ export const HomePage: React.FC<HomePageProps> = ({
   onMoviesSeries,
   onCollectionClick,
   onSearchSubmit,
+  kind = 'Movie',
+  onKindChange,
   isLoading = false,
 }) => {
   const [searchMode, setSearchMode] = useState<'title' | 'natural'>('natural');
@@ -112,6 +116,33 @@ export const HomePage: React.FC<HomePageProps> = ({
   const [showMoodCollections, setShowMoodCollections] = useState(false);
   const [showFineTune, setShowFineTune] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [focused, setFocused] = useState(false);
+  const [suggestions, setSuggestions] = useState<{ imdbId: string; title: string; year?: number; posterUrl?: string }[]>([]);
+
+  // Live title suggestions while typing a short title-like query (typo tolerant on the server).
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 3 || q.split(/\s+/).length > 4 || /\b(like|but|not|without|best of|under|over)\b/i.test(q)) {
+      setSuggestions([]);
+      return;
+    }
+    const ctl = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/title-search?q=${encodeURIComponent(q)}`, { signal: ctl.signal });
+        if (!res.ok) return;
+        const data = await res.json();
+        const list = Array.isArray(data?.results) ? data.results : [];
+        setSuggestions(list.filter((r: { imdbId?: string }) => /^tt\d+$/.test(r?.imdbId ?? '')).slice(0, 5));
+      } catch {
+        /* suggestions are a convenience; typing and Enter still work */
+      }
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      ctl.abort();
+    };
+  }, [searchQuery]);
 
   const handleIntentClick = (id: string) => {
     switch (id) {
@@ -125,7 +156,7 @@ export const HomePage: React.FC<HomePageProps> = ({
         onPopularNow();
         break;
       case 'movies-series':
-        onMoviesSeries();
+        onMoviesSeries?.();
         break;
     }
   };
@@ -186,7 +217,7 @@ export const HomePage: React.FC<HomePageProps> = ({
         </p>
 
         {/* Primary Search: "What do you feel like watching?" - Proper Form */}
-        <div className="mt-8 w-full max-w-xl">
+        <div className="mt-8 w-full max-w-xl relative">
           <label htmlFor="hero-search" className="sr-only">
             What do you feel like watching?
           </label>
@@ -204,6 +235,8 @@ export const HomePage: React.FC<HomePageProps> = ({
                 maxLength={120}
                 disabled={searchLoading}
                 autoComplete="off"
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
                 aria-describedby="hero-search-error"
               />
               {searchLoading && (
@@ -226,6 +259,27 @@ export const HomePage: React.FC<HomePageProps> = ({
               </p>
             )}
           </form>
+          {focused && suggestions.length > 0 && (
+            <ul role="listbox" aria-label="Title suggestions" className="absolute left-0 right-0 top-[3.6rem] z-20 rounded-[14px] bg-[#141414] border border-[#232323] overflow-hidden text-left shadow-xl">
+              {suggestions.map((sg) => (
+                <li key={sg.imdbId} role="option" aria-selected={false} className="flex items-center gap-3 px-3 py-2 hover:bg-[#1a1a1a]">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { setSuggestions([]); onSearchSubmit(`movies like ${sg.title}`, 'natural'); }}
+                    className="flex-1 flex items-center gap-3 text-left cursor-pointer min-w-0"
+                  >
+                    {sg.posterUrl ? <img src={sg.posterUrl} alt="" width={32} height={48} className="w-8 h-12 rounded object-cover shrink-0" loading="lazy" /> : null}
+                    <span className="min-w-0">
+                      <span className="block text-sm text-[#F5F5F5] truncate">{sg.title}{sg.year ? ` (${sg.year})` : ''}</span>
+                      <span className="block text-[11px] text-[#8C8C8C]">Tap for movies like this</span>
+                    </span>
+                  </button>
+                  <a href={`/title/${sg.imdbId}`} target="_blank" rel="noopener" className="text-[11px] text-[#FF7A2F] hover:underline shrink-0" onMouseDown={(e) => e.preventDefault()}>Details</a>
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="flex flex-wrap items-center justify-center gap-1.5 mt-3 text-xs text-[#8C8C8C]">
             <span className="px-2 py-0.5 rounded bg-[#141414] border border-[#232323]">"like Interstellar"</span>
             <span className="px-2 py-0.5 rounded bg-[#141414] border border-[#232323]">"suspenseful not scary"</span>
@@ -234,64 +288,49 @@ export const HomePage: React.FC<HomePageProps> = ({
           </div>
         </div>
 
-        {/* Four Intent Shortcuts */}
+        {/* One-tap start: pick Movies/Series, then tap a mood - results appear immediately */}
         <div className="mt-10 w-full max-w-4xl">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {INTENT_SHORTCUTS.map((shortcut) => (
+          <div className="flex items-center justify-center gap-2 mb-5" role="group" aria-label="What do you want to watch?">
+            {([['Movie', 'Movies'], ['Series', 'Series'], ['Any', 'Movies & Series']] as const).map(([k, label]) => (
               <button
-                key={shortcut.id}
-                onClick={() => handleIntentClick(shortcut.id)}
-                disabled={isLoading}
-                className={`p-4 rounded-[16px] border text-left transition-all duration-200 cursor-pointer flex flex-col items-start gap-2 ${
-                  shortcut.primary
-                    ? 'bg-gradient-to-br from-[#E63946]/10 to-[#FF7A2F]/10 border-[#FF7A2F]/30 hover:border-[#FF7A2F]/50 shadow-[0_0_20px_rgba(255,122,47,0.1)] text-white'
-                    : 'bg-[#141414] border-[#232323] hover:border-[#353534] hover:bg-[#1a1a1a] text-[#8C8C8C] hover:text-white disabled:opacity-50'
+                key={k}
+                type="button"
+                onClick={() => onKindChange?.(k)}
+                aria-pressed={kind === k}
+                className={`px-4 py-2 rounded-full border text-sm font-medium transition-all duration-200 cursor-pointer ${
+                  kind === k ? 'bg-[#FF7A2F]/15 border-[#FF7A2F] text-white' : 'bg-[#141414] border-[#232323] text-[#8C8C8C] hover:text-white'
                 }`}
               >
-                <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0">
-                  <shortcut.icon
-                    size={20}
-                    className={shortcut.primary ? 'text-[#FF7A2F]' : 'text-[#8C8C8C] group-hover:text-[#FF7A2F] transition-colors'}
-                  />
-                </div>
-                <span className="font-heading font-semibold">{shortcut.label}</span>
-                <span className="text-[11px] leading-tight">{shortcut.desc}</span>
+                {label}
               </button>
             ))}
           </div>
-        </div>
-
-        {/* Mood Collections Expansion (shown when "Browse by mood" clicked) */}
-        {showMoodCollections && (
-          <div className="mt-8 w-full max-w-4xl animate-slide-down" role="region" aria-label="Mood collections">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-heading font-semibold text-lg text-[#F5F5F5]">Browse by mood</h2>
+          <h2 className="font-heading font-semibold text-lg text-[#F5F5F5] mb-4">How are you feeling? Tap one.</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {MOOD_COLLECTIONS.map((mood) => (
               <button
-                onClick={() => setShowMoodCollections(false)}
-                className="text-[#8C8C8C] hover:text-white transition-colors p-1"
-                aria-label="Close mood collections"
+                key={mood.id}
+                onClick={() => onBrowseMood(mood.id)}
+                disabled={isLoading}
+                className="p-4 rounded-[16px] border bg-[#141414] border-[#232323] hover:border-[#FF7A2F] hover:bg-[#1a1a1a] text-left transition-all duration-200 cursor-pointer disabled:opacity-50 flex flex-col items-start gap-2"
               >
-                <X size={18} />
+                <div className="w-10 h-10 rounded-[12px] bg-[#0A0A0A] border border-[#232323] flex items-center justify-center text-[#FF7A2F] flex-shrink-0">
+                  <mood.icon size={20} />
+                </div>
+                <span className="font-heading font-semibold text-white">{mood.label}</span>
+                <span className="text-[11px] text-[#8C8C8C]">{mood.desc}</span>
               </button>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {MOOD_COLLECTIONS.map((mood) => (
-                <button
-                  key={mood.id}
-                  onClick={() => handleMoodCollectionClick(mood.id)}
-                  disabled={isLoading}
-                  className="p-4 rounded-[16px] border bg-[#141414] border-[#232323] hover:border-[#FF7A2F] hover:bg-[#1a1a1a] text-left transition-all duration-200 cursor-pointer disabled:opacity-50 flex flex-col items-start gap-2"
-                >
-                  <div className="w-10 h-10 rounded-[12px] bg-[#0A0A0A] border border-[#232323] flex items-center justify-center text-[#FF7A2F] flex-shrink-0">
-                    <mood.icon size={20} />
-                  </div>
-                  <span className="font-heading font-semibold text-white">{mood.label}</span>
-                  <span className="text-[11px] text-[#8C8C8C]">{mood.desc}</span>
-                </button>
-              ))}
-            </div>
+            ))}
           </div>
-        )}
+          <div className="mt-4 flex flex-wrap justify-center gap-3">
+            <button onClick={onPopularNow} disabled={isLoading} className="px-4 py-2.5 rounded-[12px] bg-[#141414] border border-[#232323] hover:border-[#FF7A2F] text-[#F5F5F5] text-sm font-medium cursor-pointer disabled:opacity-50 flex items-center gap-2">
+              <TrendingUp size={14} className="text-[#FF7A2F]" /> Popular now
+            </button>
+            <button onClick={onPickForMe} disabled={isLoading} className="px-4 py-2.5 rounded-[12px] bg-[#141414] border border-[#232323] hover:border-[#FF7A2F] text-[#F5F5F5] text-sm font-medium cursor-pointer disabled:opacity-50 flex items-center gap-2">
+              <Sparkles size={14} className="text-[#FF7A2F]" /> Not sure? 3 quick questions
+            </button>
+          </div>
+        </div>
 
         {/* Discovery Collections Row */}
         <div className="mt-10 w-full max-w-4xl">
@@ -310,16 +349,6 @@ export const HomePage: React.FC<HomePageProps> = ({
             ))}
           </div>
         </div>
-
-        {/* Fine-tune (optional) */}
-        <button
-          onClick={() => setShowFineTune(true)}
-          disabled={isLoading}
-          className="mt-8 w-full sm:w-auto px-6 py-3 rounded-[12px] bg-[#141414] border border-[#232323] hover:border-[#FF7A2F] text-[#F5F5F5] font-medium text-sm flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer disabled:opacity-50"
-        >
-          <Filter className="w-4 h-4" />
-          <span>Fine-tune filters (optional)</span>
-        </button>
 
         {/* Saved Picks Link */}
         {/* Note: savedCount not passed anymore, handled by parent */}
@@ -378,14 +407,6 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
       </div>
 
-      {/* Fine-tune Drawer */}
-      <FineTuneDrawer
-        isOpen={showFineTune}
-        onClose={() => setShowFineTune(false)}
-        wizardState={INITIAL_WIZARD_STATE}
-        onChange={() => {}}
-        disabled={isLoading}
-      />
     </div>
   );
 };
