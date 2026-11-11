@@ -519,7 +519,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       // Free text we could not map to anything (gibberish, or a title that is
       // not in the catalog) must not silently look like a targeted search.
       const typed = (sanitizedParams.note || '').trim();
-      const isCollectionNote = /^(new this week|best of \d{4})$/i.test(typed); // set by the home collections
+      const isCollectionNote = false; // shelves no longer use free-text notes
       if (typed.length >= 3 && !isCollectionNote && (sanitizedParams.referenceIds?.length ?? 0) === 0) {
         const n = parseNote(typed);
         const understood =

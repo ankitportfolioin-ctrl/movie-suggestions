@@ -62,9 +62,9 @@ const INTENT_SHORTCUTS: IntentShortcut[] = [
 /** Timely discovery collections row. */
 const DISCOVERY_COLLECTIONS = [
   { label: `Best of ${new Date().getFullYear()}`, desc: 'Top-rated releases this year' },
-  { label: 'New this week', desc: 'Fresh arrivals on streaming' },
-  { label: 'Hidden gems', desc: 'Overlooked but excellent' },
-  { label: 'Family night', desc: 'Safe picks for all ages' },
+  { label: 'New releases', desc: 'Released this year, most popular first' },
+  { label: 'Hidden gems', desc: 'Rated 7.2+ with few votes' },
+  { label: 'Family night', desc: 'Confirmed all-ages ratings' },
 ] as const;
 
 /** Mood collections for "Browse by mood" expansion. */
@@ -334,7 +334,7 @@ export const HomePage: React.FC<HomePageProps> = ({
 
         {/* Discovery Collections Row */}
         <div className="mt-10 w-full max-w-4xl">
-          <p className="text-sm text-[#8C8C8C] text-center mb-4">Timely collections</p>
+          <p className="text-sm text-[#8C8C8C] text-center mb-4">Collections</p>
           <div className="flex flex-wrap justify-center gap-3">
             {DISCOVERY_COLLECTIONS.map((collection) => (
               <button

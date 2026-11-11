@@ -11,7 +11,6 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { WizardState, Movie, ReferenceMovie } from './types';
-import { Wizard } from './components/Wizard';
 import { ResultsView } from './components/ResultsView';
 import { SavedPicksView } from './components/SavedPicksView';
 import { HomePage } from './components/HomePage';
@@ -92,7 +91,7 @@ function loadQuiz(): StoredQuiz | null {
   }
 }
 
-type ViewMode = 'home' | 'wizard' | 'results' | 'saved' | 'pick-for-me' | 'natural-search';
+type ViewMode = 'home' | 'results' | 'saved' | 'pick-for-me' | 'natural-search';
 
 interface ActiveFilters {
   types: string[];
@@ -115,6 +114,9 @@ interface RecommendRequest {
   anonId: string;
   taste: { weights: Record<string, number>; eventCount: number };
   referenceIds: string[];
+  /** Server-side shelf contract (popular, best-of-year, recent, hidden-gems, family-night). */
+  collection?: string;
+  collectionYear?: number;
 }
 
 // UI filter labels -> the lowercase kinds the API understands. Sending the
@@ -162,7 +164,8 @@ async function resolveReferenceTitle(title: string, exactOnly = false): Promise<
 export default function App() {
   const [wizardState, setWizardState] = useState<WizardState & { referenceMovies?: ReferenceMovie[] }>(() => {
     const loaded = loadQuiz();
-    return loaded?.wizard ?? { ...INITIAL_STATE, step: 0 };
+    // A restored session never resumes a shelf contract or a quiz step.
+    return loaded?.wizard ? { ...loaded.wizard, collectionIntent: undefined, step: 0 } : { ...INITIAL_STATE, step: 0 };
   });
   const [movies, setMovies] = useState<Movie[]>(() => loadQuiz()?.movies ?? []);
   const [notices, setNotices] = useState<string[]>(() => loadQuiz()?.notices ?? []);
@@ -188,7 +191,6 @@ export default function App() {
 
   // New flow state - single source of truth for step
   const [viewMode, setViewMode] = useState<ViewMode>('home');
-  const [showWizard, setShowWizard] = useState(false);
   const [showPickForMe, setShowPickForMe] = useState(false);
   const [showNaturalSearch, setShowNaturalSearch] = useState(false);
   const [naturalSearchQuery, setNaturalSearchQuery] = useState('');
@@ -242,38 +244,10 @@ export default function App() {
     setWizardState((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  const handleWizardNext = useCallback(() => {
-    setWizardState((prev) => {
-      const nextStep = Math.min(prev.step + 1, 8);
-      return { ...prev, step: nextStep };
-    });
-  }, []);
-
-  const handleWizardBack = useCallback(() => {
-    setWizardState((prev) => ({ ...prev, step: Math.max(1, prev.step - 1) }));
-  }, []);
-
-  const handleWizardCancel = useCallback(() => {
-    if (window.confirm('Quit the quiz? Your answers will be cleared.')) {
-      setShowWizard(false);
-      setWizardState({ ...INITIAL_STATE, step: 0 });
-      setViewMode('home');
-    }
-  }, []);
-
-  const handleWizardSubmit = useCallback(() => {
-    setWizardState((prev) => ({ ...prev, step: 9 }));
-    fetchRecommendations(buildRecommendRequest(wizardState));
-    setShowWizard(false);
-    setViewMode('results');
-  }, []);
-
   const handleBrandClick = useCallback(() => {
-    const hasProgress = movies.length > 0 || dismissedIds.length > 0 || showWizard || showPickForMe || showNaturalSearch;
+    const hasProgress = movies.length > 0 || dismissedIds.length > 0 || showPickForMe || showNaturalSearch;
     if (hasProgress) {
-      if (showWizard) {
-        handleWizardCancel();
-      } else if (showPickForMe) {
+      if (showPickForMe) {
         setShowPickForMe(false);
       } else if (showNaturalSearch) {
         setShowNaturalSearch(false);
@@ -287,7 +261,7 @@ export default function App() {
     setShowSaved(false);
     setViewMode('home');
     setWizardState((prev) => ({ ...prev, step: 0 }));
-  }, [movies.length, dismissedIds.length, showWizard, showPickForMe, showNaturalSearch, handleWizardCancel]);
+  }, [movies.length, dismissedIds.length, showPickForMe, showNaturalSearch]);
 
   const handleReset = useCallback(() => {
     setWizardState({ ...INITIAL_STATE, step: 0 });
@@ -298,7 +272,6 @@ export default function App() {
     setTouched([]);
     setImpressionTokens([]);
     setDismissedIds([]);
-    setShowWizard(false);
     setShowPickForMe(false);
     setShowNaturalSearch(false);
     setNaturalSearchQuery('');
@@ -390,6 +363,8 @@ export default function App() {
       anonId: anon,
       taste: tastePayload,
       referenceIds,
+      collection: state.collectionIntent?.type,
+      collectionYear: state.collectionIntent?.year,
     };
   }, [seenMovieIds, tasteEventCount]);
 
@@ -548,8 +523,8 @@ export default function App() {
     if (tok) void sendFeedbackEvent(tok, 'more_like_this');
     const seeded = movie.genres.filter((g) => MORE_LIKE_GENRES.has(g)).slice(0, 2);
     const nextGenres = seeded.length > 0 ? seeded : ['Surprise me'];
-    setWizardState((prev) => ({ ...prev, genres: nextGenres }));
-    const request = buildRecommendRequest({ ...wizardState, genres: nextGenres });
+    setWizardState((prev) => ({ ...prev, genres: nextGenres, collectionIntent: undefined }));
+    const request = buildRecommendRequest({ ...wizardState, genres: nextGenres, collectionIntent: undefined });
     fetchRecommendations(request);
   }, [tokenFor, wizardState, buildRecommendRequest, fetchRecommendations]);
 
@@ -587,7 +562,7 @@ export default function App() {
       };
       // Build from the NEW state, not the stale closure (the old code sent
       // whatever mood was previously selected, i.e. "Relaxed" on first click).
-      const next = { ...wizardState, mood: moodMap[moodId] || 'Surprise me', genres: ['Surprise me'] };
+      const next = { ...wizardState, mood: moodMap[moodId] || 'Surprise me', genres: ['Surprise me'], collectionIntent: undefined };
       setWizardState(next);
       fetchRecommendations(buildRecommendRequest(next));
       setViewMode('results');
@@ -597,60 +572,43 @@ export default function App() {
   }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 
   const handlePopularNow = useCallback(() => {
-    const next = { ...wizardState, mood: 'Surprise me', genres: ['Surprise me'], preferences: { ...wizardState.preferences, recent: true } };
+    const next = {
+      ...wizardState, mood: 'Surprise me', genres: ['Surprise me'], note: '',
+      collectionIntent: { type: 'popular' as const },
+    };
     setWizardState(next);
-    fetchRecommendations(buildRecommendRequest(next));
+    setSeenMovieIds([]);
+    fetchRecommendations({ ...buildRecommendRequest(next), excludeIds: [] });
     setViewMode('results');
   }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 
+  // The old 8-step quiz was removed: its answers could diverge from what was
+  // sent. The short "3 quick questions" flow and the refine bar replace it.
   const handleMoviesSeries = useCallback(() => {
-    setShowWizard(true);
-    setWizardState((prev) => ({ ...prev, step: 1 }));
-    setViewMode('wizard');
+    setShowPickForMe(true);
+    setViewMode('pick-for-me');
   }, []);
 
+  // Each shelf sends its own server-side contract (see server/collections.ts);
+  // the client no longer fakes shelves with generic flags or free-text notes.
   const handleCollectionClick = useCallback((collection: string) => {
-    const currentYear = new Date().getFullYear();
-    let newState: Partial<WizardState & { referenceMovies?: ReferenceMovie[] }> = {};
-    
-    if (collection.includes('Best of')) {
-      const year = currentYear;
-      newState = { 
-        mood: 'Surprise me', 
-        genres: ['Surprise me'], 
-        preferences: { ...wizardState.preferences, recent: true }, 
-        note: `Best of ${year}`,
-        collectionIntent: { type: 'best-of-year', year } as any,
-      };
-    } else if (collection === 'New this week') {
-      newState = { 
-        mood: 'Surprise me', 
-        genres: ['Surprise me'], 
-        preferences: { ...wizardState.preferences, recent: true }, 
-        note: 'New this week',
-        collectionIntent: { type: 'new-this-week' } as any,
-      };
+    const year = new Date().getFullYear();
+    const base = { ...wizardState, mood: 'Surprise me', genres: ['Surprise me'], note: '' };
+    let next: WizardState;
+    if (collection.startsWith('Best of')) {
+      next = { ...base, collectionIntent: { type: 'best-of-year', year } };
+    } else if (collection === 'New releases') {
+      next = { ...base, collectionIntent: { type: 'recent' } };
     } else if (collection === 'Hidden gems') {
-      newState = { 
-        mood: 'Surprise me', 
-        genres: ['Surprise me'], 
-        preferences: { ...wizardState.preferences, hiddenGems: true },
-        collectionIntent: { type: 'hidden-gems' } as any,
-      };
+      next = { ...base, collectionIntent: { type: 'hidden-gems' } };
     } else if (collection === 'Family night') {
-      newState = { 
-        mood: 'Feel-good', 
-        genres: ['Family', 'Comedy', 'Animation'], 
-        audience: 'Family with kids', 
-        preferences: { ...wizardState.preferences, mature: false },
-        collectionIntent: { type: 'family-night' } as any,
-      };
+      next = { ...base, audience: 'Family with kids', collectionIntent: { type: 'family-night' } };
+    } else {
+      return;
     }
-    
-    setWizardState((prev) => ({ ...prev, ...newState }));
-    const newWizardState = { ...wizardState, ...newState };
-    const request = buildRecommendRequest(newWizardState);
-    fetchRecommendations(request);
+    setWizardState(next);
+    setSeenMovieIds([]);
+    fetchRecommendations({ ...buildRecommendRequest(next), excludeIds: [] });
     setViewMode('results');
   }, [wizardState, buildRecommendRequest, fetchRecommendations]);
 
@@ -701,6 +659,7 @@ export default function App() {
       maxRuntime: runtime ?? 'Any length',
       note: query,
       referenceMovies: resolved,
+      collectionIntent: undefined,
     };
     setWizardState(next);
     fetchRecommendations(buildRecommendRequest(next));
@@ -709,7 +668,7 @@ export default function App() {
   const handleSearchSubmit = useCallback((query: string, mode: 'title' | 'natural') => {
     if (mode === 'title') {
       // Title search: carry the typed text as the note and search right away.
-      const next = { ...wizardState, note: query };
+      const next = { ...wizardState, note: query, collectionIntent: undefined };
       setWizardState(next);
       fetchRecommendations(buildRecommendRequest(next));
       setViewMode('results');
@@ -731,6 +690,8 @@ export default function App() {
     if (filters.types) newWizardState.types = typeLabelsToApi(filters.types);
     if (filters.moods) newWizardState.mood = filters.moods[0] ?? 'Surprise me';
     if (filters.audiences) newWizardState.audience = filters.audiences[0] ?? 'Just me';
+    // Changing mood or audience changes what was asked: leave the shelf.
+    if (filters.moods || filters.audiences) newWizardState.collectionIntent = undefined;
     if (filters.runtimes) newWizardState.maxRuntime = filters.runtimes[0] ?? 'Any length';
     if (filters.genres) newWizardState.genres = filters.genres.length ? filters.genres : ['Surprise me'];
     setWizardState(newWizardState);
@@ -767,7 +728,7 @@ export default function App() {
     setShowSaved(true);
   }, []);
 
-  const showHeader = !showSaved && !showWizard && viewMode !== 'results' && !showPickForMe && !showNaturalSearch;
+  const showHeader = !showSaved && viewMode !== 'results' && !showPickForMe && !showNaturalSearch;
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#F5F5F5] flex flex-col justify-between selection:bg-[#E63946]/30 selection:text-[#F5F5F5]">
@@ -839,22 +800,10 @@ export default function App() {
             }
             onStartQuiz={() => {
               setShowSaved(false);
-              setShowWizard(true);
-              setWizardState((prev) => ({ ...prev, step: 1 }));
-              setViewMode('wizard');
+              setShowPickForMe(true);
+              setViewMode('pick-for-me');
               window.scrollTo({ top: 0 });
             }}
-          />
-        ) : showWizard ? (
-          <Wizard
-            state={wizardState}
-            onChange={handleUpdate}
-            onNext={handleWizardNext}
-            onBack={handleWizardBack}
-            onCancel={handleWizardCancel}
-            onSubmit={handleWizardSubmit}
-            isLoading={isLoading}
-            touchedSteps={[]}
           />
         ) : showPickForMe ? (
           <PickForMe
@@ -881,7 +830,7 @@ export default function App() {
             onCycle={handleCycle}
             onReset={handleReset}
             onRetry={() => fetchRecommendations(buildRecommendRequest(wizardState))}
-            onBackToFilters={() => { setShowWizard(true); setWizardState((prev) => ({ ...prev, step: 7 })); setViewMode('wizard'); }}
+            onBackToFilters={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             saved={saved}
             dismissedIds={dismissedIds}
             onToggleSave={toggleSave}

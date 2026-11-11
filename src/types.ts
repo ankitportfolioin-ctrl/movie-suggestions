@@ -77,7 +77,7 @@ export interface WizardState {
   referenceMovies?: ReferenceMovie[];
   /** Explicit collection intent for truthful collections */
   collectionIntent?: { 
-    type: 'best-of-year' | 'new-this-week' | 'hidden-gems' | 'family-night';
+    type: 'popular' | 'best-of-year' | 'recent' | 'hidden-gems' | 'family-night';
     year?: number;
   };
 }
