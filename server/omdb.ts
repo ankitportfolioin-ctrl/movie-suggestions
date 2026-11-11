@@ -26,6 +26,11 @@ export interface MoviePick {
   isHiddenGem: boolean;
   /** Relative fit score (90-99) derived from backend ranking. Not a probability. */
   fitScore: number;
+  /** Honest qualitative fit label (replaces showing a 90-99 number). */
+  fitLabel?: string;
+  /** Catalog votes/popularity, exposed for badges and collection contracts. */
+  voteCount?: number;
+  popularity?: number;
   /** Original/primary language code (ISO 639-1). Used by the final gate. */
   language: string;
   /** OMDb `Rated` certificate as served (may be missing). Used by the final gate. */
@@ -58,6 +63,9 @@ export interface MoviePick {
 }
 
 export interface RecommendParams {
+  /** Home-page shelf contract (see server/collections.ts). */
+  collection?: 'popular' | 'best-of-year' | 'recent' | 'hidden-gems' | 'family-night';
+  collectionYear?: number;
   mood: string;
   genres: string[];
   audience: string;
@@ -196,31 +204,39 @@ const omdbCache = new Map<string, CachedOMDb>();
 export function generateTemplateReason(movie: { title: string; genres: string[] }, mood: string, audience: string): string {
   const genreStr = movie.genres.slice(0, 2).join(' & ');
   if (audience === 'Family with kids') {
-    return `A joyful, wholesome ${genreStr.toLowerCase()} that every age in the house will love tonight.`;
+    return `A ${genreStr.toLowerCase() || 'family'} pick with an all-ages rating.`;
   }
   if (audience === 'Partner') {
-    return `An atmospheric, engaging ${genreStr.toLowerCase()} pick crafted for a cozy evening for two.`;
+    return `A ${genreStr.toLowerCase() || 'well-rated'} pick that suits watching as a pair.`;
   }
   if (audience === 'Friends') {
-    return `A high-energy, entertaining ${genreStr.toLowerCase()} that is great to experience together.`;
+    return `A ${genreStr.toLowerCase() || 'crowd-friendly'} pick that works well with a group.`;
   }
   switch (mood) {
     case 'Tired':
-      return `Light, breezy, and effortlessly entertaining—ideal to unwind without thinking too hard.`;
+      return `Easy to follow and low-effort: a good pick to unwind with.`;
     case 'Romantic':
-      return `Rich in charm and chemistry, perfect for getting lost in a tender, captivating story.`;
+      return `Built around a love story, matching your romantic mood.`;
     case 'Adventurous':
-      return `An exhilarating journey full of momentum, stunning craft, and unforgettable moments.`;
+      return `Plenty of momentum and spectacle for an adventurous mood.`;
     case 'Curious':
-      return `Clever and engrossing, filled with unexpected twists that will keep you guessing.`;
+    case 'Mind-bending':
+      return `A thought-provoking story that rewards close attention.`;
+    case 'Suspenseful':
+      return `Tense and suspenseful, matching the mood you picked.`;
+    case 'Funny':
+      return `Comedy-led, picked to make you laugh.`;
+    case 'Feel-good':
     case 'Sad':
-      return `Deeply comforting and heartwarming, offering a gentle lift just when you need it.`;
-    case 'Relaxed':
-      return `Calm and deeply satisfying, offering a smooth cinematic escape from the daily rush.`;
     case 'Stressed':
-      return `Pure escapism and feel-good fun designed to melt away the day's tension.`;
+    case 'Happy':
+      return `A warm, lighter watch for a feel-good mood.`;
+    case 'Emotional':
+      return `An emotional story with real heart.`;
+    case 'Relaxed':
+      return `Calm pacing, a smooth way to wind down.`;
     default:
-      return `An uplifting, vibrant watch guaranteed to match your good vibes tonight.`;
+      return genreStr ? `A well-regarded ${genreStr.toLowerCase()} pick from our catalog.` : `A well-regarded pick from our catalog.`;
   }
 }
 
@@ -987,6 +1003,8 @@ export async function getRecommendationsWithOMDb(
         language: movie.language,
         certificate: finalCertificate ?? (movie.certificate || undefined),
         minAge: (movie as { minAge?: number | null }).minAge ?? null,
+        voteCount: (movie as { voteCount?: number }).voteCount,
+        popularity: (movie as { popularity?: number }).popularity,
         isMature: movie.isMature,
         imdbId: /^tt\d+$/.test(movie.imdbId || '') ? movie.imdbId : undefined,
         mediaType: finalMediaType ?? ((movie as { type?: string }).type === 'series' ? 'series' : undefined),
@@ -1047,11 +1065,6 @@ export async function getRecommendationsWithOMDb(
   if (filtered.length < verified.length && filtered.length < 3 && filtered.length > 0) {
     const partial = `Only found ${filtered.length} close match${filtered.length === 1 ? '' : 'es'} — loosen a filter for a full three.`;
     if (!notices.includes(partial)) notices.push(partial);
-  }
-
-  // Ensure one hidden gem tag is active
-  if (!filtered.some((p) => p.isHiddenGem) && filtered.length > 0) {
-    filtered[filtered.length - 1].isHiddenGem = true;
   }
 
   return { movies: filtered, notices, effective };

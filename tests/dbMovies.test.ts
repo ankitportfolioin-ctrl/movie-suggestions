@@ -34,11 +34,11 @@ describe('SQL WHERE builder', () => {
       [['Horror'], ['Comedy'], ['en'], 90, 150, 2000, 2020, 7, [1, 2]]);
   });
 
-  test('family maturity clause: <=6 known or Family/Animation unknown without bad genres', () => {
+  test('family maturity clause: known age <= 6 only, contradicting certificates vetoed', () => {
     const { text } = buildWhereClause({ ...base(), audience: 'Family with kids' });
     assert.ok(text.includes('minAge IS NOT NULL AND minAge <= 6'));
-    assert.ok(text.includes(`genres && '{Family,Animation}'`));
-    assert.ok(text.includes(`NOT (genres && '{Horror,Crime,Thriller,War}')`));
+    assert.ok(text.includes('upper(btrim(certificate)) = ANY('));
+    assert.ok(!text.includes(`genres && '{Family,Animation}'`), 'unknown age must not be treated as safe');
   });
 
   test('mature-OFF clause: known <16, unknown allowed unless Horror', () => {
@@ -92,13 +92,13 @@ describe('matchesFilters (fallback mirror)', () => {
     assert.equal(matchesFilters(item({ genres: ['Drama'] }), base()), true);
   });
 
-  test('family: <=6 in, 12+ out, unknown needs Family/Animation without bad genres', () => {
+  test('family: <=6 in, 12+ out, unknown age out, contradicting cert out', () => {
     const fam = { ...base(), audience: 'Family with kids' };
     assert.equal(matchesFilters(item({ minAge: 6 }), fam), true);
     assert.equal(matchesFilters(item({ minAge: 12 }), fam), false);
-    assert.equal(matchesFilters(item({ genres: ['Animation'] }), fam), true);
-    assert.equal(matchesFilters(item({ genres: ['Comedy'] }), fam), false);
-    assert.equal(matchesFilters(item({ genres: ['Family', 'War'] }), fam), false);
+    assert.equal(matchesFilters(item({ genres: ['Animation'] }), fam), false);
+    assert.equal(matchesFilters(item({ minAge: 6, certificate: 'PG-13' }), fam), false);
+    assert.equal(matchesFilters(item({ minAge: 6, certificate: 'G' }), fam), true);
   });
 
   test('D-02: pool rows stored as "Science Fiction" satisfy a Sci-Fi filter', () => {

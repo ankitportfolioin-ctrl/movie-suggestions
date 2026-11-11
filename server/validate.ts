@@ -37,6 +37,9 @@ export const VALID_LANGUAGES = new Set([
   'Korean', 'Japanese', 'Spanish', 'French',
 ]);
 
+import { COLLECTION_KINDS } from './collections.js';
+import type { CollectionKind } from './collections.js';
+
 export type ValidationResult =
   | { ok: true; params: RecommendParams }
   | { ok: false; error: string };
@@ -107,11 +110,22 @@ export function validateRecommendBody(body: any): ValidationResult {
     ? preferences.humorStyle
     : undefined;
 
+  const rawCollection = (body || {}).collection;
+  const collection: CollectionKind | undefined =
+    typeof rawCollection === 'string' && (COLLECTION_KINDS as readonly string[]).includes(rawCollection)
+      ? (rawCollection as CollectionKind) : undefined;
+  const rawYear = (body || {}).collectionYear;
+  const nowYear = new Date().getFullYear();
+  const collectionYear = typeof rawYear === 'number' && Number.isInteger(rawYear)
+    ? Math.min(Math.max(rawYear, 1900), nowYear) : undefined;
+
   const sanitizedNote = typeof note === 'string' ? note.trim().slice(0, 200) : '';
 
   return {
     ok: true,
     params: {
+      collection,
+      collectionYear,
       mood,
       genres: genres.slice(0, 3),
       audience,

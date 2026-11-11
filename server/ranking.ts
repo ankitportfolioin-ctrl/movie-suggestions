@@ -270,7 +270,7 @@ export function scoreWithFeatures(
   score += w.genrePerMatch * quizOverlap.length;
   features.push({
     key: 'genre', label: 'Genre', contribution: w.genrePerMatch * quizOverlap.length,
-    evidence: quizOverlap.length > 0 ? quizOverlap.slice(0, 3).join(' + ') : undefined,
+    evidence: quizOverlap.length > 0 ? `matches your ${quizOverlap.slice(0, 3).join(' + ')} pick` : undefined,
     status: quizOverlap.length > 0 ? 'matched' : 'not_matched',
   });
 
@@ -302,7 +302,7 @@ export function scoreWithFeatures(
   score += moodPart;
   features.push({
     key: 'mood', label: 'Mood', contribution: moodPart,
-    evidence: moodOverlap.length > 0 ? moodOverlap.slice(0, 3).join(' + ') : undefined,
+    evidence: moodOverlap.length > 0 ? `${moodOverlap.slice(0, 3).join(' + ')} fits your ${signals.mood.toLowerCase()} mood` : undefined,
     status: moodOverlap.length > 0 ? 'matched' : 'not_matched',
   });
 
@@ -314,7 +314,7 @@ export function scoreWithFeatures(
     score += tonePart;
     features.push({
       key: 'mood_tone', label: 'Mood tone', contribution: tonePart,
-      evidence: uplift.length > 0 ? `uplifting ${uplift.slice(0, 3).join(' + ')}` : undefined,
+      evidence: uplift.length > 0 ? `${uplift.slice(0, 3).join(' + ')} suits a ${signals.mood.toLowerCase()} mood` : undefined,
       status: uplift.length > 0 ? 'matched' : 'not_matched',
     });
   }

@@ -16,6 +16,7 @@ import type { DbFilters, DbItem } from '../server/dbMovies.js';
 import { validateRecommendBody } from '../server/validate.js';
 import { parseNote } from '../server/noteParser.js';
 import { registerAnalyticsRoutes } from '../server/analytics.js';
+import { clampYear, collectionFilters, collectionNotice, collectionReason, fitLabelFor, isHiddenGem, passesCollection, sortForCollection } from '../server/collections.js';
 import { enforceHardConstraints } from '../server/gate.js';
 import { runtimeCap } from '../server/omdb.js';
 import { allowRequest } from '../server/rateLimit.js';
@@ -352,6 +353,17 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       return;
     }
     const sanitizedParams = validation.params;
+    const collection = sanitizedParams.collection;
+    // Family night is a kid-safe contract: force the audience (and no mature opt-in).
+    if (collection === 'family-night') {
+      sanitizedParams.audience = 'Family with kids';
+      sanitizedParams.preferences = { ...sanitizedParams.preferences, mature: false };
+    }
+    // A shelf has its own definition of recent/classic/rated: the generic
+    // preference flags must not silently stack on top of it.
+    if (collection) {
+      sanitizedParams.preferences = { ...sanitizedParams.preferences, recent: false, classics: false, highlyRated: false, hiddenGems: false };
+    }
     const t0 = Date.now();
     // Stage timing: every allocator records its duration to the log (warn
     // past STAGE_WARN_MS) so slow stages are visible from serverless logs.
@@ -389,6 +401,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
         Boolean(sanitizedParams.preferences?.mature),
       excludeIds: (sanitizedParams.excludeIds || []).map(Number).filter(Number.isFinite),
       limit: 2000,
+      ...(collection ? collectionFilters(collection, clampYear(sanitizedParams.collectionYear, currentYear), currentYear) : {}),
     };
 
     // All DB candidates gathered so far - the fallback pool if the deadline
@@ -421,11 +434,37 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       }
 
       // 3. Recommend (filter -> rank -> diversify) over the DB pool; no OMDb.
-      const {
-        movies: recommended,
-        notices,
-        effective,
-      } = await getRecommendationsWithOMDb(sanitizedParams, undefined, dbPool as MovieItem[], referenceOverviews);
+      let recommended: MoviePick[];
+      let notices: string[];
+      let effective: { highlyRated: boolean; recent: boolean; classics: boolean };
+      if (collection) {
+        // Shelves are deterministic: the collection contract decides
+        // membership and order; no mood scoring, no diversification.
+        const year = clampYear(sanitizedParams.collectionYear, currentYear);
+        const members = sortForCollection(
+          collection,
+          dbPool.filter((m) => passesCollection(collection, m, year, currentYear)),
+        );
+        recommended = members.slice(0, 40).map((m) => ({
+          ...(m as unknown as MoviePick),
+          providers: [],
+          reason: collectionReason(collection, m),
+          isHiddenGem: false,
+          fitScore: 95,
+          ratingSource: 'tmdb' as const,
+          actors: [],
+          mediaType: m.type === 'series' ? 'series' : undefined,
+          imdbId: /^tt\d+$/.test(m.imdbId || '') ? m.imdbId : undefined,
+          certificate: m.certificate || undefined,
+        }));
+        notices = [collectionNotice(collection, year, currentYear)];
+        effective = { highlyRated: false, recent: false, classics: false };
+      } else {
+        const r = await getRecommendationsWithOMDb(sanitizedParams, undefined, dbPool as MovieItem[], referenceOverviews);
+        recommended = r.movies as MoviePick[];
+        notices = r.notices;
+        effective = r.effective;
+      }
 
       // 3b. Final gate: enforce the REQUESTED constraints on enriched values
       const requestedLangCodes: string[] = [];
@@ -453,7 +492,7 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
       });
       logStage('rank-gate');
 
-      let picks = gated.movies as MoviePick[];
+      let picks = (gated.movies as MoviePick[]).slice(0, collection ? 12 : 12);
       const allNotices = [...notices, ...gated.relaxed];
 
       // 3c. Fill NULL ages from OMDb for the final picks only (3.5s cap, parallel,
@@ -498,6 +537,13 @@ app.post('/api/recommend', rateLimiter, async (req: Request, res: Response) => {
             `We couldn't match "${typed.slice(0, 60)}" to a mood, genre or title in our catalog, so these are popular picks instead. Try a mood, a genre, or "movies like ...".`,
           );
         }
+      }
+
+      // Truthful badges/labels: the hidden-gem badge is the SAME predicate the
+      // hidden-gems shelf filters by; fit is a qualitative label, not a score.
+      for (const m of picks) {
+        m.isHiddenGem = isHiddenGem({ rating: m.rating, voteCount: m.voteCount, popularity: m.popularity, year: m.year });
+        m.fitLabel = collection ? undefined : fitLabelFor(m.fitScore);
       }
 
       // 4. E11: serve all artwork through our /img proxy

@@ -63,7 +63,7 @@ export interface GateResult<T extends GateMovie> {
 export const MATURE_CERTS = new Set(['R', 'NC-17', 'TV-MA', 'X', 'A', '18', '18+']);
 
 /** Certificates allowed for Family with kids. Unknown = excluded. */
-const FAMILY_CERTS = new Set(['G', 'PG', 'TV-G', 'TV-Y', 'TV-Y7', 'TV-PG', 'U']);
+export const FAMILY_CERTS = new Set(['G', 'PG', 'TV-G', 'TV-Y', 'TV-Y7', 'TV-PG', 'U', 'ALL', 'AL', 'TP', '0', '6']);
 
 export function normalizeCert(raw: unknown): string {
   if (typeof raw !== 'string') return '';
@@ -161,26 +161,21 @@ export function enforceHardConstraints<T extends GateMovie>(
     const cert = normalizeCert(m.certificate);
     const age = typeof m.minAge === 'number' ? m.minAge : null;
     if (family) {
-      if (age !== null) {
-        // Known age: kids allowed only at 6 or under.
-        if (age > 6) {
-          removedMaturity += 1;
-          return false;
-        }
-      } else if (cert !== '') {
-        // Known certificate: must be family-safe AND a kids' genre.
-        if (!FAMILY_CERTS.has(cert) || !isKidGenre(m.genres)) {
-          removedMaturity += 1;
-          return false;
-        }
-      } else {
-        // Unknown age AND certificate (no external rating source): the
-        // genres rule is the remaining signal — the same rule the DB's
-        // SQL family filter applies. Never Horror/Crime/Thriller/War.
-        if (!isKidGenre(m.genres)) {
-          removedMaturity += 1;
-          return false;
-        }
+      // Conservative child-safe rule. Missing metadata is never treated as
+      // safe: a title needs a known watch age <= 6, and a certificate that
+      // CONTRADICTS it (12, 15, PG-13, TV-14, M18 ...) vetoes it. The
+      // certificate set is a US/UK/intl "all ages" allow-list; anything else
+      // is out. (Jurisdiction: US MPA/TV ratings + TMDB-derived watch age.)
+      const certKnown = cert !== '';
+      const certOk = !certKnown || FAMILY_CERTS.has(cert);
+      // Known age <= 6, or (age unknown but a known all-ages certificate AND
+      // a kids' genre). No data at all fails closed.
+      const ok = age !== null
+        ? age <= 6 && certOk
+        : certKnown && certOk && isKidGenre(m.genres);
+      if (!ok) {
+        removedMaturity += 1;
+        return false;
       }
     } else if (!constraints.matureAllowed) {
       if (age !== null) {

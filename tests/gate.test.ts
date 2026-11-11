@@ -85,16 +85,22 @@ test('family: safe certs + Family/Animation genre pass; adult certs fail', () =>
   assert.equal(enforceHardConstraints([movie({ id: 10, certificate: 'G', genres: ['Animation', 'Horror'] })], fam).movies.length, 0);
 });
 
-test('family with NO rating data at all: genre rule is the last signal (DB-only pipeline)', () => {
+test('family with NO rating data at all fails closed (missing metadata is never safe)', () => {
   const fam = { ...base(), audience: 'Family with kids' };
-  // Unknown age + unknown cert + Family genre: kept — same rule the SQL
-  // family filter applies (minAge null + Family/Animation + no bad genre).
-  assert.equal(enforceHardConstraints([movie({ id: 1, genres: ['Family'] })], fam).movies.length, 1);
-  assert.equal(enforceHardConstraints([movie({ id: 2, genres: ['Animation'] })], fam).movies.length, 1);
-  // Without a kids' genre it fails closed.
-  assert.equal(enforceHardConstraints([movie({ id: 3, genres: ['Comedy'] })], fam).movies.length, 0);
-  assert.equal(enforceHardConstraints([movie({ id: 4, genres: ['Family', 'War'] })], fam).movies.length, 0);
+  assert.equal(enforceHardConstraints([movie({ id: 1, certificate: undefined, genres: ['Family'] })], fam).movies.length, 0);
+  assert.equal(enforceHardConstraints([movie({ id: 2, certificate: undefined, genres: ['Animation'] })], fam).movies.length, 0);
+  assert.equal(enforceHardConstraints([movie({ id: 3, certificate: undefined, genres: ['Comedy'] })], fam).movies.length, 0);
 });
+
+test('family: a known age <= 6 is vetoed by a contradicting 12/15/PG-13 certificate', () => {
+  const fam = { ...base(), audience: 'Family with kids' };
+  for (const c of ['12', '12A', '15', 'PG-13', 'TV-14', 'M18', 'R']) {
+    assert.equal(enforceHardConstraints([movie({ id: 1, minAge: 6, certificate: c, genres: ['Family'] })], fam).movies.length, 0, c);
+  }
+  assert.equal(enforceHardConstraints([movie({ id: 2, minAge: 6, certificate: 'G', genres: ['Family'] })], fam).movies.length, 1);
+  assert.equal(enforceHardConstraints([movie({ id: 3, minAge: 0, genres: ['Family'] })], fam).movies.length, 1);
+});
+
 
 test('family allows minAge <= 6, drops minAge 12+', () => {
   const fam = { ...base(), audience: 'Family with kids' };

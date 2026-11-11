@@ -9,7 +9,7 @@ import path from 'node:path';
 import { Pool } from 'pg';
 import { scoreWithFeatures, selectDiverse, buildReason } from './ranking.js';
 import type { RankSignals } from './ranking.js';
-import { enforceHardConstraints } from './gate.js';
+import { enforceHardConstraints, FAMILY_CERTS, normalizeCert } from './gate.js';
 import type { GateConstraints, GateMovie } from './gate.js';
 import { FALLBACK_CATALOG } from './catalog.js';
 import type { MovieItem } from './catalog.js';
@@ -61,6 +61,10 @@ export interface DbFilters {
   audience: string;
   matureAllowed: boolean;
   excludeIds: number[];
+  /** Collection contracts (optional so older call shapes keep working). */
+  votesMin?: number | null;
+  votesMax?: number | null;
+  popularityMax?: number | null;
   limit: number;
 }
 
@@ -99,13 +103,19 @@ export function buildWhereClause(f: DbFilters): { text: string; params: unknown[
   if (f.yearMin !== null) clauses.push(`year >= ${next(f.yearMin)}`);
   if (f.yearMax !== null) clauses.push(`year <= ${next(f.yearMax)}`);
   if (f.ratingFloor !== null) clauses.push(`rating >= ${next(f.ratingFloor)}`);
+  // Missing votes/popularity never qualifies for a ceiling or a floor.
+  if (f.votesMin != null) clauses.push(`votes >= ${next(f.votesMin)}`);
+  if (f.votesMax != null) clauses.push(`votes <= ${next(f.votesMax)}`);
+  if (f.popularityMax != null) clauses.push(`popularity IS NOT NULL AND popularity <= ${next(f.popularityMax)}`);
   if (f.excludeIds.length > 0) clauses.push(`NOT (tmdbId = ANY(${next(f.excludeIds)}))`);
   // Type clause after the existing params so old call shapes keep their order.
   if (f.types.length > 0) clauses.push(`type = ANY(${next(f.types)})`);
   if (f.seasonsMax !== null) clauses.push(`seasons <= ${next(f.seasonsMax)}`);
   if (f.audience === 'Family with kids') {
-    clauses.push(`((minAge IS NOT NULL AND minAge <= 6) OR (minAge IS NULL AND ` +
-      `genres && '{Family,Animation}' AND NOT (genres && '{Horror,Crime,Thriller,War}')))`);
+    // Missing age is never "safe": known watch age <= 6, and no contradicting
+    // certificate (12/15/PG-13/TV-14/M18...). Same rule as gate.ts.
+    clauses.push(`(minAge IS NOT NULL AND minAge <= 6 AND ` +
+      `(certificate IS NULL OR btrim(certificate) = '' OR upper(btrim(certificate)) = ANY(${next([...FAMILY_CERTS, 'N/A', 'NOT RATED', 'UNRATED'])})))`);
   } else if (!f.matureAllowed) {
     // Non-family: block adult-only content. The cap is 16 — except when the
     // viewer EXPLICITLY named language(s) (e.g. "Kannada movie"): then the
@@ -215,6 +225,9 @@ interface Filterable {
   year: number;
   rating: number;
   minAge?: number | null;
+  voteCount?: number;
+  popularity?: number;
+  certificate?: string;
   /** Media kind; absent means 'movie' (file/catalog fallbacks). */
   type?: string;
   seasons?: number;
@@ -234,10 +247,13 @@ export function matchesFilters(m: Filterable, f: DbFilters): boolean {
   if (f.yearMin !== null && !(m.year >= f.yearMin)) return false;
   if (f.yearMax !== null && !(m.year <= f.yearMax)) return false;
   if (f.ratingFloor !== null && !(m.rating >= f.ratingFloor)) return false;
+  if (f.votesMin != null && !((m.voteCount ?? 0) >= f.votesMin)) return false;
+  if (f.votesMax != null && !((m.voteCount ?? 0) <= f.votesMax)) return false;
+  if (f.popularityMax != null && !(typeof m.popularity === 'number' && m.popularity > 0 && m.popularity <= f.popularityMax)) return false;
   if (f.audience === 'Family with kids') {
-    if (typeof m.minAge === 'number') { if (m.minAge > 6) return false; }
-    else if (!(m.genres.includes('Family') || m.genres.includes('Animation')) ||
-      m.genres.some((g) => ['Horror', 'Crime', 'Thriller', 'War'].includes(g))) return false;
+    if (!(typeof m.minAge === 'number' && m.minAge <= 6)) return false;
+    const c = normalizeCert((m as { certificate?: string }).certificate);
+    if (c !== '' && !FAMILY_CERTS.has(c)) return false;
   } else if (!f.matureAllowed) {
     if (typeof m.minAge === 'number') {
       // Explicit-language asks trust the viewer's catalog request (see SQL twin).
